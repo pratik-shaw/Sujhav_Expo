@@ -264,27 +264,6 @@ const IntroScreen: React.FC<IntroScreenProps> = ({ navigation }) => {
   };
 
   // Premium styled text renderer for SUJHAV acronym
-  const renderPremiumAcronym = () => {
-    const words = [
-      { letter: 'S', word: 'ynchronize your' },
-      { letter: 'U', word: 'nderstanding, do' },
-      { letter: 'J', word: 'ustice to your' },
-      { letter: 'H', word: 'ardwork and let others' },
-      { letter: 'A', word: 'dmire your' },
-      { letter: 'V', word: 'ictory!' },
-    ];
-
-    return (
-      <View style={styles.acronymContainer}>
-        {words.map((item, index) => (
-          <View key={index} style={styles.acronymLine}>
-            <Text style={styles.acronymLetter}>{item.letter}</Text>
-            <Text style={styles.acronymWord}>{item.word}</Text>
-          </View>
-        ))}
-      </View>
-    );
-  };
 
   // Render splash screen
   if (showSplash) {
@@ -365,7 +344,6 @@ const IntroScreen: React.FC<IntroScreenProps> = ({ navigation }) => {
               }
             ]}
           >
-            {renderPremiumAcronym()}
           </Animated.View>
 
           {/* Subtitle - Hidden as requested */}
@@ -493,16 +471,6 @@ const IntroScreen: React.FC<IntroScreenProps> = ({ navigation }) => {
             </Text>
           </TouchableOpacity>
         </Animated.View>
-      </Animated.View>
-
-      {/* Bottom Accent */}
-      <Animated.View 
-        style={[
-          styles.bottomAccent,
-          { opacity: contentOpacity }
-        ]}
-      >
-        <View style={[styles.accentLine, { backgroundColor: BRAND.primaryColor }]} />
       </Animated.View>
     </SafeAreaView>
   );

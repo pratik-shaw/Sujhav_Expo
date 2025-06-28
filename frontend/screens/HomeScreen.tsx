@@ -232,16 +232,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </Text>
         </Animated.View>
       </View>
-
-      {/* Bottom Accent */}
-      <Animated.View 
-        style={[
-          styles.bottomAccent,
-          { opacity: fadeAnim }
-        ]}
-      >
-        <View style={[styles.accentLine, { backgroundColor: BRAND.primaryColor }]} />
-      </Animated.View>
     </SafeAreaView>
   );
 };
