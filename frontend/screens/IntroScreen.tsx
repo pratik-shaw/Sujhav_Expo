@@ -677,7 +677,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '900',
     color: '#ffffff',
-    letterSpacing: 4,
+    letterSpacing: 2,
     textAlign: 'center',
     textShadowColor: BRAND.primaryColor,
     textShadowOffset: { width: 0, height: 0 },

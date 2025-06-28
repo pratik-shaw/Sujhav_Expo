@@ -10,6 +10,7 @@ import {
   Image
 } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
+import BottomNavigation from '../components/BottomNavigation';
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
@@ -171,67 +172,73 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         <Text style={styles.brandTitle}>{BRAND.name}</Text>
       </Animated.View>
 
-      {/* Main Content */}
-      <View style={styles.mainContent}>
-        {/* Welcome Section */}
-        <Animated.View
-          style={[
-            styles.welcomeSection,
-            {
-              opacity: welcomeOpacity,
-              transform: [{ translateY: welcomeTranslateY }],
-            },
-          ]}
-        >
-          {/* Animated Logo */}
+      {/* Main Content Container */}
+      <View style={styles.contentContainer}>
+        {/* Main Content */}
+        <View style={styles.mainContent}>
+          {/* Welcome Section */}
           <Animated.View
             style={[
-              styles.logoContainer,
+              styles.welcomeSection,
               {
-                opacity: logoOpacity,
-                transform: [
-                  { scale: Animated.multiply(logoScale, pulseScale) }
-                ],
+                opacity: welcomeOpacity,
+                transform: [{ translateY: welcomeTranslateY }],
               },
             ]}
           >
+            {/* Animated Logo */}
             <Animated.View
               style={[
-                styles.logoGlow,
-                { opacity: Animated.multiply(glowOpacity, 0.5) }
+                styles.logoContainer,
+                {
+                  opacity: logoOpacity,
+                  transform: [
+                    { scale: Animated.multiply(logoScale, pulseScale) }
+                  ],
+                },
               ]}
-            />
-            <View>
-              <Image
-                source={require('../assets/images/logo-sujhav.png')}
-                style={styles.headerLogoImage}
-                resizeMode="contain"
-            />
-            </View>
+            >
+              <Animated.View
+                style={[
+                  styles.logoGlow,
+                  { opacity: Animated.multiply(glowOpacity, 0.5) }
+                ]}
+              />
+              <View>
+                <Image
+                  source={require('../assets/images/logo-sujhav.png')}
+                  style={styles.headerLogoImage}
+                  resizeMode="contain"
+                />
+              </View>
+            </Animated.View>
+
+            {/* Welcome Message */}
+            <Text style={styles.welcomeTitle}>Welcome to Home Screen</Text>
+            <Text style={styles.welcomeSubtitle}>
+              Your learning journey continues here
+            </Text>
           </Animated.View>
 
-          {/* Welcome Message */}
-          <Text style={styles.welcomeTitle}>Welcome to Home Screen</Text>
-          <Text style={styles.welcomeSubtitle}>
-            Your learning journey continues here
-          </Text>
-        </Animated.View>
-
-        {/* Content Placeholder */}
-        <Animated.View
-          style={[
-            styles.contentPlaceholder,
-            { opacity: fadeAnim }
-          ]}
-        >
-          <Text style={styles.placeholderText}>
-            Ready for your educational excellence
-          </Text>
-          <Text style={styles.placeholderSubtext}>
-            More features will be added when the backend is integrated
-          </Text>
-        </Animated.View>
+          {/* Content Placeholder */}
+          <Animated.View
+            style={[
+              styles.contentPlaceholder,
+              { opacity: fadeAnim }
+            ]}
+          >
+            <Text style={styles.placeholderText}>
+              Ready for your educational excellence
+            </Text>
+            <Text style={styles.placeholderSubtext}>
+              More features will be added when the backend is integrated
+            </Text>
+          </Animated.View>
+        </View>
       </View>
+
+      {/* Bottom Navigation */}
+      <BottomNavigation navigation={navigation} activeTab="home" />
     </SafeAreaView>
   );
 };
@@ -281,6 +288,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
     backgroundColor: 'rgba(10, 26, 10, 0.95)', // Semi-transparent background
+    zIndex: 10,
   },
   brandTitle: {
     fontSize: 24,
@@ -291,6 +299,12 @@ const styles = StyleSheet.create({
     textShadowColor: BRAND.primaryColor,
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 8,
+  },
+
+  // Content Container (to account for bottom navigation)
+  contentContainer: {
+    flex: 1,
+    paddingBottom: 90, // Space for bottom navigation
   },
 
   // Main Content
@@ -367,21 +381,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     letterSpacing: 0.2,
     fontStyle: 'italic',
-  },
-
-  // Bottom Accent
-  bottomAccent: {
-    position: 'absolute',
-    bottom: 20,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  accentLine: {
-    width: '50%',
-    height: 2,
-    borderRadius: 1,
-    opacity: 0.6,
   },
   headerLogoImage: {
     width: 85,

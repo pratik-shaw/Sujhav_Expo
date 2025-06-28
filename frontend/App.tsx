@@ -3,11 +3,17 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import IntroScreen from './screens/IntroScreen';
 import HomeScreen from './screens/HomeScreen';
+import UserProfileScreen from './screens/UserProfileScreen';
+import SignInScreen from './screens/SignInScreen';
+import SignUpScreen from './screens/SignUpScreen';
 // import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type RootStackParamList = {
   Intro: undefined;
   Home: undefined;
+  UserProfile: undefined; // Add UserProfile screen to the stack
+  SignIn: undefined; // Add SignIn screen to the stack
+  SignUp: undefined; // Add SignUp screen to the stack
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -73,6 +79,28 @@ export default function App() {
           options={{
             gestureEnabled: false, // Disable swipe back gesture
           }}
+        />
+        <Stack.Screen 
+          name="UserProfile" 
+          component={UserProfileScreen}
+          options={{
+            gestureEnabled: false, // Disable swipe back gesture
+          }}
+        />
+        <Stack.Screen 
+          name="SignIn" 
+          component={SignInScreen}
+          options={{
+            gestureEnabled: false, // Disable swipe back gesture
+          }}
+        />
+        <Stack.Screen 
+          name="SignUp" 
+          component={SignUpScreen}
+          options={{
+            gestureEnabled: false, // Disable swipe back gesture
+          }}
+          
         />
       </Stack.Navigator>
     </NavigationContainer>
