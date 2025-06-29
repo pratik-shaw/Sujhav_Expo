@@ -10,9 +10,17 @@ import {
   Image,
   TouchableOpacity,
   ScrollView,
+  Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import axios from 'axios';
+import { Feather, FontAwesome5, Ionicons, MaterialIcons } from '@expo/vector-icons';
+
+import { API_BASE_URL, API_TIMEOUT } from '../config/api';
 import BottomNavigation from '../components/BottomNavigation';
 import SignupLoginBanner from '../components/SignupLoginBanner';
 
@@ -29,6 +37,10 @@ interface UserData {
   totalCourses: number;
   completedCourses: number;
   achievements: number;
+  role: string;
+  phone?: string;
+  bio?: string;
+  lastActive?: string;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -43,11 +55,57 @@ const BRAND = {
   accentColor: '#1a2e1a',
 };
 
+// Simplified API Configuration - removed unnecessary endpoints
+const API_CONFIG = {
+  baseURL: API_BASE_URL || 'http://localhost:3000/api',
+  timeout: API_TIMEOUT || 15000,
+  endpoints: {
+    currentUser: '/auth/current-user',
+  }
+};
+
+// Create an axios instance with timeout configuration
+const apiClient = axios.create({
+  baseURL: API_CONFIG.baseURL,
+  timeout: API_CONFIG.timeout,
+});
+
+// Add request interceptor to include auth token
+apiClient.interceptors.request.use(
+  async (config) => {
+    const token = await AsyncStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor to handle token expiration
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      // Token expired or invalid
+      await AsyncStorage.multiRemove(['authToken', 'userData']);
+      // Don't navigate here, let the component handle it
+    }
+    return Promise.reject(error);
+  }
+);
+
 const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => {
   // State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [showBanner, setShowBanner] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isConnected, setIsConnected] = useState(true);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -59,7 +117,18 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
   const pulseScale = useRef(new Animated.Value(1)).current;
   const buttonScale = useRef(new Animated.Value(0.8)).current;
 
-  // Check authentication status
+  // Check network connectivity
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      setIsConnected(state.isConnected ?? false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Check authentication status and load user data
   useEffect(() => {
     checkAuthStatus();
   }, []);
@@ -72,15 +141,30 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
     }
   }, [isLoggedIn]);
 
+  // Auto-refresh data when screen is focused
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (isLoggedIn) {
+        refreshUserData();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, isLoggedIn]);
+
   const checkAuthStatus = async () => {
     try {
+      setIsLoading(true);
       const token = await AsyncStorage.getItem('authToken');
       const userDataString = await AsyncStorage.getItem('userData');
       
       if (token && userDataString) {
-        const user = JSON.parse(userDataString);
-        setUserData(user);
+        const cachedUser = JSON.parse(userDataString);
+        setUserData(cachedUser);
         setIsLoggedIn(true);
+        
+        // Verify token with backend and fetch fresh data
+        await fetchUserProfile();
       } else {
         setIsLoggedIn(false);
         setShowBanner(true);
@@ -89,6 +173,89 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
       console.error('Error checking auth status:', error);
       setIsLoggedIn(false);
       setShowBanner(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await apiClient.get(API_CONFIG.endpoints.currentUser);
+      
+      if (response.data && response.data.user) {
+        const updatedUser: UserData = {
+          id: response.data.user.id,
+          name: response.data.user.name,
+          email: response.data.user.email,
+          avatar: response.data.user.avatar,
+          role: response.data.user.role,
+          phone: response.data.user.phone,
+          bio: response.data.user.bio,
+          joinedDate: response.data.user.joinedDate || 
+            new Date(response.data.user.createdAt).toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'long' 
+            }),
+          totalCourses: response.data.user.totalCourses || 0,
+          completedCourses: response.data.user.completedCourses || 0,
+          achievements: response.data.user.achievements || 0,
+          lastActive: new Date().toISOString(),
+        };
+
+        // Update stored user data
+        await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+        setUserData(updatedUser);
+        setLastSyncTime(new Date().toLocaleTimeString());
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      await handleAuthError(error);
+    }
+  };
+
+  const refreshUserData = async () => {
+    if (!isConnected) {
+      Alert.alert(
+        "Offline",
+        "You're currently offline. Connect to the internet to refresh your profile."
+      );
+      return;
+    }
+
+    setIsRefreshing(true);
+    try {
+      await fetchUserProfile();
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleAuthError = async (error: any) => {
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 401) {
+        // Token expired or invalid
+        await AsyncStorage.multiRemove(['authToken', 'userData']);
+        setIsLoggedIn(false);
+        setUserData(null);
+        setShowBanner(true);
+        Alert.alert(
+          "Session Expired",
+          "Your session has expired. Please sign in again.",
+          [{ text: "OK" }]
+        );
+        return;
+      }
+    }
+    
+    // Handle other errors
+    if (!isConnected) {
+      Alert.alert(
+        "Network Error",
+        "You appear to be offline. Please check your internet connection."
+      );
+      return;
     }
   };
 
@@ -168,15 +335,56 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
   };
 
   const handleLogout = async () => {
-    try {
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('userData');
-      setIsLoggedIn(false);
-      setUserData(null);
-      setShowBanner(true);
-    } catch (error) {
-      console.error('Error during logout:', error);
-    }
+    Alert.alert(
+      "Sign Out",
+      "Are you sure you want to sign out?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Sign Out", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              
+              // Clear local storage
+              await AsyncStorage.multiRemove(['authToken', 'userData']);
+              setIsLoggedIn(false);
+              setUserData(null);
+              setShowBanner(true);
+              
+              // Navigate to home or login screen
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Home' }],
+              });
+              
+            } catch (error) {
+              console.error('Error during logout:', error);
+              Alert.alert("Error", "Failed to sign out. Please try again.");
+            } finally {
+              setIsLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleEditProfile = () => {
+    navigation.navigate('EditProfile', { userData });
+  };
+
+  const handleSettings = () => {
+    navigation.navigate('Settings');
+  };
+
+  const handleNotifications = () => {
+    navigation.navigate('Notifications');
+  };
+
+  const handleHelpSupport = () => {
+    navigation.navigate('HelpSupport');
   };
 
   const handleBannerClose = () => {
@@ -184,12 +392,52 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
   };
 
   const handleSignInPress = () => {
-    // Navigate to login screen or show login modal
-    navigation.navigate('SignIn'); // Adjust navigation route as needed
+    navigation.navigate('SignIn');
   };
 
+  const renderStatsCard = (
+    title: string,
+    value: number,
+    icon: keyof typeof MaterialIcons.glyphMap,
+    color: string
+  ) => (
+    <View style={[styles.statItem, { borderColor: color }]}>
+      <View style={[styles.statIconContainer, { backgroundColor: color + '20' }]}>
+        <MaterialIcons name={icon} size={20} color={color} />
+      </View>
+      <Text style={styles.statNumber}>{value}</Text>
+      <Text style={styles.statLabel}>{title}</Text>
+    </View>
+  );
+
   const renderAuthenticatedProfile = () => (
-    <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView 
+      style={styles.scrollContainer} 
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={refreshUserData}
+          colors={[BRAND.primaryColor]}
+          tintColor={BRAND.primaryColor}
+          title="Pull to refresh"
+          titleColor={BRAND.primaryColor}
+        />
+      }
+    >
+      {/* Connection Status */}
+      {!isConnected && (
+        <View style={styles.statusIndicator}>
+          <Ionicons name="cloud-offline" size={14} color="#ff6b6b" />
+          <Text style={styles.statusText}>Offline</Text>
+        </View>
+      )}
+
+      {/* Last Sync Time */}
+      {lastSyncTime && (
+        <Text style={styles.lastSyncText}>Last updated: {lastSyncTime}</Text>
+      )}
+
       {/* Profile Header */}
       <Animated.View
         style={[
@@ -202,14 +450,9 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
           },
         ]}
       >
-        <Animated.View
-          style={[
-            styles.avatarGlow,
-            { opacity: Animated.multiply(glowOpacity, 0.6) }
-          ]}
-        />
+        <Animated.View/>
         
-        <View style={styles.avatarContainer}>
+        <TouchableOpacity style={styles.avatarContainer} onPress={handleEditProfile}>
           {userData?.avatar ? (
             <Image source={{ uri: userData.avatar }} style={styles.avatar} />
           ) : (
@@ -219,71 +462,85 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
               </Text>
             </View>
           )}
-        </View>
+          <View style={styles.editAvatarBadge}>
+            <Feather name="camera" size={10} color={BRAND.backgroundColor} />
+          </View>
+        </TouchableOpacity>
         
         <Text style={styles.userName}>{userData?.name || 'User'}</Text>
         <Text style={styles.userEmail}>{userData?.email || 'user@example.com'}</Text>
         <Text style={styles.joinedDate}>
           Joined {userData?.joinedDate || 'Recently'}
         </Text>
+        {userData?.role && (
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleText}>{userData.role.toUpperCase()}</Text>
+          </View>
+        )}
       </Animated.View>
 
       {/* Stats Section */}
-      <Animated.View
-        style={[
-          styles.statsContainer,
-          { opacity: fadeAnim }
-        ]}
-      >
+      <Animated.View style={[styles.statsContainer, { opacity: fadeAnim }]}>
+        <Text style={styles.sectionTitle}>Your Progress</Text>
         <View style={styles.statsGrid}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{userData?.totalCourses || 0}</Text>
-            <Text style={styles.statLabel}>Total Courses</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{userData?.completedCourses || 0}</Text>
-            <Text style={styles.statLabel}>Completed</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{userData?.achievements || 0}</Text>
-            <Text style={styles.statLabel}>Achievements</Text>
-          </View>
+          {renderStatsCard("Courses", userData?.totalCourses || 0, "school", BRAND.primaryColor)}
+          {renderStatsCard("Completed", userData?.completedCourses || 0, "check-circle", "#4CAF50")}
+          {renderStatsCard("Achievements", userData?.achievements || 0, "emoji-events", "#FF9800")}
         </View>
       </Animated.View>
 
       {/* Profile Options */}
-      <Animated.View
-        style={[
-          styles.optionsContainer,
-          { opacity: fadeAnim }
-        ]}
-      >
-        <TouchableOpacity style={styles.optionItem}>
-          <Text style={styles.optionText}>Edit Profile</Text>
-          <Text style={styles.optionArrow}>›</Text>
+      <Animated.View style={[styles.optionsContainer, { opacity: fadeAnim }]}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        
+        <TouchableOpacity style={styles.optionItem} onPress={handleEditProfile}>
+          <View style={styles.optionLeft}>
+            <MaterialIcons name="edit" size={18} color={BRAND.primaryColor} />
+            <Text style={styles.optionText}>    Edit Profile</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color="#cccccc" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.optionItem}>
-          <Text style={styles.optionText}>Settings</Text>
-          <Text style={styles.optionArrow}>›</Text>
+        <TouchableOpacity style={styles.optionItem} onPress={handleSettings}>
+          <View style={styles.optionLeft}>
+            <MaterialIcons name="settings" size={18} color={BRAND.primaryColor} />
+            <Text style={styles.optionText}>    Settings</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color="#cccccc" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.optionItem}>
-          <Text style={styles.optionText}>Notifications</Text>
-          <Text style={styles.optionArrow}>›</Text>
+        <TouchableOpacity style={styles.optionItem} onPress={handleNotifications}>
+          <View style={styles.optionLeft}>
+            <MaterialIcons name="notifications" size={18} color={BRAND.primaryColor} />
+            <Text style={styles.optionText}>    Notifications</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color="#cccccc" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.optionItem}>
-          <Text style={styles.optionText}>Help & Support</Text>
-          <Text style={styles.optionArrow}>›</Text>
+        <TouchableOpacity style={styles.optionItem} onPress={handleHelpSupport}>
+          <View style={styles.optionLeft}>
+            <MaterialIcons name="help" size={18} color={BRAND.primaryColor} />
+            <Text style={styles.optionText}>    Help & Support</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color="#cccccc" />
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.optionItem, styles.logoutOption]}
           onPress={handleLogout}
+          disabled={isLoading}
         >
-          <Text style={[styles.optionText, styles.logoutText]}>Logout</Text>
-          <Text style={[styles.optionArrow, styles.logoutText]}>›</Text>
+          <View style={styles.optionLeft}>
+            <MaterialIcons name="logout" size={18} color="#ff6b6b" />
+            <Text style={[styles.optionText, styles.logoutText]}>
+              {isLoading ? "Signing out..." : "Sign Out"}
+            </Text>
+          </View>
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#ff6b6b" />
+          ) : (
+            <MaterialIcons name="chevron-right" size={20} color="#ff6b6b" />
+          )}
         </TouchableOpacity>
       </Animated.View>
     </ScrollView>
@@ -326,7 +583,7 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
 
         <Text style={styles.welcomeTitle}>Welcome to {BRAND.name}</Text>
         <Text style={styles.welcomeSubtitle}>
-          Sign in to access your personalized learning dashboard
+          Sign in to access your personalized learning dashboard and track your progress
         </Text>
       </Animated.View>
 
@@ -345,18 +602,26 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
           onPress={handleSignInPress}
           activeOpacity={0.8}
         >
+          <Animated.View
+            style={[
+              styles.buttonGlow,
+              { opacity: Animated.multiply(glowOpacity, 0.6) }
+            ]}
+          />
           <Text style={styles.signInButtonText}>Sign in to continue</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
   );
 
-  if (isLoggedIn === null) {
+  // Loading state
+  if (isLoggedIn === null || isLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
+          <ActivityIndicator size="large" color={BRAND.primaryColor} />
+          <Text style={styles.loadingText}>Loading your profile...</Text>
         </View>
       </SafeAreaView>
     );
@@ -404,6 +669,11 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
         <Text style={styles.brandTitle}>
           {isLoggedIn ? 'Profile' : 'Join ' + BRAND.name}
         </Text>
+        {isLoggedIn && !isConnected && (
+          <View style={styles.connectionStatus}>
+            <Ionicons name="cloud-offline" size={16} color="#ff6b6b" />
+          </View>
+        )}
       </Animated.View>
 
       {/* Content Container */}
@@ -507,14 +777,6 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     paddingHorizontal: 20,
     position: 'relative',
-  },
-  avatarGlow: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: 'rgba(0, 255, 136, 0.3)',
-    top: 40,
   },
   avatarContainer: {
     marginBottom: 20,
@@ -693,6 +955,159 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+   offlineIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+  },
+  offlineText: {
+    color: '#ff6b6b',
+    fontSize: 12,
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  lastSyncText: {
+    textAlign: 'center',
+    color: '#aaaaaa',
+    fontSize: 12,
+    marginTop: 10,
+    marginBottom: 5,
+    fontStyle: 'italic',
+  },
+  connectionStatus: {
+    position: 'absolute',
+    right: 20,
+    top: 20,
+  },
+
+  // Avatar edit badge
+  editAvatarBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: BRAND.primaryColor,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: BRAND.backgroundColor,
+  },
+
+  // Role badge
+  roleBadge: {
+    backgroundColor: 'rgba(0, 255, 136, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: BRAND.primaryColor,
+  },
+  roleText: {
+    color: BRAND.primaryColor,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+
+  // Section titles
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 20,
+    letterSpacing: 0.5,
+  },
+
+  // Enhanced stats
+  statIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  additionalStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  additionalStatItem: {
+    alignItems: 'center',
+  },
+  additionalStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: BRAND.primaryColor,
+    marginBottom: 4,
+  },
+  additionalStatLabel: {
+    fontSize: 11,
+    color: '#cccccc',
+    textAlign: 'center',
+  },
+
+  // Option items
+  optionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  // Delete account option
+  deleteOption: {
+    borderColor: 'rgba(255, 68, 68, 0.3)',
+    marginTop: 10,
+  },
+  deleteText: {
+    color: '#ff4444',
+  },
+
+  // Button glow effect
+  buttonGlow: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 255, 136, 0.3)',
+  },
+
+  // Additional missing styles that might be referenced
+  optionIcon: {
+    marginRight: 15,
+  },
+  statusIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+  },
+  statusText: {
+    color: '#ff6b6b',
+    fontSize: 12,
+    marginLeft: 8,
+    fontWeight: '500',
   },
 });
 

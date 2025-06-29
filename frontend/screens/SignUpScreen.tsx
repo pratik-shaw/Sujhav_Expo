@@ -14,9 +14,14 @@ import {
   Platform,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import axios from 'axios';
+import { Feather, FontAwesome5, Ionicons } from '@expo/vector-icons';
+import { API_BASE_URL, API_TIMEOUT } from '../config/api';
 
 interface SignUpScreenProps {
   navigation: NavigationProp<any>;
@@ -34,17 +39,43 @@ const BRAND = {
   accentColor: '#1a2e1a',
 };
 
+// API Configuration with timeout
+const API_CONFIG = {
+  baseURL: 'http://localhost:3000/api', // Replace with your actual backend URL
+  timeout: 15000, // 15 seconds timeout
+  endpoints: {
+    register: '/auth/register',
+    login: '/auth/login',
+    currentUser: '/auth/current-user',
+  }
+};
+
+// Create an axios instance with timeout configuration
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: API_TIMEOUT,
+});
+
 const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
-  // State
+  // State for form inputs
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
+  
+  // Loading and network state
+  const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(true);
+  const [focusedInput, setFocusedInput] = useState<string | null>(null);
+
+  // Refs for input fields (for focus management)
+  const fullNameRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmPasswordRef = useRef<TextInput>(null);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -55,6 +86,17 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
   const glowOpacity = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
   const buttonScale = useRef(new Animated.Value(0.8)).current;
+
+  // Check network connectivity
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state: { isConnected: any; }) => {
+      setIsConnected(state.isConnected ?? false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   // Handle entrance animations
   useEffect(() => {
@@ -135,100 +177,233 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
     pulse();
   };
 
+  // Form validation
+  const isFormValid = () => {
+    if (!fullName || !email || !password || !confirmPassword) return false;
+    if (password !== confirmPassword) return false;
+    if (!agreeToTerms) return false;
+    if (!isEmailValid()) return false;
+    if (!isPasswordValid()) return false;
+    return true;
+  };
+
+  // Password validation check
+  const isPasswordValid = () => {
+    return password.length >= 6;
+  };
+
+  // Email validation check
+  const isEmailValid = () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Show detailed error if API call fails
+  const handleApiError = (error: any) => {
+    console.error("Signup error:", error);
+    
+    if (!isConnected) {
+      Alert.alert(
+        "Network Error", 
+        "You appear to be offline. Please check your internet connection and try again."
+      );
+      return;
+    }
+    
+    if (axios.isAxiosError(error)) {
+      if (error.code === 'ECONNABORTED') {
+        Alert.alert(
+          "Connection Timeout", 
+          "The server took too long to respond. Please check your API URL and try again. Make sure your server is running at " + API_CONFIG.baseURL
+        );
+      } else if (error.response) {
+        // Server responded with error status code
+        const errorMessage = error.response.data?.message || `Server error (${error.response.status}). Please try again.`;
+        if (error.response.status === 409 || errorMessage.includes('already exists')) {
+          Alert.alert(
+            "Account Exists", 
+            "An account with this email already exists. Please use a different email or try signing in."
+          );
+        } else {
+          Alert.alert("Registration Failed", errorMessage);
+        }
+      } else if (error.request) {
+        // Request made but no response received
+        Alert.alert(
+          "Server Unreachable", 
+          `Could not reach the server at ${API_CONFIG.baseURL}. Please verify the API URL is correct and the server is running.`
+        );
+      } else {
+        Alert.alert(
+          "Request Error", 
+          "An error occurred while setting up the request. Please try again."
+        );
+      }
+    } else {
+      Alert.alert(
+        "Unknown Error", 
+        "An unexpected error occurred. Please try again later."
+      );
+    }
+  };
+
+  // Clear AsyncStorage for debugging if needed
+  const clearStorageAndRetry = async () => {
+    try {
+      await AsyncStorage.multiRemove(['authToken', 'userData']);
+      console.log('AsyncStorage cleared');
+      Alert.alert('Storage Cleared', 'Please try again');
+    } catch (error) {
+      console.error('Error clearing storage:', error);
+    }
+  };
+
+  // API call function for user registration
+  const registerUserAPI = async (userData: {
+    name: string;
+    email: string;
+    password: string;
+  }) => {
+    try {
+      const response = await apiClient.post(API_CONFIG.endpoints.register, userData);
+      return response.data;
+    } catch (error) {
+      console.error('Registration API Error:', error);
+      throw error;
+    }
+  };
+
+  // Login user automatically after successful registration
+  const loginUserAPI = async (credentials: {
+    email: string;
+    password: string;
+  }) => {
+    try {
+      const response = await apiClient.post(API_CONFIG.endpoints.login, credentials);
+      return response.data;
+    } catch (error) {
+      console.error('Login API Error:', error);
+      throw error;
+    }
+  };
+
   const handleSignUp = async () => {
-    // Validation
-    if (!fullName.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+    if (!isFormValid()) {
+      let errorMessage = "Please fill all required fields";
+      
+      if (!isEmailValid()) {
+        errorMessage = "Please enter a valid email address";
+      } else if (!isPasswordValid()) {
+        errorMessage = "Password must be at least 6 characters long";
+      } else if (password !== confirmPassword) {
+        errorMessage = "Passwords do not match";
+      } else if (!agreeToTerms) {
+        errorMessage = "You must accept the Terms of Service";
+      }
+      
+      Alert.alert("Error", errorMessage);
       return;
     }
 
-    if (fullName.trim().length < 2) {
-      Alert.alert('Error', 'Please enter a valid full name');
-      return;
-    }
-
-    if (!isValidEmail(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters long');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-
-    if (!agreeToTerms) {
-      Alert.alert('Error', 'Please agree to the Terms of Service and Privacy Policy');
+    if (!isConnected) {
+      Alert.alert("Network Error", "You appear to be offline. Please check your internet connection and try again.");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      console.log('Attempting registration with:', { fullName, email });
 
-      // Mock successful registration
-      const mockUserData = {
-        id: Date.now().toString(),
+      // Register user
+      const registrationData = {
         name: fullName.trim(),
-        email: email.toLowerCase(),
-        joinedDate: new Date().toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long' 
-        }),
-        totalCourses: 0,
-        completedCourses: 0,
-        achievements: 0,
+        email: email.toLowerCase().trim(),
+        password: password,
       };
 
-      await AsyncStorage.setItem('authToken', 'mock_token_' + Date.now());
-      await AsyncStorage.setItem('userData', JSON.stringify(mockUserData));
+      const registrationResponse = await registerUserAPI(registrationData);
+      console.log('Registration successful:', registrationResponse);
 
-      Alert.alert(
-        'Success!',
-        'Your account has been created successfully. Welcome to SUJHAV!',
-        [
-          {
-            text: 'Continue',
-            onPress: () => {
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Main' }],
-              });
+      // Auto-login after successful registration
+      const loginCredentials = {
+        email: email.toLowerCase().trim(),
+        password: password,
+      };
+
+      const loginResponse = await loginUserAPI(loginCredentials);
+      console.log('Auto-login successful:', loginResponse);
+
+      // Store auth token and user data
+      if (loginResponse && loginResponse.token) {
+        try {
+          // Clear any existing data first
+          await AsyncStorage.multiRemove(['authToken', 'userData']);
+          
+          // Save the token
+          await AsyncStorage.setItem('authToken', loginResponse.token);
+          console.log('Token saved to AsyncStorage');
+          
+          // Create user data object for local storage
+          const userData = {
+            id: loginResponse.user.id,
+            name: loginResponse.user.name,
+            email: loginResponse.user.email,
+            role: loginResponse.user.role,
+            joinedDate: new Date().toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'long' 
+            }),
+            totalCourses: 0,
+            completedCourses: 0,
+            achievements: 0,
+          };
+
+          await AsyncStorage.setItem('userData', JSON.stringify(userData));
+          console.log('User data saved to AsyncStorage');
+
+          // Navigate directly to UserProfile without alert
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'UserProfile' }],
+          });
+
+        } catch (storageError) {
+          console.error('Error saving auth data:', storageError);
+          Alert.alert(
+            "Storage Error", 
+            "Failed to save login information. You can still log in with your new account.",
+            [
+              { text: "OK", onPress: () => navigation.navigate('SignIn') },
+              { text: "Clear Storage & Retry", onPress: clearStorageAndRetry }
+            ]
+          );
+        }
+      } else {
+        // Even if no token is returned, the account might have been created
+        console.log('Registration successful, but no token returned');
+        Alert.alert(
+          "Success", 
+          "Account created successfully. Please login with your new credentials.",
+          [
+            { 
+              text: "OK", 
+              onPress: () => navigation.navigate('SignIn') 
             }
-          }
-        ]
-      );
+          ]
+        );
+      }
     } catch (error) {
-      Alert.alert('Error', 'Sign up failed. Please try again.');
+      handleApiError(error);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const isValidEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
   };
 
   const handleTermsPress = () => {
     Alert.alert(
       'Terms of Service',
       'Terms of Service and Privacy Policy will be available soon.',
-      [{ text: 'OK' }]
-    );
-  };
-
-  const handleSocialSignUp = (provider: string) => {
-    Alert.alert(
-      'Social Sign Up',
-      `${provider} sign up will be implemented soon.`,
       [{ text: 'OK' }]
     );
   };
@@ -274,9 +449,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
           {/* Back Button */}
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.navigate('UserProfile')}
+            onPress={() => navigation.goBack()}
           >
-            <Text style={styles.backButtonText}>←</Text>
+            <Ionicons name="arrow-back" size={24} color={BRAND.primaryColor} />
           </TouchableOpacity>
 
           {/* Logo Section */}
@@ -334,7 +509,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                 styles.inputWrapper,
                 focusedInput === 'fullName' && styles.inputWrapperFocused
               ]}>
+                <FontAwesome5 name="user" size={16} color="#666666" style={styles.inputIcon} />
                 <TextInput
+                  ref={fullNameRef}
                   style={styles.textInput}
                   value={fullName}
                   onChangeText={setFullName}
@@ -344,6 +521,10 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                   autoCorrect={false}
                   onFocus={() => setFocusedInput('fullName')}
                   onBlur={() => setFocusedInput(null)}
+                  onSubmitEditing={() => emailRef.current?.focus()}
+                  returnKeyType="next"
+                  editable={!isLoading}
+                  autoComplete="name"
                 />
               </View>
             </View>
@@ -355,7 +536,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                 styles.inputWrapper,
                 focusedInput === 'email' && styles.inputWrapperFocused
               ]}>
+                <FontAwesome5 name="envelope" size={16} color="#666666" style={styles.inputIcon} />
                 <TextInput
+                  ref={emailRef}
                   style={styles.textInput}
                   value={email}
                   onChangeText={setEmail}
@@ -366,6 +549,11 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                   autoCorrect={false}
                   onFocus={() => setFocusedInput('email')}
                   onBlur={() => setFocusedInput(null)}
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  returnKeyType="next"
+                  editable={!isLoading}
+                  autoComplete="email"
+                  textContentType="emailAddress"
                 />
               </View>
             </View>
@@ -377,7 +565,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                 styles.inputWrapper,
                 focusedInput === 'password' && styles.inputWrapperFocused
               ]}>
+                <FontAwesome5 name="lock" size={16} color="#666666" style={styles.inputIcon} />
                 <TextInput
+                  ref={passwordRef}
                   style={[styles.textInput, styles.passwordInput]}
                   value={password}
                   onChangeText={setPassword}
@@ -386,14 +576,18 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                   secureTextEntry={!showPassword}
                   onFocus={() => setFocusedInput('password')}
                   onBlur={() => setFocusedInput(null)}
+                  onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+                  returnKeyType="next"
+                  editable={!isLoading}
+                  autoComplete="off"
+                  textContentType="oneTimeCode"
                 />
                 <TouchableOpacity
                   style={styles.passwordToggle}
                   onPress={() => setShowPassword(!showPassword)}
+                  disabled={isLoading}
                 >
-                  <Text style={styles.passwordToggleText}>
-                    {showPassword ? '👁️' : '👁️‍🗨️'}
-                  </Text>
+                  <Feather name={showPassword ? "eye" : "eye-off"} size={18} color="#666666" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -405,7 +599,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                 styles.inputWrapper,
                 focusedInput === 'confirmPassword' && styles.inputWrapperFocused
               ]}>
+                <FontAwesome5 name="lock" size={16} color="#666666" style={styles.inputIcon} />
                 <TextInput
+                  ref={confirmPasswordRef}
                   style={[styles.textInput, styles.passwordInput]}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
@@ -414,14 +610,17 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                   secureTextEntry={!showConfirmPassword}
                   onFocus={() => setFocusedInput('confirmPassword')}
                   onBlur={() => setFocusedInput(null)}
+                  returnKeyType="done"
+                  editable={!isLoading}
+                  autoComplete="off"
+                  textContentType="oneTimeCode"
                 />
                 <TouchableOpacity
                   style={styles.passwordToggle}
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  disabled={isLoading}
                 >
-                  <Text style={styles.passwordToggleText}>
-                    {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
-                  </Text>
+                  <Feather name={showConfirmPassword ? "eye" : "eye-off"} size={18} color="#666666" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -430,12 +629,13 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
             <TouchableOpacity
               style={styles.termsContainer}
               onPress={() => setAgreeToTerms(!agreeToTerms)}
+              disabled={isLoading}
             >
               <View style={[
                 styles.checkbox,
                 agreeToTerms && styles.checkboxChecked
               ]}>
-                {agreeToTerms && <Text style={styles.checkmark}>✓</Text>}
+                {agreeToTerms && <Ionicons name="checkmark" size={16} color={BRAND.backgroundColor} />}
               </View>
               <View style={styles.termsTextContainer}>
                 <Text style={styles.termsText}>
@@ -461,10 +661,10 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.signUpButton,
-                  isLoading && styles.signUpButtonDisabled
+                  (!isFormValid() || isLoading) && styles.signUpButtonDisabled
                 ]}
                 onPress={handleSignUp}
-                disabled={isLoading}
+                disabled={!isFormValid() || isLoading}
                 activeOpacity={0.8}
               >
                 <Animated.View
@@ -473,9 +673,11 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
                     { opacity: Animated.multiply(glowOpacity, 0.6) }
                   ]}
                 />
-                <Text style={styles.signUpButtonText}>
-                  {isLoading ? 'Creating Account...' : 'Create Account'}
-                </Text>
+                {isLoading ? (
+                  <ActivityIndicator color={BRAND.backgroundColor} size="small" />
+                ) : (
+                  <Text style={styles.signUpButtonText}>Create Account</Text>
+                )}
               </TouchableOpacity>
             </Animated.View>
 
@@ -487,7 +689,10 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
               ]}
             >
               <Text style={styles.signInLinkText}>Already have an account? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('SignIn')}>
+              <TouchableOpacity 
+                onPress={() => navigation.navigate('SignIn')}
+                disabled={isLoading}
+              >
                 <Text style={styles.signInLinkButton}>Sign In</Text>
               </TouchableOpacity>
             </Animated.View>
@@ -718,43 +923,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     zIndex: 2,
   },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 25,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  dividerText: {
-    color: '#888888',
-    fontSize: 14,
-    marginHorizontal: 15,
-    fontWeight: '500',
-  },
-  socialButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 20,
-    marginBottom: 30,
-  },
-  socialButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  socialButtonText: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '600',
-  },
   signInLinkContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -769,6 +937,9 @@ const styles = StyleSheet.create({
     color: BRAND.primaryColor,
     fontSize: 16,
     fontWeight: '700',
+  },
+  inputIcon: {
+    marginRight: 12,
   },
 });
 

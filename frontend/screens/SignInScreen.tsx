@@ -14,12 +14,28 @@ import {
   Platform,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import axios from 'axios';
+import { Feather, FontAwesome5, Ionicons } from '@expo/vector-icons';
+import { API_BASE_URL, API_TIMEOUT } from '../config/api';
 
 interface SignInScreenProps {
   navigation: NavigationProp<any>;
+}
+
+interface LoginResponse {
+  message: string;
+  token: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
 }
 
 const { width, height } = Dimensions.get('window');
@@ -34,13 +50,38 @@ const BRAND = {
   accentColor: '#1a2e1a',
 };
 
+// API Configuration with timeout
+const API_CONFIG = {
+  baseURL: 'http://localhost:3000/api', // Replace with your actual backend URL
+  timeout: 15000, // 15 seconds timeout
+  endpoints: {
+    login: '/auth/login',
+    register: '/auth/register',
+    currentUser: '/auth/current-user',
+    forgotPassword: '/auth/forgot-password',
+  }
+};
+
+// Create an axios instance with timeout configuration
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: API_TIMEOUT,
+});
+
 const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
-  // State
+  // State for form inputs
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Loading and network state
+  const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(true);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+
+  // Refs for input fields (for focus management)
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -52,10 +93,22 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
   const pulseScale = useRef(new Animated.Value(1)).current;
   const buttonScale = useRef(new Animated.Value(0.8)).current;
 
+  // Check network connectivity
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state: { isConnected: any; }) => {
+      setIsConnected(state.isConnected ?? false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Handle entrance animations
   useEffect(() => {
     startEntranceAnimation();
     startPulseAnimation();
+    checkAuthStatus(); // Check if user is already logged in
   }, []);
 
   const startEntranceAnimation = () => {
@@ -131,59 +184,290 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
     pulse();
   };
 
+  // Form validation
+  const isFormValid = () => {
+    if (!email.trim() || !password.trim()) return false;
+    if (!isEmailValid()) return false;
+    return true;
+  };
+
+  // Email validation check
+  const isEmailValid = () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Show detailed error if API call fails
+  const handleApiError = (error: any) => {
+    console.error("Login error:", error);
+    
+    if (!isConnected) {
+      Alert.alert(
+        "Network Error", 
+        "You appear to be offline. Please check your internet connection and try again."
+      );
+      return;
+    }
+    
+    if (axios.isAxiosError(error)) {
+      if (error.code === 'ECONNABORTED') {
+        Alert.alert(
+          "Connection Timeout", 
+          "The server took too long to respond. Please check your API URL and try again. Make sure your server is running at " + API_CONFIG.baseURL
+        );
+      } else if (error.response) {
+        // Server responded with error status code
+        const status = error.response.status;
+        const errorMessage = error.response.data?.message || `Server error (${status}). Please try again.`;
+        
+        if (status === 401) {
+          Alert.alert(
+            "Invalid Credentials", 
+            "The email or password you entered is incorrect. Please check your credentials and try again."
+          );
+        } else if (status === 404) {
+          Alert.alert(
+            "Account Not Found", 
+            "No account found with this email address. Please check your email or sign up for a new account."
+          );
+        } else if (status === 403) {
+          Alert.alert(
+            "Account Locked", 
+            "Your account has been temporarily locked. Please try again later or contact support."
+          );
+        } else {
+          Alert.alert("Login Failed", errorMessage);
+        }
+      } else if (error.request) {
+        // Request made but no response received
+        Alert.alert(
+          "Server Unreachable", 
+          `Could not reach the server at ${API_CONFIG.baseURL}. Please verify the API URL is correct and the server is running.`
+        );
+      } else {
+        Alert.alert(
+          "Request Error", 
+          "An error occurred while setting up the request. Please try again."
+        );
+      }
+    } else {
+      Alert.alert(
+        "Unknown Error", 
+        "An unexpected error occurred. Please try again later."
+      );
+    }
+  };
+
+  // Clear AsyncStorage for debugging if needed
+  const clearStorageAndRetry = async () => {
+    try {
+      await AsyncStorage.multiRemove(['authToken', 'userData']);
+      console.log('AsyncStorage cleared');
+      Alert.alert('Storage Cleared', 'Please try signing in again');
+    } catch (error) {
+      console.error('Error clearing storage:', error);
+    }
+  };
+
+  // API call function for user login
+  const loginUserAPI = async (credentials: {
+    email: string;
+    password: string;
+  }) => {
+    try {
+      const response = await apiClient.post(API_CONFIG.endpoints.login, credentials);
+      return response.data;
+    } catch (error) {
+      console.error('Login API Error:', error);
+      throw error;
+    }
+  };
+
+  // Function to check if user is already logged in
+  const checkAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      
+      if (token && userData) {
+        // Verify token with backend
+        try {
+          const response = await apiClient.get(API_CONFIG.endpoints.currentUser, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          if (response.data) {
+            // User is still authenticated, navigate to UserProfile
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'UserProfile' }],
+            });
+          }
+        } catch (error) {
+          // Token is invalid or expired, clear storage
+          await AsyncStorage.multiRemove(['authToken', 'userData']);
+          console.log('Cleared invalid auth data');
+        }
+      }
+    } catch (error) {
+      // Error reading storage, clear it
+      console.error('Error checking auth status:', error);
+      await AsyncStorage.multiRemove(['authToken', 'userData']);
+    }
+  };
+
   const handleSignIn = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+    if (!isFormValid()) {
+      let errorMessage = "Please fill in all fields";
+      
+      if (!isEmailValid()) {
+        errorMessage = "Please enter a valid email address";
+      }
+      
+      Alert.alert("Error", errorMessage);
       return;
     }
 
-    if (!isValidEmail(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!isConnected) {
+      Alert.alert("Network Error", "You appear to be offline. Please check your internet connection and try again.");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('Attempting login with:', { email });
 
-      // Mock successful login
-      const mockUserData = {
-        id: '1',
-        name: email.split('@')[0],
-        email: email,
-        joinedDate: 'January 2024',
-        totalCourses: 12,
-        completedCourses: 8,
-        achievements: 5,
+      // Login user
+      const loginCredentials = {
+        email: email.toLowerCase().trim(),
+        password: password,
       };
 
-      await AsyncStorage.setItem('authToken', 'mock_token_' + Date.now());
-      await AsyncStorage.setItem('userData', JSON.stringify(mockUserData));
+      const loginResponse: LoginResponse = await loginUserAPI(loginCredentials);
+      console.log('Login successful:', loginResponse);
 
-      // Navigate to main app
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Main' }],
-      });
+      // Store auth token and user data
+      if (loginResponse && loginResponse.token) {
+        try {
+          // Clear any existing data first
+          await AsyncStorage.multiRemove(['authToken', 'userData']);
+          
+          // Save the token
+          await AsyncStorage.setItem('authToken', loginResponse.token);
+          console.log('Token saved to AsyncStorage');
+          
+          // Create user data object for local storage
+          const userData = {
+            id: loginResponse.user.id,
+            name: loginResponse.user.name,
+            email: loginResponse.user.email,
+            role: loginResponse.user.role,
+            joinedDate: new Date().toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'long' 
+            }),
+            totalCourses: 0,
+            completedCourses: 0,
+            achievements: 0,
+          };
+
+          await AsyncStorage.setItem('userData', JSON.stringify(userData));
+
+          Alert.alert(
+            'Welcome Back!',
+            `Hello ${loginResponse.user.name}, you have successfully signed in.`,
+            [
+              {
+                text: 'Continue',
+                onPress: () => {
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'UserProfile' }],
+                  });
+                }
+              }
+            ]
+          );
+        } catch (storageError) {
+          console.error('Error saving auth data:', storageError);
+          Alert.alert(
+            "Storage Error", 
+            "Login successful but failed to save session data. You may need to sign in again.",
+            [
+              { text: "OK", onPress: () => navigation.reset({ index: 0, routes: [{ name: 'UserProfile' }] }) },
+              { text: "Clear Storage & Retry", onPress: clearStorageAndRetry }
+            ]
+          );
+        }
+      } else {
+        console.log('Login successful, but no token returned');
+        Alert.alert(
+          "Login Issue", 
+          "Login was successful but no authentication token was received. Please try again."
+        );
+      }
     } catch (error) {
-      Alert.alert('Error', 'Sign in failed. Please try again.');
+      handleApiError(error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const isValidEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
+  // Handle forgot password
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      Alert.alert(
+        'Email Required',
+        'Please enter your email address first, then tap "Forgot Password" to receive reset instructions.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
 
-  const handleForgotPassword = () => {
+    if (!isEmailValid()) {
+      Alert.alert(
+        'Invalid Email',
+        'Please enter a valid email address to receive password reset instructions.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     Alert.alert(
-      'Forgot Password',
-      'Password reset functionality will be implemented soon.',
-      [{ text: 'OK' }]
+      'Reset Password',
+      `Send password reset instructions to ${email}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Send', 
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              // Implement forgot password API call here
+              await apiClient.post(API_CONFIG.endpoints.forgotPassword, {
+                email: email.toLowerCase().trim()
+              });
+              
+              Alert.alert(
+                'Email Sent',
+                'Password reset instructions have been sent to your email address.',
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                'Failed to send password reset email. Please try again later.',
+                [{ text: 'OK' }]
+              );
+            } finally {
+              setIsLoading(false);
+            }
+          }
+        }
+      ]
     );
   };
 
@@ -236,9 +520,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
           {/* Back Button */}
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.navigate('UserProfile')}
+            onPress={() => navigation.goBack()}
           >
-            <Text style={styles.backButtonText}>←</Text>
+            <Ionicons name="arrow-back" size={24} color={BRAND.primaryColor} />
           </TouchableOpacity>
 
           {/* Logo Section */}
@@ -296,7 +580,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
                 styles.inputWrapper,
                 focusedInput === 'email' && styles.inputWrapperFocused
               ]}>
+                <FontAwesome5 name="envelope" size={16} color="#666666" style={styles.inputIcon} />
                 <TextInput
+                  ref={emailRef}
                   style={styles.textInput}
                   value={email}
                   onChangeText={setEmail}
@@ -307,6 +593,11 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
                   autoCorrect={false}
                   onFocus={() => setFocusedInput('email')}
                   onBlur={() => setFocusedInput(null)}
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  returnKeyType="next"
+                  editable={!isLoading}
+                  autoComplete="email"
+                  textContentType="emailAddress"
                 />
               </View>
             </View>
@@ -318,7 +609,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
                 styles.inputWrapper,
                 focusedInput === 'password' && styles.inputWrapperFocused
               ]}>
+                <FontAwesome5 name="lock" size={16} color="#666666" style={styles.inputIcon} />
                 <TextInput
+                  ref={passwordRef}
                   style={[styles.textInput, styles.passwordInput]}
                   value={password}
                   onChangeText={setPassword}
@@ -327,14 +620,18 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
                   secureTextEntry={!showPassword}
                   onFocus={() => setFocusedInput('password')}
                   onBlur={() => setFocusedInput(null)}
+                  returnKeyType="done"
+                  onSubmitEditing={handleSignIn}
+                  editable={!isLoading}
+                  autoComplete="off"
+                  textContentType="oneTimeCode"
                 />
                 <TouchableOpacity
                   style={styles.passwordToggle}
                   onPress={() => setShowPassword(!showPassword)}
+                  disabled={isLoading}
                 >
-                  <Text style={styles.passwordToggleText}>
-                    {showPassword ? '👁️' : '👁️‍🗨️'}
-                  </Text>
+                  <Feather name={showPassword ? "eye" : "eye-off"} size={18} color="#666666" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -343,6 +640,7 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
             <TouchableOpacity
               style={styles.forgotPasswordContainer}
               onPress={handleForgotPassword}
+              disabled={isLoading}
             >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
@@ -357,10 +655,10 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.signInButton,
-                  isLoading && styles.signInButtonDisabled
+                  (!isFormValid() || isLoading) && styles.signInButtonDisabled
                 ]}
                 onPress={handleSignIn}
-                disabled={isLoading}
+                disabled={!isFormValid() || isLoading}
                 activeOpacity={0.8}
               >
                 <Animated.View
@@ -369,26 +667,58 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
                     { opacity: Animated.multiply(glowOpacity, 0.6) }
                   ]}
                 />
-                <Text style={styles.signInButtonText}>
-                  {isLoading ? 'Signing In...' : 'Sign In'}
-                </Text>
+                {isLoading ? (
+                  <ActivityIndicator color={BRAND.backgroundColor} size="small" />
+                ) : (
+                  <Text style={styles.signInButtonText}>Sign In</Text>
+                )}
               </TouchableOpacity>
             </Animated.View>
 
-          {/* Sign Up Link */}
-          <Animated.View
-            style={[
-              styles.signUpLinkContainer,
-              { opacity: formOpacity }
-            ]}
-          >
-            <Text style={styles.signUpLinkText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
-              <Text style={styles.signUpLinkButton}>Sign Up</Text>
-            </TouchableOpacity>
+            {/* Divider */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Social Sign In Options */}
+            <View style={styles.socialButtonsContainer}>
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={() => handleSocialSignIn('Google')}
+                disabled={isLoading}
+              >
+                <FontAwesome5 name="google" size={20} color="#DB4437" />
+                <Text style={styles.socialButtonText}>Google</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={() => handleSocialSignIn('Apple')}
+                disabled={isLoading}
+              >
+                <FontAwesome5 name="apple" size={20} color="#000000" />
+                <Text style={styles.socialButtonText}>Apple</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Sign Up Link */}
+            <Animated.View
+              style={[
+                styles.signUpLinkContainer,
+                { opacity: formOpacity }
+              ]}
+            >
+              <Text style={styles.signUpLinkText}>Don't have an account? </Text>
+              <TouchableOpacity 
+                onPress={() => navigation.navigate('SignUp')}
+                disabled={isLoading}
+              >
+                <Text style={styles.signUpLinkButton}>Sign Up</Text>
+              </TouchableOpacity>
+            </Animated.View>
           </Animated.View>
-          {/* Close formSection Animated.View */}
-        </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -448,11 +778,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  backButtonText: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontWeight: '300',
   },
   logoSection: {
     alignItems: 'center',
@@ -537,9 +862,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  passwordToggleText: {
-    fontSize: 18,
-  },
   forgotPasswordContainer: {
     alignItems: 'flex-end',
     marginBottom: 30,
@@ -550,7 +872,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   signInButtonContainer: {
-    marginBottom: 30,
+    marginBottom: 25,
   },
   signInButton: {
     backgroundColor: BRAND.primaryColor,
@@ -588,7 +910,7 @@ const styles = StyleSheet.create({
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 25,
+    marginVertical: 25,
   },
   dividerLine: {
     flex: 1,
@@ -596,31 +918,33 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   dividerText: {
-    color: '#888888',
+    color: '#666666',
     fontSize: 14,
     marginHorizontal: 15,
-    fontWeight: '500',
   },
   socialButtonsContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 20,
-    marginBottom: 30,
+    justifyContent: 'space-between',
+    marginBottom: 25,
   },
   socialButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 10,
+    marginHorizontal: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   socialButtonText: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '600',
+    marginLeft: 10,
   },
   signUpLinkContainer: {
     flexDirection: 'row',
@@ -636,6 +960,9 @@ const styles = StyleSheet.create({
     color: BRAND.primaryColor,
     fontSize: 16,
     fontWeight: '700',
+  },
+  inputIcon: {
+    marginRight: 12,
   },
 });
 
