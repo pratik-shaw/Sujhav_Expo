@@ -1,18 +1,15 @@
 const express = require('express');
-const { 
-  registerUser, 
-  loginUser, 
-  getCurrentUser 
-} = require('../controllers/authController');
-const { verifyToken, verifyAdmin } = require('../middlewares/authMiddleware');
-
 const router = express.Router();
+const authController = require('../controllers/authController');
+const { verifyToken } = require('../middlewares/authMiddleware');
 
-router.post('/register', registerUser);
-router.post('/login', loginUser);
-router.get('/current-user', verifyToken, getCurrentUser);
-router.get('/admin-dashboard', verifyAdmin, (req, res) => {
-  res.json({ message: 'Admin access granted' });
-});
+// Public routes
+router.post('/register', authController.registerUser);
+router.post('/login', authController.loginUser);
+
+// Protected routes
+router.get('/me', verifyToken, authController.getCurrentUser);
+router.get('/verify-token', verifyToken, authController.verifyToken);
+
 
 module.exports = router;

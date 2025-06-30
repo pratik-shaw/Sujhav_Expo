@@ -287,118 +287,137 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleSignUp = async () => {
-    if (!isFormValid()) {
-      let errorMessage = "Please fill all required fields";
-      
-      if (!isEmailValid()) {
-        errorMessage = "Please enter a valid email address";
-      } else if (!isPasswordValid()) {
-        errorMessage = "Password must be at least 6 characters long";
-      } else if (password !== confirmPassword) {
-        errorMessage = "Passwords do not match";
-      } else if (!agreeToTerms) {
-        errorMessage = "You must accept the Terms of Service";
-      }
-      
-      Alert.alert("Error", errorMessage);
-      return;
+  // Replace the handleSignUp function in your SignUpScreen with this improved version
+
+const handleSignUp = async () => {
+  if (!isFormValid()) {
+    let errorMessage = "Please fill all required fields";
+    
+    if (!isEmailValid()) {
+      errorMessage = "Please enter a valid email address";
+    } else if (!isPasswordValid()) {
+      errorMessage = "Password must be at least 6 characters long";
+    } else if (password !== confirmPassword) {
+      errorMessage = "Passwords do not match";
+    } else if (!agreeToTerms) {
+      errorMessage = "You must accept the Terms of Service";
     }
+    
+    Alert.alert("Error", errorMessage);
+    return;
+  }
 
-    if (!isConnected) {
-      Alert.alert("Network Error", "You appear to be offline. Please check your internet connection and try again.");
-      return;
-    }
+  if (!isConnected) {
+    Alert.alert("Network Error", "You appear to be offline. Please check your internet connection and try again.");
+    return;
+  }
 
-    setIsLoading(true);
+  setIsLoading(true);
 
-    try {
-      console.log('Attempting registration with:', { fullName, email });
+  try {
+    console.log('Attempting registration with:', { fullName, email });
 
-      // Register user
-      const registrationData = {
-        name: fullName.trim(),
-        email: email.toLowerCase().trim(),
-        password: password,
-      };
+    // Register user
+    const registrationData = {
+      name: fullName.trim(),
+      email: email.toLowerCase().trim(),
+      password: password,
+    };
 
-      const registrationResponse = await registerUserAPI(registrationData);
-      console.log('Registration successful:', registrationResponse);
+    const registrationResponse = await registerUserAPI(registrationData);
+    console.log('Registration successful:', registrationResponse);
 
-      // Auto-login after successful registration
-      const loginCredentials = {
-        email: email.toLowerCase().trim(),
-        password: password,
-      };
+    // Auto-login after successful registration
+    const loginCredentials = {
+      email: email.toLowerCase().trim(),
+      password: password,
+    };
 
-      const loginResponse = await loginUserAPI(loginCredentials);
-      console.log('Auto-login successful:', loginResponse);
+    const loginResponse = await loginUserAPI(loginCredentials);
+    console.log('Auto-login successful:', loginResponse);
 
-      // Store auth token and user data
-      if (loginResponse && loginResponse.token) {
-        try {
-          // Clear any existing data first
-          await AsyncStorage.multiRemove(['authToken', 'userData']);
-          
-          // Save the token
-          await AsyncStorage.setItem('authToken', loginResponse.token);
-          console.log('Token saved to AsyncStorage');
-          
-          // Create user data object for local storage
-          const userData = {
-            id: loginResponse.user.id,
-            name: loginResponse.user.name,
-            email: loginResponse.user.email,
-            role: loginResponse.user.role,
-            joinedDate: new Date().toLocaleDateString('en-US', { 
-              year: 'numeric', 
-              month: 'long' 
-            }),
-            totalCourses: 0,
-            completedCourses: 0,
-            achievements: 0,
-          };
+    // Store auth token and user data (matching SignIn pattern)
+    if (loginResponse && loginResponse.token) {
+      try {
+        // Store token and user info (same pattern as SignIn screen)
+        await AsyncStorage.setItem('userToken', loginResponse.token);
+        await AsyncStorage.setItem('userRole', loginResponse.user.role);
+        await AsyncStorage.setItem('userId', loginResponse.user.id);
+        await AsyncStorage.setItem('userName', loginResponse.user.name);
 
-          await AsyncStorage.setItem('userData', JSON.stringify(userData));
-          console.log('User data saved to AsyncStorage');
-
-          // Navigate directly to UserProfile without alert
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'UserProfile' }],
-          });
-
-        } catch (storageError) {
-          console.error('Error saving auth data:', storageError);
-          Alert.alert(
-            "Storage Error", 
-            "Failed to save login information. You can still log in with your new account.",
-            [
-              { text: "OK", onPress: () => navigation.navigate('SignIn') },
-              { text: "Clear Storage & Retry", onPress: clearStorageAndRetry }
-            ]
-          );
-        }
-      } else {
-        // Even if no token is returned, the account might have been created
-        console.log('Registration successful, but no token returned');
+        // Show welcome message
         Alert.alert(
-          "Success", 
-          "Account created successfully. Please login with your new credentials.",
+          'Welcome to SUJHAV!',
+          `Hello ${loginResponse.user.name}, your account has been created successfully. You're now signed in!`,
+          [
+            {
+              text: 'Get Started',
+              onPress: () => {
+                // Navigate based on role (matching SignIn screen pattern)
+                switch (loginResponse.user.role) {
+                  case 'admin':
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'AdminDashboard' }],
+                    });
+                    break;
+                  case 'teacher':
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'TeacherDashboard' }],
+                    });
+                    break;
+                  case 'user':
+                  default:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Home' }],
+                    });
+                    break;
+                }
+              }
+            }
+          ]
+        );
+      } catch (storageError) {
+        console.error('Error saving auth data:', storageError);
+        Alert.alert(
+          "Account Created Successfully", 
+          "Your account has been created but there was an issue saving your session. Please sign in with your new credentials.",
           [
             { 
-              text: "OK", 
-              onPress: () => navigation.navigate('SignIn') 
+              text: "Sign In Now", 
+              onPress: () => {
+                // Pre-fill the email on SignIn screen
+                navigation.navigate('SignIn', { prefillEmail: email });
+              }
             }
           ]
         );
       }
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      setIsLoading(false);
+    } else {
+      // Account created but no token returned
+      console.log('Registration successful, but no token returned');
+      Alert.alert(
+        "Account Created Successfully", 
+        "Your account has been created! Please sign in with your new credentials.",
+        [
+          { 
+            text: "Sign In Now", 
+            onPress: () => {
+              // Pre-fill the email on SignIn screen
+              navigation.navigate('SignIn', { prefillEmail: email });
+            }
+          }
+        ]
+      );
     }
-  };
+  } catch (error) {
+    handleApiError(error);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleTermsPress = () => {
     Alert.alert(

@@ -6,14 +6,18 @@ import HomeScreen from './screens/HomeScreen';
 import UserProfileScreen from './screens/UserProfileScreen';
 import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
-// import AsyncStorage from '@react-native-async-storage/async-storage';
+import TeacherDashboardScreen from './screens/TeacherDashboardScreen';
+import AdminDashboardScreen from './screens/AdminDashboardScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type RootStackParamList = {
   Intro: undefined;
   Home: undefined;
-  UserProfile: undefined; // Add UserProfile screen to the stack
-  SignIn: undefined; // Add SignIn screen to the stack
-  SignUp: undefined; // Add SignUp screen to the stack
+  UserProfile: undefined;
+  SignIn: undefined;
+  SignUp: undefined;
+  TeacherDashboard: undefined;
+  AdminDashboard: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -28,22 +32,27 @@ export default function App() {
 
   const checkAuthStatus = async () => {
     try {
-      // TODO: Add your authentication logic here
-      // Example:
-      // const userToken = await AsyncStorage.getItem('userToken');
-      // const userId = await AsyncStorage.getItem('userId');
-      
-      // if (userToken && userId) {
-      //   // User is logged in, go directly to Home
-      //   setInitialRoute('Home');
-      // } else {
-      //   // User is not logged in, show intro
-      //   setInitialRoute('Intro');
-      // }
-      
-      // For now, always start with Intro
-      setInitialRoute('Intro');
-      
+      const userToken = await AsyncStorage.getItem('userToken');
+      const userRole = await AsyncStorage.getItem('userRole');
+
+      if (userToken && userRole) {
+        // User is logged in, route based on role
+        switch (userRole) {
+          case 'admin':
+            setInitialRoute('AdminDashboard');
+            break;
+          case 'teacher':
+            setInitialRoute('TeacherDashboard');
+            break;
+          case 'user':
+          default:
+            setInitialRoute('Home');
+            break;
+        }
+      } else {
+        // No token found, show intro
+        setInitialRoute('Intro');
+      }
     } catch (error) {
       console.error('Error checking auth status:', error);
       setInitialRoute('Intro');
@@ -53,8 +62,7 @@ export default function App() {
   };
 
   if (isLoading) {
-    // You can return a loading screen here if needed
-    return null;
+    return null; // You can add a loading spinner here if needed
   }
 
   return (
@@ -62,45 +70,44 @@ export default function App() {
       <Stack.Navigator 
         initialRouteName={initialRoute}
         screenOptions={{
-          headerShown: false, // Hide headers for all screens
-          animation: 'fade', // Smooth transitions between screens
+          headerShown: false,
+          animation: 'fade',
         }}
       >
         <Stack.Screen 
           name="Intro" 
           component={IntroScreen}
-          options={{
-            gestureEnabled: false, // Disable swipe back gesture
-          }}
+          options={{ gestureEnabled: false }}
         />
         <Stack.Screen 
           name="Home" 
           component={HomeScreen}
-          options={{
-            gestureEnabled: false, // Disable swipe back gesture
-          }}
+          options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen 
+          name="TeacherDashboard" 
+          component={TeacherDashboardScreen}
+          options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen 
+          name="AdminDashboard" 
+          component={AdminDashboardScreen}
+          options={{ gestureEnabled: false }}
         />
         <Stack.Screen 
           name="UserProfile" 
           component={UserProfileScreen}
-          options={{
-            gestureEnabled: false, // Disable swipe back gesture
-          }}
+          options={{ gestureEnabled: false }}
         />
         <Stack.Screen 
           name="SignIn" 
           component={SignInScreen}
-          options={{
-            gestureEnabled: false, // Disable swipe back gesture
-          }}
+          options={{ gestureEnabled: false }}
         />
         <Stack.Screen 
           name="SignUp" 
           component={SignUpScreen}
-          options={{
-            gestureEnabled: false, // Disable swipe back gesture
-          }}
-          
+          options={{ gestureEnabled: false }}
         />
       </Stack.Navigator>
     </NavigationContainer>

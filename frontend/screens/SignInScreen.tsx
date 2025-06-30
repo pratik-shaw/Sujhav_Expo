@@ -52,7 +52,7 @@ const BRAND = {
 
 // API Configuration with timeout
 const API_CONFIG = {
-  baseURL: 'http://localhost:3000/api', // Replace with your actual backend URL
+  baseURL: API_BASE_URL, // Replace with your actual backend URL
   timeout: 15000, // 15 seconds timeout
   endpoints: {
     login: '/auth/login',
@@ -261,7 +261,7 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
   // Clear AsyncStorage for debugging if needed
   const clearStorageAndRetry = async () => {
     try {
-      await AsyncStorage.multiRemove(['authToken', 'userData']);
+      await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName']);
       console.log('AsyncStorage cleared');
       Alert.alert('Storage Cleared', 'Please try signing in again');
     } catch (error) {
@@ -286,10 +286,10 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
   // Function to check if user is already logged in
   const checkAuthStatus = async () => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      const userData = await AsyncStorage.getItem('userData');
+      const token = await AsyncStorage.getItem('userToken');
+      const userRole = await AsyncStorage.getItem('userRole');
       
-      if (token && userData) {
+      if (token && userRole) {
         // Verify token with backend
         try {
           const response = await apiClient.get(API_CONFIG.endpoints.currentUser, {
@@ -299,22 +299,39 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
           });
           
           if (response.data) {
-            // User is still authenticated, navigate to UserProfile
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'UserProfile' }],
-            });
+            // User is still authenticated, navigate based on role
+            switch (userRole) {
+              case 'admin':
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'AdminDashboard' }],
+                });
+                break;
+              case 'teacher':
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'TeacherDashboard' }],
+                });
+                break;
+              case 'user':
+              default:
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                });
+                break;
+            }
           }
         } catch (error) {
           // Token is invalid or expired, clear storage
-          await AsyncStorage.multiRemove(['authToken', 'userData']);
+          await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName']);
           console.log('Cleared invalid auth data');
         }
       }
     } catch (error) {
       // Error reading storage, clear it
       console.error('Error checking auth status:', error);
-      await AsyncStorage.multiRemove(['authToken', 'userData']);
+      await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName']);
     }
   };
 
@@ -349,32 +366,14 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
       const loginResponse: LoginResponse = await loginUserAPI(loginCredentials);
       console.log('Login successful:', loginResponse);
 
-      // Store auth token and user data
+      // Store auth token and user data (using simple pattern)
       if (loginResponse && loginResponse.token) {
         try {
-          // Clear any existing data first
-          await AsyncStorage.multiRemove(['authToken', 'userData']);
-          
-          // Save the token
-          await AsyncStorage.setItem('authToken', loginResponse.token);
-          console.log('Token saved to AsyncStorage');
-          
-          // Create user data object for local storage
-          const userData = {
-            id: loginResponse.user.id,
-            name: loginResponse.user.name,
-            email: loginResponse.user.email,
-            role: loginResponse.user.role,
-            joinedDate: new Date().toLocaleDateString('en-US', { 
-              year: 'numeric', 
-              month: 'long' 
-            }),
-            totalCourses: 0,
-            completedCourses: 0,
-            achievements: 0,
-          };
-
-          await AsyncStorage.setItem('userData', JSON.stringify(userData));
+          // Store token and user info (simple pattern from small file)
+          await AsyncStorage.setItem('userToken', loginResponse.token);
+          await AsyncStorage.setItem('userRole', loginResponse.user.role);
+          await AsyncStorage.setItem('userId', loginResponse.user.id);
+          await AsyncStorage.setItem('userName', loginResponse.user.name);
 
           Alert.alert(
             'Welcome Back!',
@@ -383,10 +382,28 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
               {
                 text: 'Continue',
                 onPress: () => {
-                  navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'UserProfile' }],
-                  });
+                  // Navigate based on role (matching small file pattern)
+                  switch (loginResponse.user.role) {
+                    case 'admin':
+                      navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'AdminDashboard' }],
+                      });
+                      break;
+                    case 'teacher':
+                      navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'TeacherDashboard' }],
+                      });
+                      break;
+                    case 'user':
+                    default:
+                      navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'Home' }],
+                      });
+                      break;
+                  }
                 }
               }
             ]
@@ -397,7 +414,24 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
             "Storage Error", 
             "Login successful but failed to save session data. You may need to sign in again.",
             [
-              { text: "OK", onPress: () => navigation.reset({ index: 0, routes: [{ name: 'UserProfile' }] }) },
+              { 
+                text: "OK", 
+                onPress: () => {
+                  // Navigate anyway based on role
+                  switch (loginResponse.user.role) {
+                    case 'admin':
+                      navigation.reset({ index: 0, routes: [{ name: 'AdminDashboard' }] });
+                      break;
+                    case 'teacher':
+                      navigation.reset({ index: 0, routes: [{ name: 'TeacherDashboard' }] });
+                      break;
+                    case 'user':
+                    default:
+                      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+                      break;
+                  }
+                }
+              },
               { text: "Clear Storage & Retry", onPress: clearStorageAndRetry }
             ]
           );
@@ -724,7 +758,6 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
     </SafeAreaView>
   );
 };
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,

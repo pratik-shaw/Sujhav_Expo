@@ -60,7 +60,7 @@ const API_CONFIG = {
   baseURL: API_BASE_URL || 'http://localhost:3000/api',
   timeout: API_TIMEOUT || 15000,
   endpoints: {
-    currentUser: '/auth/current-user',
+    currentUser: '/auth/me',
   }
 };
 
@@ -73,7 +73,8 @@ const apiClient = axios.create({
 // Add request interceptor to include auth token
 apiClient.interceptors.request.use(
   async (config) => {
-    const token = await AsyncStorage.getItem('authToken');
+    // Updated to use 'userToken' instead of 'authToken' to match SignIn screen
+    const token = await AsyncStorage.getItem('userToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -89,8 +90,8 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid
-      await AsyncStorage.multiRemove(['authToken', 'userData']);
+      // Token expired or invalid - Updated keys to match SignIn screen
+      await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName', 'userData']);
       // Don't navigate here, let the component handle it
     }
     return Promise.reject(error);
@@ -155,17 +156,41 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
   const checkAuthStatus = async () => {
     try {
       setIsLoading(true);
-      const token = await AsyncStorage.getItem('authToken');
-      const userDataString = await AsyncStorage.getItem('userData');
+      console.log('Checking auth status...');
       
-      if (token && userDataString) {
-        const cachedUser = JSON.parse(userDataString);
-        setUserData(cachedUser);
+      // Updated to use storage keys from SignIn screen
+      const token = await AsyncStorage.getItem('userToken');
+      const userRole = await AsyncStorage.getItem('userRole');
+      const userId = await AsyncStorage.getItem('userId');
+      const userName = await AsyncStorage.getItem('userName');
+      
+      console.log('Auth data found:', { 
+        hasToken: !!token, 
+        userRole, 
+        userId, 
+        userName 
+      });
+      
+      if (token && userId && userName) {
+        // Create basic user data from stored values
+        const basicUserData: UserData = {
+          id: userId,
+          name: userName,
+          email: '', // Will be fetched from API
+          role: userRole || 'user',
+          joinedDate: 'Recently',
+          totalCourses: 0,
+          completedCourses: 0,
+          achievements: 0,
+        };
+        
+        setUserData(basicUserData);
         setIsLoggedIn(true);
         
-        // Verify token with backend and fetch fresh data
+        // Fetch fresh data from API
         await fetchUserProfile();
       } else {
+        console.log('No auth data found, user not logged in');
         setIsLoggedIn(false);
         setShowBanner(true);
       }
@@ -180,29 +205,35 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
 
   const fetchUserProfile = async () => {
     try {
+      console.log('Fetching user profile from API...');
       const response = await apiClient.get(API_CONFIG.endpoints.currentUser);
       
+      console.log('API Response:', response.data);
+      
       if (response.data && response.data.user) {
+        const apiUser = response.data.user;
         const updatedUser: UserData = {
-          id: response.data.user.id,
-          name: response.data.user.name,
-          email: response.data.user.email,
-          avatar: response.data.user.avatar,
-          role: response.data.user.role,
-          phone: response.data.user.phone,
-          bio: response.data.user.bio,
-          joinedDate: response.data.user.joinedDate || 
-            new Date(response.data.user.createdAt).toLocaleDateString('en-US', { 
+          id: apiUser.id,
+          name: apiUser.name,
+          email: apiUser.email,
+          avatar: apiUser.avatar,
+          role: apiUser.role,
+          phone: apiUser.phone,
+          bio: apiUser.bio,
+          joinedDate: apiUser.joinedDate || 
+            (apiUser.createdAt ? new Date(apiUser.createdAt).toLocaleDateString('en-US', { 
               year: 'numeric', 
               month: 'long' 
-            }),
-          totalCourses: response.data.user.totalCourses || 0,
-          completedCourses: response.data.user.completedCourses || 0,
-          achievements: response.data.user.achievements || 0,
+            }) : 'Recently'),
+          totalCourses: apiUser.totalCourses || 0,
+          completedCourses: apiUser.completedCourses || 0,
+          achievements: apiUser.achievements || 0,
           lastActive: new Date().toISOString(),
         };
 
-        // Update stored user data
+        console.log('Updated user data:', updatedUser);
+        
+        // Store updated user data
         await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
         setUserData(updatedUser);
         setLastSyncTime(new Date().toLocaleTimeString());
@@ -235,8 +266,8 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
   const handleAuthError = async (error: any) => {
     if (axios.isAxiosError(error)) {
       if (error.response?.status === 401) {
-        // Token expired or invalid
-        await AsyncStorage.multiRemove(['authToken', 'userData']);
+        // Token expired or invalid - Updated keys to match SignIn screen
+        await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName', 'userData']);
         setIsLoggedIn(false);
         setUserData(null);
         setShowBanner(true);
@@ -347,8 +378,8 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
             try {
               setIsLoading(true);
               
-              // Clear local storage
-              await AsyncStorage.multiRemove(['authToken', 'userData']);
+              // Clear local storage - Updated to match SignIn screen keys
+              await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName', 'userData']);
               setIsLoggedIn(false);
               setUserData(null);
               setShowBanner(true);
