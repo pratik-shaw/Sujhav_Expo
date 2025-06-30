@@ -709,34 +709,6 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation }) => {
               </TouchableOpacity>
             </Animated.View>
 
-            {/* Divider */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Social Sign In Options */}
-            <View style={styles.socialButtonsContainer}>
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={() => handleSocialSignIn('Google')}
-                disabled={isLoading}
-              >
-                <FontAwesome5 name="google" size={20} color="#DB4437" />
-                <Text style={styles.socialButtonText}>Google</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={() => handleSocialSignIn('Apple')}
-                disabled={isLoading}
-              >
-                <FontAwesome5 name="apple" size={20} color="#000000" />
-                <Text style={styles.socialButtonText}>Apple</Text>
-              </TouchableOpacity>
-            </View>
-
             {/* Sign Up Link */}
             <Animated.View
               style={[

@@ -8,6 +8,7 @@ import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import TeacherDashboardScreen from './screens/TeacherDashboardScreen';
 import AdminDashboardScreen from './screens/AdminDashboardScreen';
+import SplashScreen from './components/SplashScreen'; // Import your splash screen
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type RootStackParamList = {
@@ -24,11 +25,25 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const [showSplash, setShowSplash] = useState(true); // Always start with splash screen
   const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList>('Intro');
 
   useEffect(() => {
-    checkAuthStatus();
+    initializeApp();
   }, []);
+
+  const initializeApp = async () => {
+    try {
+      // Check auth status first to determine if splash should be shown
+      await checkAuthStatus();
+    } catch (error) {
+      console.error('Error initializing app:', error);
+      // If error occurs, skip splash and go to intro
+      setShowSplash(false);
+      setInitialRoute('Intro');
+      setIsLoading(false);
+    }
+  };
 
   const checkAuthStatus = async () => {
     try {
@@ -50,17 +65,36 @@ export default function App() {
             break;
         }
       } else {
-        // No token found, show intro
+        // No token found, skip splash and go directly to intro
+        setShowSplash(false);
         setInitialRoute('Intro');
       }
     } catch (error) {
       console.error('Error checking auth status:', error);
+      setShowSplash(false);
       setInitialRoute('Intro');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleSplashComplete = async () => {
+    // Hide splash screen and then check auth status
+    setShowSplash(false);
+    await checkAuthStatus();
+  };
+
+  // Show splash screen if it's the first launch
+  if (showSplash) {
+    return (
+      <SplashScreen 
+        onSplashComplete={handleSplashComplete}
+        duration={4000} // 4 seconds duration
+      />
+    );
+  }
+
+  // Show loading state while checking auth
   if (isLoading) {
     return null; // You can add a loading spinner here if needed
   }
