@@ -9,6 +9,7 @@ import SignUpScreen from './screens/SignUpScreen';
 import TeacherDashboardScreen from './screens/TeacherDashboardScreen';
 import AdminDashboardScreen from './screens/AdminDashboardScreen';
 import SplashScreen from './components/SplashScreen'; // Import your splash screen
+import AdminAddUnpaidCourseScreen from './screens/AdminAddUnpaidCourseScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type RootStackParamList = {
@@ -19,6 +20,7 @@ export type RootStackParamList = {
   SignUp: undefined;
   TeacherDashboard: undefined;
   AdminDashboard: undefined;
+  AdminAddUnpaidCourseScreen: undefined; // Add this line for the new screen
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -141,6 +143,11 @@ export default function App() {
         <Stack.Screen 
           name="SignUp" 
           component={SignUpScreen}
+          options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen 
+          name="AdminAddUnpaidCourseScreen" 
+          component={AdminAddUnpaidCourseScreen}
           options={{ gestureEnabled: false }}
         />
       </Stack.Navigator>
