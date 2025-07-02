@@ -32,13 +32,7 @@ export default function AdminDashboardScreen() {
                 'userId',
                 'userName'
               ]);
-              // Pass the required updateAuthState function
-              navigation.replace('Intro', {
-                updateAuthState: async () => {
-                  // This function can be empty or handle any auth state updates needed
-                  console.log('Auth state updated after logout');
-                }
-              });
+              navigation.replace('Intro');
             } catch (error) {
               console.error('Logout error:', error);
             }
