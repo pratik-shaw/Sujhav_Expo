@@ -13,8 +13,13 @@ app.use(cors());
 // Routes
 const authRoutes = require('./routes/authRoutes');
 const unpaidCourseRoutes = require('./routes/unpaidCourseRoutes');
+const paidCourseRoutes = require('./routes/paidCourseRoutes');
+
 app.use('/api/auth', authRoutes);
 app.use('/api/unpaidCourses', unpaidCourseRoutes);
+app.use('/api/paidCourses', paidCourseRoutes);
+
+// Static file serving
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Database connection

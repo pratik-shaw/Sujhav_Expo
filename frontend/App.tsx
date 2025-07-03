@@ -11,6 +11,7 @@ import AdminDashboardScreen from './screens/AdminDashboardScreen';
 import SplashScreen from './components/SplashScreen'; // Import your splash screen
 import AdminAddUnpaidCourseScreen from './screens/AdminAddUnpaidCourseScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import AdminAddPaidCourseScreen from './screens/AdminAddPaidCourseScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -21,6 +22,7 @@ export type RootStackParamList = {
   TeacherDashboard: undefined;
   AdminDashboard: undefined;
   AdminAddUnpaidCourseScreen: undefined; // Add this line for the new screen
+  AdminAddPaidCourseScreen: undefined; // Add this line for the new screen
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -148,6 +150,11 @@ export default function App() {
         <Stack.Screen 
           name="AdminAddUnpaidCourseScreen" 
           component={AdminAddUnpaidCourseScreen}
+          options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen 
+          name="AdminAddPaidCourseScreen" 
+          component={AdminAddPaidCourseScreen}
           options={{ gestureEnabled: false }}
         />
       </Stack.Navigator>

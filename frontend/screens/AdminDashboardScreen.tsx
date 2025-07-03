@@ -141,7 +141,7 @@ export default function AdminDashboardScreen() {
           text: "Continue", 
           onPress: () => {
             console.log("Navigate to Add Paid Course Screen");
-            // navigation.navigate('AdminAddPaidCourseScreen');
+            navigation.navigate('AdminAddPaidCourseScreen');
           }
         }
       ]
