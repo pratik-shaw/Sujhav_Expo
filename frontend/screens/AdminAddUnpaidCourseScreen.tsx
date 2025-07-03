@@ -13,8 +13,14 @@ import {
   Modal,
   FlatList,
   Dimensions,
+  Image,
+  Platform,
 } from 'react-native';
 import { API_BASE } from '../config/api';
+// Add these imports for image picking
+import * as ImagePicker from 'expo-image-picker';
+// Alternative for React Native CLI:
+// import {launchImageLibrary} from 'react-native-image-picker';
 
 const { width } = Dimensions.get('window');
 
@@ -47,6 +53,7 @@ interface Course {
   };
   videoLinks: VideoLink[];
   courseThumbnail: string;
+  thumbnailUri?: string; // For local image handling
   isActive: boolean;
   studentsEnrolled?: any[];
   createdAt?: string;
@@ -61,8 +68,8 @@ interface VideoLink {
 }
 
 interface AdminUnpaidCourseScreenProps {
-  navigation?: any; // Add navigation prop
-  onBack?: () => void; // Add callback for back action
+  navigation?: any;
+  onBack?: () => void;
 }
 
 export default function AdminUnpaidCourseScreen({ 
@@ -91,6 +98,7 @@ export default function AdminUnpaidCourseScreen({
     },
     videoLinks: [],
     courseThumbnail: '',
+    thumbnailUri: '',
     isActive: true,
   });
 
@@ -103,11 +111,47 @@ export default function AdminUnpaidCourseScreen({
   });
 
   const [editingVideo, setEditingVideo] = useState<VideoLink | null>(null);
+  const [editingVideoIndex, setEditingVideoIndex] = useState<number | null>(null);
 
   // Load courses on mount
   useEffect(() => {
     loadCourses();
+    requestPermissions();
   }, []);
+
+  // Request permissions for image picker
+  const requestPermissions = async () => {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant camera roll permissions to upload images.');
+      }
+    }
+  };
+
+  // Image picker function - FIXED
+  const pickImage = async () => {
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], // Fixed: Use string literal
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const imageUri = result.assets[0].uri;
+      setCourseForm({ 
+        ...courseForm, 
+        thumbnailUri: imageUri,
+        courseThumbnail: imageUri // For display purposes
+      });
+    }
+  } catch (error) {
+    console.error('Error picking image:', error);
+    Alert.alert('Error', 'Failed to pick image');
+  }
+};
 
   // Handle back navigation
   const handleBackPress = () => {
@@ -127,16 +171,21 @@ export default function AdminUnpaidCourseScreen({
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/unpaidCourses`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       if (data.success) {
         setCourses(data.data || []);
       } else {
-        Alert.alert('Error', 'Failed to load courses');
+        Alert.alert('Error', data.message || 'Failed to load courses');
       }
     } catch (error) {
       console.error('Error loading courses:', error);
-      Alert.alert('Error', 'Failed to load courses');
+      Alert.alert('Error', 'Failed to load courses. Please check your internet connection.');
     } finally {
       setLoading(false);
     }
@@ -153,13 +202,44 @@ export default function AdminUnpaidCourseScreen({
       
       const method = editingCourse ? 'PUT' : 'POST';
       
+      // Create FormData for multipart/form-data
+      const formData = new FormData();
+      
+      // Add course data
+      formData.append('courseTitle', courseForm.courseTitle);
+      formData.append('tutor', courseForm.tutor);
+      formData.append('rating', courseForm.rating.toString());
+      formData.append('price', courseForm.price.toString());
+      formData.append('category', courseForm.category);
+      formData.append('class', courseForm.class);
+      formData.append('courseDetails', JSON.stringify(courseForm.courseDetails));
+      formData.append('videoLinks', JSON.stringify(courseForm.videoLinks));
+      formData.append('isActive', courseForm.isActive.toString());
+      
+      // Add thumbnail if selected - FIXED
+      if (courseForm.thumbnailUri) {
+        const filename = courseForm.thumbnailUri.split('/').pop() || 'thumbnail.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        
+        formData.append('thumbnail', {
+          uri: courseForm.thumbnailUri,
+          type: type,
+          name: filename,
+        } as any);
+      }
+      
       const response = await fetch(url, {
         method,
+        body: formData,
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'multipart/form-data',
         },
-        body: JSON.stringify(courseForm),
       });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       
       const data = await response.json();
       
@@ -173,7 +253,7 @@ export default function AdminUnpaidCourseScreen({
       }
     } catch (error) {
       console.error('Error saving course:', error);
-      Alert.alert('Error', 'Failed to save course');
+      Alert.alert('Error', 'Failed to save course. Please check your internet connection.');
     } finally {
       setLoading(false);
     }
@@ -200,6 +280,10 @@ export default function AdminUnpaidCourseScreen({
                 method: 'DELETE',
               });
               
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              
               const data = await response.json();
               
               if (data.success) {
@@ -210,7 +294,7 @@ export default function AdminUnpaidCourseScreen({
               }
             } catch (error) {
               console.error('Error deleting course:', error);
-              Alert.alert('Error', 'Failed to delete course');
+              Alert.alert('Error', 'Failed to delete course. Please check your internet connection.');
             } finally {
               setLoading(false);
             }
@@ -237,6 +321,10 @@ export default function AdminUnpaidCourseScreen({
         body: JSON.stringify(videoForm),
       });
       
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       if (data.success) {
@@ -254,10 +342,102 @@ export default function AdminUnpaidCourseScreen({
       }
     } catch (error) {
       console.error('Error adding video:', error);
-      Alert.alert('Error', 'Failed to add video');
+      Alert.alert('Error', 'Failed to add video. Please check your internet connection.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const updateVideoInCourse = async () => {
+    try {
+      if (!validateVideo()) return;
+      if (!selectedCourse?._id || !editingVideo?._id) {
+        Alert.alert('Error', 'Invalid course or video selection');
+        return;
+      }
+      
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/unpaidCourses/${selectedCourse._id}/videos/${editingVideo._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(videoForm),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        Alert.alert('Success', 'Video updated!');
+        setVideoForm({
+          videoTitle: '',
+          videoDescription: '',
+          videoLink: '',
+          duration: '',
+        });
+        setEditingVideo(null);
+        setEditingVideoIndex(null);
+        setSelectedCourse(data.data);
+        loadCourses();
+      } else {
+        Alert.alert('Error', data.message || 'Failed to update video');
+      }
+    } catch (error) {
+      console.error('Error updating video:', error);
+      Alert.alert('Error', 'Failed to update video. Please check your internet connection.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteVideoFromCourse = async (videoId: string) => {
+    if (!selectedCourse?._id || !videoId) {
+      Alert.alert('Error', 'Invalid course or video selection');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Video',
+      'Are you sure you want to delete this video?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const response = await fetch(`${API_BASE_URL}/unpaidCourses/${selectedCourse._id}/videos/${videoId}`, {
+                method: 'DELETE',
+              });
+              
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              
+              const data = await response.json();
+              
+              if (data.success) {
+                Alert.alert('Success', 'Video deleted!');
+                setSelectedCourse(data.data);
+                loadCourses();
+              } else {
+                Alert.alert('Error', data.message || 'Failed to delete video');
+              }
+            } catch (error) {
+              console.error('Error deleting video:', error);
+              Alert.alert('Error', 'Failed to delete video. Please check your internet connection.');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Validation functions
@@ -282,8 +462,18 @@ export default function AdminUnpaidCourseScreen({
       Alert.alert('Error', 'Description is required');
       return false;
     }
-    if (!courseForm.courseThumbnail?.trim()) {
-      Alert.alert('Error', 'Thumbnail URL is required');
+    if (!courseForm.thumbnailUri && !courseForm.courseThumbnail) {
+      Alert.alert('Error', 'Thumbnail is required');
+      return false;
+    }
+    // Price validation - allow 0 or any positive number
+    if (courseForm.price < 0) {
+      Alert.alert('Error', 'Price cannot be negative');
+      return false;
+    }
+    // Rating validation
+    if (courseForm.rating < 0 || courseForm.rating > 5) {
+      Alert.alert('Error', 'Rating must be between 0 and 5');
       return false;
     }
     return true;
@@ -300,6 +490,13 @@ export default function AdminUnpaidCourseScreen({
     }
     if (!videoForm.videoLink?.trim()) {
       Alert.alert('Error', 'Video link is required');
+      return false;
+    }
+    // Basic URL validation
+    try {
+      new URL(videoForm.videoLink);
+    } catch {
+      Alert.alert('Error', 'Please enter a valid video URL');
       return false;
     }
     if (!videoForm.duration?.trim()) {
@@ -324,13 +521,13 @@ export default function AdminUnpaidCourseScreen({
       },
       videoLinks: [],
       courseThumbnail: '',
+      thumbnailUri: '',
       isActive: true,
     });
     setEditingCourse(null);
   };
 
   const editCourse = (course: Course) => {
-    // Ensure all required fields are properly set
     setCourseForm({
       ...course,
       courseDetails: course.courseDetails || { subtitle: '', description: '' },
@@ -338,9 +535,32 @@ export default function AdminUnpaidCourseScreen({
       rating: course.rating || 0,
       price: course.price || 0,
       isActive: course.isActive !== undefined ? course.isActive : true,
+      thumbnailUri: '', // Reset local URI for editing
     });
     setEditingCourse(course);
     setShowAddModal(true);
+  };
+
+  const editVideo = (video: VideoLink, index: number) => {
+    setVideoForm({
+      videoTitle: video.videoTitle,
+      videoDescription: video.videoDescription,
+      videoLink: video.videoLink,
+      duration: video.duration,
+    });
+    setEditingVideo(video);
+    setEditingVideoIndex(index);
+  };
+
+  const cancelVideoEdit = () => {
+    setVideoForm({
+      videoTitle: '',
+      videoDescription: '',
+      videoLink: '',
+      duration: '',
+    });
+    setEditingVideo(null);
+    setEditingVideoIndex(null);
   };
 
   const manageVideos = (course: Course) => {
@@ -360,6 +580,8 @@ export default function AdminUnpaidCourseScreen({
       videoLink: '',
       duration: '',
     });
+    setEditingVideo(null);
+    setEditingVideoIndex(null);
     setSelectedCourse(null);
     setShowVideoModal(false);
   };
@@ -376,7 +598,9 @@ export default function AdminUnpaidCourseScreen({
         <Text style={styles.infoText}>Category: {item.category ? item.category.toUpperCase() : 'N/A'}</Text>
         <Text style={styles.infoText}>Class: {item.class || 'N/A'}</Text>
         <Text style={styles.infoText}>Rating: ⭐ {item.rating || 0}</Text>
-        <Text style={styles.infoText}>Price: ₹{item.price || 0}</Text>
+        <Text style={styles.infoText}>
+          Price: {item.price === 0 ? 'Free' : `₹${item.price}`}
+        </Text>
         <Text style={[styles.infoText, { color: item.isActive ? BRAND.primaryColor : BRAND.errorColor }]}>
           {item.isActive ? 'Active' : 'Inactive'}
         </Text>
@@ -411,11 +635,29 @@ export default function AdminUnpaidCourseScreen({
     </View>
   );
 
-  const renderVideoItem = ({ item }: { item: VideoLink }) => (
+  const renderVideoItem = ({ item, index }: { item: VideoLink; index: number }) => (
     <View style={styles.videoItem}>
-      <Text style={styles.videoTitle}>{item.videoTitle || 'Untitled Video'}</Text>
-      <Text style={styles.videoDescription}>{item.videoDescription || 'No description'}</Text>
-      <Text style={styles.videoDuration}>Duration: {item.duration || 'N/A'}</Text>
+      <View style={styles.videoContent}>
+        <Text style={styles.videoTitle}>{item.videoTitle || 'Untitled Video'}</Text>
+        <Text style={styles.videoDescription}>{item.videoDescription || 'No description'}</Text>
+        <Text style={styles.videoDuration}>Duration: {item.duration || 'N/A'}</Text>
+      </View>
+      
+      <View style={styles.videoActions}>
+        <TouchableOpacity
+          style={[styles.videoActionButton, styles.videoEditButton]}
+          onPress={() => editVideo(item, index)}
+        >
+          <Text style={styles.videoActionButtonText}>Edit</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.videoActionButton, styles.videoDeleteButton]}
+          onPress={() => item._id && deleteVideoFromCourse(item._id)}
+        >
+          <Text style={styles.videoActionButtonText}>Delete</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -528,18 +770,24 @@ export default function AdminUnpaidCourseScreen({
                 <TextInput
                   style={styles.textInput}
                   value={courseForm.rating?.toString() || '0'}
-                  onChangeText={(text) => setCourseForm({ ...courseForm, rating: parseFloat(text) || 0 })}
+                  onChangeText={(text) => {
+                    const rating = parseFloat(text) || 0;
+                    setCourseForm({ ...courseForm, rating: Math.min(Math.max(rating, 0), 5) });
+                  }}
                   placeholder="0"
                   placeholderTextColor="#666"
                   keyboardType="numeric"
                 />
               </View>
               <View style={styles.halfInput}>
-                <Text style={styles.inputLabel}>Price (₹)</Text>
+                <Text style={styles.inputLabel}>Price (₹) - 0 for Free</Text>
                 <TextInput
                   style={styles.textInput}
                   value={courseForm.price?.toString() || '0'}
-                  onChangeText={(text) => setCourseForm({ ...courseForm, price: parseFloat(text) || 0 })}
+                  onChangeText={(text) => {
+                    const price = parseFloat(text) || 0;
+                    setCourseForm({ ...courseForm, price: Math.max(price, 0) });
+                  }}
                   placeholder="0"
                   placeholderTextColor="#666"
                   keyboardType="numeric"
@@ -551,14 +799,14 @@ export default function AdminUnpaidCourseScreen({
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Category *</Text>
               <View style={styles.categoryContainer}>
-                {['jee', 'neet', 'boards'].map((cat) => (
+                {(['jee', 'neet', 'boards'] as const).map((cat) => (
                   <TouchableOpacity
                     key={cat}
                     style={[
                       styles.categoryButton,
                       courseForm.category === cat && styles.categoryButtonActive,
                     ]}
-                    onPress={() => setCourseForm({ ...courseForm, category: cat as any })}
+                    onPress={() => setCourseForm({ ...courseForm, category: cat })}
                   >
                     <Text
                       style={[
@@ -617,16 +865,33 @@ export default function AdminUnpaidCourseScreen({
               />
             </View>
 
-            {/* Thumbnail URL */}
+            {/* Thumbnail Upload */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Thumbnail URL *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={courseForm.courseThumbnail || ''}
-                onChangeText={(text) => setCourseForm({ ...courseForm, courseThumbnail: text })}
-                placeholder="Enter thumbnail URL"
-                placeholderTextColor="#666"
-              />
+              <Text style={styles.inputLabel}>Course Thumbnail *</Text>
+              <TouchableOpacity
+                style={styles.thumbnailButton}
+                onPress={pickImage}
+              >
+                <Text style={styles.thumbnailButtonText}>
+                  {courseForm.thumbnailUri ? 'Change Thumbnail' : 'Select Thumbnail'}
+                </Text>
+              </TouchableOpacity>
+              
+              {(courseForm.thumbnailUri || courseForm.courseThumbnail) && (
+                <View style={styles.thumbnailPreview}>
+                  <Image
+                    source={{ uri: courseForm.thumbnailUri || courseForm.courseThumbnail }}
+                    style={styles.thumbnailImage}
+                    resizeMode="cover"
+                  />
+                  <TouchableOpacity
+                    style={styles.removeThumbnailButton}
+                    onPress={() => setCourseForm({ ...courseForm, thumbnailUri: '', courseThumbnail: '' })}
+                  >
+                    <Text style={styles.removeThumbnailButtonText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
             {/* Active Status */}
@@ -690,9 +955,11 @@ export default function AdminUnpaidCourseScreen({
           </View>
 
           <ScrollView style={styles.modalContent}>
-            {/* Add Video Form */}
+            {/* Add/Edit Video Form */}
             <View style={styles.videoFormContainer}>
-              <Text style={styles.sectionTitle}>Add New Video</Text>
+              <Text style={styles.sectionTitle}>
+                {editingVideo ? 'Edit Video' : 'Add New Video'}
+              </Text>
               
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Video Title *</Text>
@@ -706,7 +973,7 @@ export default function AdminUnpaidCourseScreen({
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Description *</Text>
+                <Text style={styles.inputLabel}>Video Description *</Text>
                 <TextInput
                   style={[styles.textInput, styles.textArea]}
                   value={videoForm.videoDescription || ''}
@@ -726,6 +993,7 @@ export default function AdminUnpaidCourseScreen({
                   onChangeText={(text) => setVideoForm({ ...videoForm, videoLink: text })}
                   placeholder="Enter video URL"
                   placeholderTextColor="#666"
+                  keyboardType="url"
                 />
               </View>
 
@@ -735,28 +1003,41 @@ export default function AdminUnpaidCourseScreen({
                   style={styles.textInput}
                   value={videoForm.duration || ''}
                   onChangeText={(text) => setVideoForm({ ...videoForm, duration: text })}
-                  placeholder="e.g., 15:30"
+                  placeholder="e.g., 10:30"
                   placeholderTextColor="#666"
                 />
               </View>
 
-              <TouchableOpacity
-                style={styles.addVideoButton}
-                onPress={addVideoToCourse}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <Text style={styles.addVideoButtonText}>Add Video</Text>
+              <View style={styles.videoFormButtons}>
+                <TouchableOpacity
+                  style={[styles.videoFormButton, styles.videoSubmitButton, loading && styles.videoFormButtonDisabled]}
+                  onPress={editingVideo ? updateVideoInCourse : addVideoToCourse}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <Text style={styles.videoFormButtonText}>
+                      {editingVideo ? 'Update Video' : 'Add Video'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {editingVideo && (
+                  <TouchableOpacity
+                    style={[styles.videoFormButton, styles.videoCancelButton]}
+                    onPress={cancelVideoEdit}
+                  >
+                    <Text style={styles.videoFormButtonText}>Cancel</Text>
+                  </TouchableOpacity>
                 )}
-              </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Existing Videos */}
-            <View style={styles.videosContainer}>
+            {/* Video List */}
+            <View style={styles.videoListContainer}>
               <Text style={styles.sectionTitle}>
-                Existing Videos ({selectedCourse?.videoLinks?.length || 0})
+                Videos ({selectedCourse?.videoLinks?.length || 0})
               </Text>
               
               {selectedCourse?.videoLinks && selectedCourse.videoLinks.length > 0 ? (
@@ -767,7 +1048,9 @@ export default function AdminUnpaidCourseScreen({
                   scrollEnabled={false}
                 />
               ) : (
-                <Text style={styles.noVideosText}>No videos added yet</Text>
+                <View style={styles.emptyVideoContainer}>
+                  <Text style={styles.emptyVideoText}>No videos added yet</Text>
+                </View>
               )}
             </View>
           </ScrollView>
@@ -777,45 +1060,48 @@ export default function AdminUnpaidCourseScreen({
   );
 }
 
+// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
   },
   header: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  paddingHorizontal: 16, // Reduced from 20
-  paddingVertical: 12,   // Reduced from 15
-  backgroundColor: BRAND.accentColor,
-  borderBottomWidth: 1,
-  borderBottomColor: '#333',
-  minHeight: 60, // Ensure consistent height
-},
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: BRAND.accentColor,
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.primaryColor,
+  },
+  backButton: {
+    padding: 8,
+  },
+  backButtonText: {
+    color: BRAND.primaryColor,
+    fontSize: 16,
+    fontWeight: '600',
+  },
   headerTitle: {
-  color: '#fff',
-  fontSize: 16, // Reduced from 20
-  fontWeight: 'bold',
-  flex: 1, // Allow it to take available space
-  textAlign: 'center',
-  marginHorizontal: 8, // Add margin to prevent overlap
-},
- addButton: {
-  backgroundColor: BRAND.primaryColor,
-  paddingHorizontal: 12, // Reduced from 15
-  paddingVertical: 6,    // Reduced from 8
-  borderRadius: 6,       // Reduced from 8
-  minWidth: 80,          // Set minimum width
-  justifyContent: 'center',
-  alignItems: 'center',
-},
-
-addButtonText: {
-  color: '#000',
-  fontWeight: 'bold',
-  fontSize: 12, // Reduced from default
-},
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'center',
+  },
+  addButton: {
+    backgroundColor: BRAND.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  addButtonText: {
+    color: '#000',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -824,67 +1110,49 @@ addButtonText: {
   loadingText: {
     color: '#fff',
     marginTop: 10,
+    fontSize: 16,
   },
   listContainer: {
-    padding: 20,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyText: {
-    color: '#666',
-    fontSize: 18,
-    marginBottom: 20,
-  },
-  createButton: {
-    backgroundColor: BRAND.primaryColor,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  createButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
+    padding: 16,
   },
   courseCard: {
     backgroundColor: BRAND.accentColor,
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: BRAND.primaryColor,
   },
   courseHeader: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   courseTitle: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   courseTutor: {
     color: BRAND.primaryColor,
     fontSize: 14,
+    fontWeight: '500',
   },
   courseInfo: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   infoText: {
     color: '#ccc',
     fontSize: 12,
-    marginRight: 15,
-    marginBottom: 5,
+    marginRight: 16,
+    marginBottom: 4,
   },
   courseSubtitle: {
     color: '#aaa',
     fontSize: 14,
-    marginBottom: 15,
+    marginBottom: 16,
+    fontStyle: 'italic',
   },
   courseActions: {
     flexDirection: 'row',
@@ -895,22 +1163,43 @@ addButtonText: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 6,
-    marginHorizontal: 2,
+    marginHorizontal: 4,
+  },
+  actionButtonText: {
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
   },
   editButton: {
     backgroundColor: BRAND.primaryColor,
   },
   videoButton: {
-    backgroundColor: '#007BFF',
+    backgroundColor: BRAND.warningColor,
   },
   deleteButton: {
     backgroundColor: BRAND.errorColor,
   },
-  actionButtonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
-    fontSize: 12,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    color: '#aaa',
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  createButton: {
+    backgroundColor: BRAND.primaryColor,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  createButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
   },
   modalContainer: {
     flex: 1,
@@ -918,48 +1207,59 @@ addButtonText: {
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: BRAND.accentColor,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: BRAND.primaryColor,
+  },
+  modalBackButton: {
+    padding: 8,
+  },
+  modalBackButtonText: {
+    color: BRAND.primaryColor,
+    fontSize: 16,
+    fontWeight: '600',
   },
   modalTitle: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'center',
   },
   closeButton: {
-    padding: 5,
+    padding: 8,
   },
   closeButtonText: {
-    color: '#fff',
-    fontSize: 20,
+    color: BRAND.errorColor,
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   modalContent: {
     flex: 1,
-    padding: 20,
+    padding: 16,
   },
   inputGroup: {
     marginBottom: 20,
   },
   inputLabel: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     marginBottom: 8,
   },
   textInput: {
     backgroundColor: BRAND.accentColor,
-    color: '#fff',
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    fontSize: 16,
     borderWidth: 1,
     borderColor: '#333',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: '#fff',
+    fontSize: 16,
   },
   textArea: {
     height: 100,
@@ -970,22 +1270,21 @@ addButtonText: {
     justifyContent: 'space-between',
   },
   halfInput: {
-    flex: 1,
-    marginRight: 10,
+    width: '48%',
   },
   categoryContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
   },
   categoryButton: {
     flex: 1,
     paddingVertical: 12,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: BRAND.accentColor,
     borderWidth: 1,
     borderColor: '#333',
-    marginHorizontal: 5,
+    marginHorizontal: 4,
+    alignItems: 'center',
   },
   categoryButtonActive: {
     backgroundColor: BRAND.primaryColor,
@@ -993,11 +1292,46 @@ addButtonText: {
   },
   categoryButtonText: {
     color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
   },
   categoryButtonTextActive: {
     color: '#000',
+  },
+  thumbnailButton: {
+    backgroundColor: BRAND.accentColor,
+    borderWidth: 1,
+    borderColor: BRAND.primaryColor,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  thumbnailButtonText: {
+    color: BRAND.primaryColor,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  thumbnailPreview: {
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  thumbnailImage: {
+    width: 200,
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  removeThumbnailButton: {
+    backgroundColor: BRAND.errorColor,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  removeThumbnailButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   switchContainer: {
     flexDirection: 'row',
@@ -1005,11 +1339,10 @@ addButtonText: {
   },
   switch: {
     width: 50,
-    height: 25,
-    borderRadius: 12.5,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#333',
-    marginLeft: 10,
-    marginRight: 10,
+    marginHorizontal: 12,
     justifyContent: 'center',
     paddingHorizontal: 2,
   },
@@ -1017,115 +1350,132 @@ addButtonText: {
     backgroundColor: BRAND.primaryColor,
   },
   switchThumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#666',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#fff',
     alignSelf: 'flex-start',
   },
   switchThumbActive: {
-    backgroundColor: '#000',
     alignSelf: 'flex-end',
   },
   switchText: {
     color: '#fff',
     fontSize: 14,
+    fontWeight: '500',
   },
   submitButton: {
     backgroundColor: BRAND.primaryColor,
-    paddingVertical: 15,
+    paddingVertical: 16,
     borderRadius: 8,
     alignItems: 'center',
     marginTop: 20,
+    marginBottom: 40,
   },
   submitButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.5,
   },
   submitButtonText: {
     color: '#000',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   videoFormContainer: {
-    marginBottom: 30,
+    backgroundColor: BRAND.accentColor,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: BRAND.primaryColor,
   },
   sectionTitle: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 15,
+    marginBottom: 16,
   },
-  addVideoButton: {
-    backgroundColor: BRAND.primaryColor,
+  videoFormButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  videoFormButton: {
+    flex: 1,
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
-    marginTop: 10,
+    marginHorizontal: 4,
   },
-  addVideoButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
+  videoFormButtonDisabled: {
+    opacity: 0.5,
+  },
+  videoFormButtonText: {
     fontSize: 16,
+    fontWeight: '600',
   },
-  videosContainer: {
-    borderTopWidth: 1,
-    borderTopColor: '#333',
-    paddingTop: 20,
+  videoSubmitButton: {
+    backgroundColor: BRAND.primaryColor,
+  },
+  videoCancelButton: {
+    backgroundColor: BRAND.errorColor,
+  },
+  videoListContainer: {
+    marginTop: 20,
   },
   videoItem: {
     backgroundColor: BRAND.accentColor,
     borderRadius: 8,
-    padding: 15,
-    marginBottom: 10,
+    padding: 12,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#333',
+  },
+  videoContent: {
+    marginBottom: 12,
   },
   videoTitle: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   videoDescription: {
     color: '#ccc',
     fontSize: 14,
-    marginBottom: 5,
+    marginBottom: 4,
   },
   videoDuration: {
     color: BRAND.primaryColor,
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '500',
   },
-  noVideosText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    marginTop: 20,
+  videoActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
-  backButton: {
-  paddingVertical: 8,
-  paddingHorizontal: 8, // Reduced padding
-  minWidth: 60, // Set minimum width
-  justifyContent: 'center',
-},
-
-backButtonText: {
-  color: '#fff',
-  fontSize: 14, // Reduced from 16
-  fontWeight: '500',
-},
-  // Add these missing styles to your existing stylesheet
-modalBackButton: {
-  padding: 8,
-  paddingHorizontal: 12,
-  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  borderRadius: 6,
-},
-modalBackButtonText: {
-  color: '#fff',
-  fontSize: 16,
-  fontWeight: '500',
-},
+  videoActionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  videoActionButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  videoEditButton: {
+    backgroundColor: BRAND.primaryColor,
+  },
+  videoDeleteButton: {
+    backgroundColor: BRAND.errorColor,
+  },
+  emptyVideoContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyVideoText: {
+    color: '#aaa',
+    fontSize: 16,
+  },
 });
 

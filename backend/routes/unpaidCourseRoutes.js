@@ -1,4 +1,3 @@
-// routes/unpaidCourseRoutes.js
 const express = require('express');
 const router = express.Router();
 const {
@@ -8,25 +7,34 @@ const {
   updateCourse,
   deleteCourse,
   addVideoToCourse,
+  updateVideoInCourse,
+  deleteVideoFromCourse,
   enrollStudent,
-  getCoursesByCategory
+  getCoursesByCategory,
+  getFreeCourses,
+  upload
 } = require('../controllers/unpaidCourseController');
 
-// Note: You'll need to implement authentication middleware
+// Note: Add authentication middleware as needed
 // const { authenticateAdmin, authenticateUser } = require('../middleware/auth');
 
 // Admin routes (require admin authentication)
-router.post('/', createCourse); // authenticateAdmin middleware should be added
-router.put('/:id', updateCourse); // authenticateAdmin middleware should be added
-router.delete('/:id', deleteCourse); // authenticateAdmin middleware should be added
-router.post('/:id/videos', addVideoToCourse); // authenticateAdmin middleware should be added
+router.post('/', upload.single('thumbnail'), createCourse);
+router.put('/:id', upload.single('thumbnail'), updateCourse);
+router.delete('/:id', deleteCourse);
+
+// Video management routes (Admin only)
+router.post('/:id/videos', addVideoToCourse);
+router.put('/:id/videos/:videoId', updateVideoInCourse);
+router.delete('/:id/videos/:videoId', deleteVideoFromCourse);
 
 // Public routes (accessible by users)
 router.get('/', getAllCourses);
-router.get('/:id', getCourseById);
+router.get('/free', getFreeCourses);
 router.get('/category/:category', getCoursesByCategory);
+router.get('/:id', getCourseById); // This should be last among GET routes
 
 // User routes (require user authentication)
-router.post('/:id/enroll', enrollStudent); // authenticateUser middleware should be added
+router.post('/:id/enroll', enrollStudent);
 
 module.exports = router;

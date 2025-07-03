@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -14,6 +15,7 @@ const authRoutes = require('./routes/authRoutes');
 const unpaidCourseRoutes = require('./routes/unpaidCourseRoutes');
 app.use('/api/auth', authRoutes);
 app.use('/api/unpaidCourses', unpaidCourseRoutes);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Database connection
 mongoose.connect(process.env.MONGO_URI)

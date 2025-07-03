@@ -1,9 +1,50 @@
-const UnpaidCourse = require('../models/UnpaidCourse');
-const mongoose = require('mongoose');
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const UnpaidCourse = require('../models/UnpaidCourse'); // Import your model
 
-// Create a new course (Admin only)
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/course-thumbnails';
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `course-${uniqueSuffix}${ext}`);
+  }
+});
+
+const fileFilter = (req, file, cb) => {
+  // Allow only image files
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  }
+});
+
+// Create a new course
 const createCourse = async (req, res) => {
   try {
+    console.log('Creating course with body:', req.body);
+    console.log('File uploaded:', req.file);
+
     const {
       courseTitle,
       tutor,
@@ -13,109 +54,122 @@ const createCourse = async (req, res) => {
       class: courseClass,
       courseDetails,
       videoLinks,
-      courseThumbnail,
       isActive
     } = req.body;
 
     // Validate required fields
-    if (!courseTitle || !tutor || !price || !category || !courseClass || !courseDetails || !courseThumbnail) {
+    if (!courseTitle || !tutor || !courseClass) {
       return res.status(400).json({
         success: false,
-        message: 'All required fields must be provided'
+        message: 'Course title, tutor, and class are required'
       });
     }
 
-    // Validate category
-    const validCategories = ['jee', 'neet', 'boards'];
-    if (!validCategories.includes(category.toLowerCase())) {
+    // Validate required thumbnail
+    if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid category. Must be one of: jee, neet, boards'
+        message: 'Course thumbnail is required'
       });
     }
 
-    const newCourse = new UnpaidCourse({
-      courseTitle,
-      tutor,
-      rating: rating || 0,
-      price,
-      category: category.toLowerCase(),
-      class: courseClass,
-      courseDetails,
-      videoLinks: videoLinks || [],
-      courseThumbnail,
-      isActive: isActive !== undefined ? isActive : true
-    });
+    // Parse JSON fields
+    let parsedCourseDetails;
+    let parsedVideoLinks;
+    
+    try {
+      parsedCourseDetails = typeof courseDetails === 'string' 
+        ? JSON.parse(courseDetails) 
+        : courseDetails;
+      parsedVideoLinks = typeof videoLinks === 'string' 
+        ? JSON.parse(videoLinks) 
+        : videoLinks || [];
+    } catch (parseError) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid JSON format in courseDetails or videoLinks'
+      });
+    }
 
+    // Validate courseDetails structure
+    if (!parsedCourseDetails || !parsedCourseDetails.subtitle || !parsedCourseDetails.description) {
+      return res.status(400).json({
+        success: false,
+        message: 'Course details must include subtitle and description'
+      });
+    }
+
+    // Handle thumbnail
+    const thumbnailPath = `/uploads/course-thumbnails/${req.file.filename}`;
+
+    // Create course object
+    const courseData = {
+      courseTitle: courseTitle.trim(),
+      tutor: tutor.trim(),
+      rating: parseFloat(rating) || 0,
+      price: parseFloat(price) || 0,
+      category: category || 'jee',
+      class: courseClass.trim(),
+      courseDetails: parsedCourseDetails,
+      videoLinks: parsedVideoLinks,
+      courseThumbnail: thumbnailPath,
+      thumbnailMetadata: {
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimeType: req.file.mimetype,
+        uploadedAt: new Date()
+      },
+      isActive: isActive === 'true' || isActive === true,
+      studentsEnrolled: []
+    };
+
+    // Save to MongoDB
+    const newCourse = new UnpaidCourse(courseData);
     const savedCourse = await newCourse.save();
+    
+    console.log('Course created successfully:', savedCourse);
 
     res.status(201).json({
       success: true,
       message: 'Course created successfully',
       data: savedCourse
     });
+
   } catch (error) {
+    console.error('Error creating course:', error);
+    
+    // Delete uploaded file if there was an error
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Error deleting uploaded file:', unlinkError);
+      }
+    }
+
     res.status(500).json({
       success: false,
-      message: 'Error creating course',
+      message: 'Internal server error',
       error: error.message
     });
   }
 };
 
-// Get all courses (with filtering and pagination)
+// Get all courses
 const getAllCourses = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      category,
-      class: courseClass,
-      isActive,
-      search,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    const filter = {};
+    const courses = await UnpaidCourse.find().sort({ createdAt: -1 });
     
-    if (category) filter.category = category.toLowerCase();
-    if (courseClass) filter.class = courseClass;
-    if (isActive !== undefined) filter.isActive = isActive === 'true';
-    if (search) {
-      filter.$or = [
-        { courseTitle: { $regex: search, $options: 'i' } },
-        { tutor: { $regex: search, $options: 'i' } },
-        { 'courseDetails.description': { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    const courses = await UnpaidCourse.find(filter)
-      .sort(sort)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const totalCourses = await UnpaidCourse.countDocuments(filter);
-
-    res.status(200).json({
+    res.json({
       success: true,
       data: courses,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCourses / limit),
-        totalCourses,
-        hasNextPage: page < Math.ceil(totalCourses / limit),
-        hasPrevPage: page > 1
-      }
+      count: courses.length
     });
   } catch (error) {
+    console.error('Error fetching courses:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching courses',
+      message: 'Failed to fetch courses',
       error: error.message
     });
   }
@@ -125,16 +179,9 @@ const getAllCourses = async (req, res) => {
 const getCourseById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid course ID'
-      });
-    }
-
-    const course = await UnpaidCourse.findById(id).populate('studentsEnrolled.studentId', 'name email');
-
+    
+    const course = await UnpaidCourse.findById(id);
+    
     if (!course) {
       return res.status(404).json({
         success: false,
@@ -142,118 +189,174 @@ const getCourseById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    res.json({
       success: true,
       data: course
     });
   } catch (error) {
+    console.error('Error fetching course:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching course',
+      message: 'Failed to fetch course',
       error: error.message
     });
   }
 };
 
-// Update course (Admin only)
+// Update course
 const updateCourse = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const {
+      courseTitle,
+      tutor,
+      rating,
+      price,
+      category,
+      class: courseClass,
+      courseDetails,
+      videoLinks,
+      isActive
+    } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
+    // Find course
+    const course = await UnpaidCourse.findById(id);
+    if (!course) {
+      return res.status(404).json({
         success: false,
-        message: 'Invalid course ID'
+        message: 'Course not found'
       });
     }
 
-    // Validate category if provided
-    if (updateData.category) {
-      const validCategories = ['jee', 'neet', 'boards'];
-      if (!validCategories.includes(updateData.category.toLowerCase())) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid category. Must be one of: jee, neet, boards'
-        });
-      }
-      updateData.category = updateData.category.toLowerCase();
+    // Parse JSON fields
+    let parsedCourseDetails;
+    let parsedVideoLinks;
+    
+    try {
+      parsedCourseDetails = typeof courseDetails === 'string' 
+        ? JSON.parse(courseDetails) 
+        : courseDetails;
+      parsedVideoLinks = typeof videoLinks === 'string' 
+        ? JSON.parse(videoLinks) 
+        : videoLinks;
+    } catch (parseError) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid JSON format in courseDetails or videoLinks'
+      });
     }
 
+    // Prepare update data
+    const updateData = {};
+    
+    if (courseTitle) updateData.courseTitle = courseTitle.trim();
+    if (tutor) updateData.tutor = tutor.trim();
+    if (rating !== undefined) updateData.rating = parseFloat(rating);
+    if (price !== undefined) updateData.price = parseFloat(price);
+    if (category) updateData.category = category;
+    if (courseClass) updateData.class = courseClass.trim();
+    if (parsedCourseDetails) updateData.courseDetails = parsedCourseDetails;
+    if (parsedVideoLinks) updateData.videoLinks = parsedVideoLinks;
+    if (isActive !== undefined) updateData.isActive = isActive === 'true' || isActive === true;
+
+    // Handle thumbnail update
+    if (req.file) {
+      // Delete old thumbnail
+      if (course.courseThumbnail) {
+        const oldThumbnailPath = path.join(__dirname, '..', course.courseThumbnail);
+        if (fs.existsSync(oldThumbnailPath)) {
+          fs.unlinkSync(oldThumbnailPath);
+        }
+      }
+      
+      updateData.courseThumbnail = `/uploads/course-thumbnails/${req.file.filename}`;
+      updateData.thumbnailMetadata = {
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimeType: req.file.mimetype,
+        uploadedAt: new Date()
+      };
+    }
+
+    // Update course
     const updatedCourse = await UnpaidCourse.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
     );
 
-    if (!updatedCourse) {
-      return res.status(404).json({
-        success: false,
-        message: 'Course not found'
-      });
-    }
-
-    res.status(200).json({
+    res.json({
       success: true,
       message: 'Course updated successfully',
       data: updatedCourse
     });
+
   } catch (error) {
+    console.error('Error updating course:', error);
+    
+    // Delete uploaded file if there was an error
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Error deleting uploaded file:', unlinkError);
+      }
+    }
+
     res.status(500).json({
       success: false,
-      message: 'Error updating course',
+      message: 'Failed to update course',
       error: error.message
     });
   }
 };
 
-// Delete course (Admin only)
+// Delete course
 const deleteCourse = async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid course ID'
-      });
-    }
-
-    const deletedCourse = await UnpaidCourse.findByIdAndDelete(id);
-
-    if (!deletedCourse) {
+    
+    const course = await UnpaidCourse.findById(id);
+    if (!course) {
       return res.status(404).json({
         success: false,
         message: 'Course not found'
       });
     }
 
-    res.status(200).json({
+    // Delete thumbnail file
+    if (course.courseThumbnail) {
+      const thumbnailPath = path.join(__dirname, '..', course.courseThumbnail);
+      if (fs.existsSync(thumbnailPath)) {
+        fs.unlinkSync(thumbnailPath);
+      }
+    }
+
+    // Delete course
+    await UnpaidCourse.findByIdAndDelete(id);
+
+    res.json({
       success: true,
       message: 'Course deleted successfully'
     });
+
   } catch (error) {
+    console.error('Error deleting course:', error);
     res.status(500).json({
       success: false,
-      message: 'Error deleting course',
+      message: 'Failed to delete course',
       error: error.message
     });
   }
 };
 
-// Add video to course (Admin only)
+// Add video to course
 const addVideoToCourse = async (req, res) => {
   try {
     const { id } = req.params;
     const { videoTitle, videoDescription, videoLink, duration } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid course ID'
-      });
-    }
-
+    // Validate required fields
     if (!videoTitle || !videoDescription || !videoLink || !duration) {
       return res.status(400).json({
         success: false,
@@ -261,8 +364,8 @@ const addVideoToCourse = async (req, res) => {
       });
     }
 
+    // Find course
     const course = await UnpaidCourse.findById(id);
-
     if (!course) {
       return res.status(404).json({
         success: false,
@@ -270,60 +373,42 @@ const addVideoToCourse = async (req, res) => {
       });
     }
 
+    // Create new video
     const newVideo = {
-      videoTitle,
-      videoDescription,
-      videoLink,
-      duration
+      videoTitle: videoTitle.trim(),
+      videoDescription: videoDescription.trim(),
+      videoLink: videoLink.trim(),
+      duration: duration.trim()
     };
 
+    // Add video to course
     course.videoLinks.push(newVideo);
-    await course.save();
+    const updatedCourse = await course.save();
 
-    res.status(200).json({
+    res.json({
       success: true,
       message: 'Video added successfully',
-      data: course
+      data: updatedCourse
     });
+
   } catch (error) {
+    console.error('Error adding video:', error);
     res.status(500).json({
       success: false,
-      message: 'Error adding video',
+      message: 'Failed to add video',
       error: error.message
     });
   }
 };
 
-// Enroll student in course
-const enrollStudent = async (req, res) => {
+// Update video in course
+const updateVideoInCourse = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { studentId, mode, schedule } = req.body;
+    const { id, videoId } = req.params;
+    const { videoTitle, videoDescription, videoLink, duration } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(studentId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid course ID or student ID'
-      });
-    }
-
-    if (!mode || !schedule) {
-      return res.status(400).json({
-        success: false,
-        message: 'Mode and schedule are required'
-      });
-    }
-
-    const validModes = ['online', 'offline', 'hybrid'];
-    if (!validModes.includes(mode)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid mode. Must be one of: online, offline, hybrid'
-      });
-    }
-
+    // Find course
     const course = await UnpaidCourse.findById(id);
-
     if (!course) {
       return res.status(404).json({
         success: false,
@@ -331,43 +416,68 @@ const enrollStudent = async (req, res) => {
       });
     }
 
-    if (!course.isActive) {
-      return res.status(400).json({
+    // Find video
+    const video = course.videoLinks.id(videoId);
+    if (!video) {
+      return res.status(404).json({
         success: false,
-        message: 'Course is not active'
+        message: 'Video not found'
       });
     }
 
-    // Check if student is already enrolled
-    const isAlreadyEnrolled = course.studentsEnrolled.some(
-      student => student.studentId.toString() === studentId
-    );
+    // Update video
+    if (videoTitle) video.videoTitle = videoTitle.trim();
+    if (videoDescription) video.videoDescription = videoDescription.trim();
+    if (videoLink) video.videoLink = videoLink.trim();
+    if (duration) video.duration = duration.trim();
 
-    if (isAlreadyEnrolled) {
-      return res.status(400).json({
-        success: false,
-        message: 'Student is already enrolled in this course'
-      });
-    }
+    const updatedCourse = await course.save();
 
-    const enrollmentData = {
-      studentId,
-      mode,
-      schedule
-    };
-
-    course.studentsEnrolled.push(enrollmentData);
-    await course.save();
-
-    res.status(200).json({
+    res.json({
       success: true,
-      message: 'Student enrolled successfully',
-      data: course
+      message: 'Video updated successfully',
+      data: updatedCourse
     });
+
   } catch (error) {
+    console.error('Error updating video:', error);
     res.status(500).json({
       success: false,
-      message: 'Error enrolling student',
+      message: 'Failed to update video',
+      error: error.message
+    });
+  }
+};
+
+// Delete video from course
+const deleteVideoFromCourse = async (req, res) => {
+  try {
+    const { id, videoId } = req.params;
+
+    // Find course
+    const course = await UnpaidCourse.findById(id);
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: 'Course not found'
+      });
+    }
+
+    // Remove video
+    course.videoLinks.pull(videoId);
+    const updatedCourse = await course.save();
+
+    res.json({
+      success: true,
+      message: 'Video deleted successfully',
+      data: updatedCourse
+    });
+
+  } catch (error) {
+    console.error('Error deleting video:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete video',
       error: error.message
     });
   }
@@ -377,44 +487,104 @@ const enrollStudent = async (req, res) => {
 const getCoursesByCategory = async (req, res) => {
   try {
     const { category } = req.params;
-    const { page = 1, limit = 10, isActive = true } = req.query;
+    const courses = await UnpaidCourse.find({ 
+      category: category.toLowerCase(),
+      isActive: true 
+    }).sort({ createdAt: -1 });
 
-    const validCategories = ['jee', 'neet', 'boards'];
-    if (!validCategories.includes(category.toLowerCase())) {
+    res.json({
+      success: true,
+      data: courses,
+      count: courses.length
+    });
+  } catch (error) {
+    console.error('Error fetching courses by category:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch courses by category',
+      error: error.message
+    });
+  }
+};
+
+// Get free courses
+const getFreeCourses = async (req, res) => {
+  try {
+    const freeCourses = await UnpaidCourse.find({ 
+      price: 0,
+      isActive: true 
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: freeCourses,
+      count: freeCourses.length
+    });
+  } catch (error) {
+    console.error('Error fetching free courses:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch free courses',
+      error: error.message
+    });
+  }
+};
+
+// Enroll student
+const enrollStudent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { studentId, mode, schedule } = req.body;
+
+    // Validate required fields
+    if (!studentId || !mode || !schedule) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid category. Must be one of: jee, neet, boards'
+        message: 'Student ID, mode, and schedule are required'
       });
     }
 
-    const filter = {
-      category: category.toLowerCase(),
-      isActive: isActive === 'true'
-    };
+    // Find course
+    const course = await UnpaidCourse.findById(id);
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: 'Course not found'
+      });
+    }
 
-    const courses = await UnpaidCourse.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
+    // Check if student is already enrolled
+    const existingEnrollment = course.studentsEnrolled.find(
+      enrollment => enrollment.studentId.toString() === studentId
+    );
 
-    const totalCourses = await UnpaidCourse.countDocuments(filter);
+    if (existingEnrollment) {
+      return res.status(400).json({
+        success: false,
+        message: 'Student already enrolled'
+      });
+    }
 
-    res.status(200).json({
-      success: true,
-      data: courses,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCourses / limit),
-        totalCourses,
-        hasNextPage: page < Math.ceil(totalCourses / limit),
-        hasPrevPage: page > 1
-      }
+    // Add student to enrolled list
+    course.studentsEnrolled.push({
+      studentId,
+      mode,
+      schedule
     });
+
+    const updatedCourse = await course.save();
+
+    res.json({
+      success: true,
+      message: 'Student enrolled successfully',
+      data: updatedCourse
+    });
+
   } catch (error) {
+    console.error('Error enrolling student:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching courses by category',
+      message: 'Failed to enroll student',
       error: error.message
     });
   }
@@ -427,6 +597,10 @@ module.exports = {
   updateCourse,
   deleteCourse,
   addVideoToCourse,
+  updateVideoInCourse,
+  deleteVideoFromCourse,
   enrollStudent,
-  getCoursesByCategory
+  getCoursesByCategory,
+  getFreeCourses,
+  upload
 };

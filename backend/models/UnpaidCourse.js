@@ -80,7 +80,8 @@ const unpaidCourseSchema = new mongoose.Schema({
   price: {
     type: Number,
     required: true,
-    min: 0
+    min: 0, // Allow 0 for free courses
+    default: 0
   },
   category: {
     type: String,
@@ -103,12 +104,27 @@ const unpaidCourseSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // Add thumbnail metadata for better handling
+  thumbnailMetadata: {
+    originalName: String,
+    size: Number,
+    mimeType: String,
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
   isActive: {
     type: Boolean,
     default: true
   }
 }, {
   timestamps: true
+});
+
+// Virtual for checking if course is free
+unpaidCourseSchema.virtual('isFree').get(function() {
+  return this.price === 0;
 });
 
 // Virtual for total enrolled students count
@@ -140,6 +156,7 @@ unpaidCourseSchema.virtual('totalDuration').get(function() {
 // Index for better search performance
 unpaidCourseSchema.index({ category: 1, isActive: 1 });
 unpaidCourseSchema.index({ courseTitle: 'text', 'courseDetails.description': 'text' });
+unpaidCourseSchema.index({ price: 1 }); // Add index for price-based queries
 
 const UnpaidCourse = mongoose.model('UnpaidCourse', unpaidCourseSchema);
 
