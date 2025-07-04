@@ -20,7 +20,7 @@ app.use('/api/unpaidCourses', unpaidCourseRoutes);
 app.use('/api/paidCourses', paidCourseRoutes);
 
 // Static file serving
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Database connection
 mongoose.connect(process.env.MONGO_URI)

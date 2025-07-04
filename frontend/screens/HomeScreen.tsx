@@ -81,6 +81,26 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   // API Base URL - Replace with your actual API base URL
   const API_BASE_URL = API_BASE; // TODO: Replace with actual API URL
 
+  // Helper function to get proper image source
+  const getImageSource = (thumbnailPath: string) => {
+    // Handle empty or null paths
+    if (!thumbnailPath) {
+      return { uri: 'https://via.placeholder.com/300x200/1a2e1a/00ff88?text=No+Image' };
+    }
+    
+    // Check if it's already a complete URL
+    if (thumbnailPath.startsWith('http://') || thumbnailPath.startsWith('https://')) {
+      return { uri: thumbnailPath };
+    }
+    
+    // Handle paths that may or may not start with /
+    const normalizedPath = thumbnailPath.startsWith('/') 
+      ? thumbnailPath 
+      : `/${thumbnailPath}`;
+    
+    return { uri: `${API_BASE_URL}${normalizedPath}` };
+  };
+
   // Fetch courses from both paid and unpaid endpoints
   // Improved fetchCourses function with better error handling
 const fetchCourses = async () => {
@@ -275,49 +295,55 @@ const fetchCourses = async () => {
       onPress={() => handleCoursePress(item._id)}
       activeOpacity={0.8}
     >
-      <View style={styles.courseImageContainer}>
-        <Image
-          source={{ uri: item.courseThumbnail }}
-          style={styles.courseImage}
-          resizeMode="cover"
-        />
-        <View style={styles.courseBadge}>
-          <Text style={styles.courseBadgeText}>
-            {item.type === 'paid' ? `₹${item.price}` : 'FREE'}
-          </Text>
-        </View>
+      {/* Full width thumbnail image */}
+      <Image
+        source={getImageSource(item.courseThumbnail)}
+        style={styles.courseImage}
+        resizeMode="cover"
+        onError={(error) => {
+          console.log('Image load error for course:', item.courseTitle, error);
+        }}
+      />
+      
+      {/* Top badges row */}
+      <View style={styles.topBadgesRow}>
         <View style={styles.categoryBadge}>
           <Text style={styles.categoryBadgeText}>{item.category.toUpperCase()}</Text>
         </View>
-      </View>
-      
-      <View style={styles.courseContent}>
-        <Text style={styles.courseTitle} numberOfLines={2}>
-          {item.courseTitle}
-        </Text>
-        <Text style={styles.courseTutor}>by {item.tutor}</Text>
-        <Text style={styles.courseSubtitle} numberOfLines={2}>
-          {item.courseDetails.subtitle}
-        </Text>
-        
-        <View style={styles.courseStats}>
-          <View style={styles.ratingContainer}>
-            <Text style={styles.ratingText}>⭐ {item.rating}</Text>
-          </View>
-          <View style={styles.studentsContainer}>
-            <Text style={styles.studentsText}>
-              {item.studentsEnrolled?.length || 0} enrolled
-            </Text>
-          </View>
-          <View style={styles.videosContainer}>
-            <Text style={styles.videosText}>
-              {item.videoLinks?.length || 0} videos
-            </Text>
-          </View>
+        <View style={styles.classBadge}>
+          <Text style={styles.classBadgeText}>{item.class}</Text>
         </View>
-        
-        <View style={styles.classContainer}>
-          <Text style={styles.classText}>Class {item.class}</Text>
+      </View>
+
+      {/* Price badge */}
+      <View style={styles.priceBadge}>
+        <Text style={styles.priceBadgeText}>
+          {item.type === 'paid' ? `₹${item.price}` : 'FREE'}
+        </Text>
+      </View>
+
+      {/* Translucent overlay with course content */}
+      <View style={styles.courseContentOverlay}>
+        <View style={styles.courseContent}>
+          <Text style={styles.courseTitle} numberOfLines={2}>
+            {item.courseTitle}
+          </Text>
+          <Text style={styles.courseTutor} numberOfLines={1}>by {item.tutor}</Text>
+          
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.ratingText}>⭐ {item.rating}</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.videosText}>{item.videoLinks?.length || 0} videos</Text>
+            </View>
+          </View>
+          
+          <View style={styles.enrollmentRow}>
+            <Text style={styles.enrollmentText}>
+              {item.studentsEnrolled?.length || 0} students
+            </Text>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -437,28 +463,28 @@ const fetchCourses = async () => {
           </View>
         ) : (
           <FlatList
-            data={filteredCourses}
-            renderItem={renderCourseCard}
-            keyExtractor={(item) => item._id}
-            numColumns={2}
-            columnWrapperStyle={styles.courseRow}
-            contentContainerStyle={styles.courseListContent}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[BRAND.primaryColor]}
-                tintColor={BRAND.primaryColor}
-              />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No courses found</Text>
-                <Text style={styles.emptySubtext}>Try adjusting your filters</Text>
-              </View>
-            }
-          />
+          data={filteredCourses}
+          renderItem={renderCourseCard}
+          keyExtractor={(item) => item._id}
+          numColumns={1}
+          contentContainerStyle={styles.courseListContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[BRAND.primaryColor]}
+              tintColor={BRAND.primaryColor}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No courses found</Text>
+              <Text style={styles.emptySubtext}>Try adjusting your filters</Text>
+            </View>
+          }
+        />
+
         )}
       </Animated.View>
 
@@ -537,15 +563,15 @@ const styles = StyleSheet.create({
   // Welcome Section
   welcomeSection: {
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingVertical: 15,
     alignItems: 'center',
   },
   welcomeTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '600',
     color: '#ffffff',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
     letterSpacing: 0.5,
   },
   welcomeSubtitle: {
@@ -596,117 +622,170 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
   },
-  courseRow: {
-    justifyContent: 'space-between',
-  },
+  
+  // UPDATED: Full thumbnail course card design
   courseCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 15,
-    marginBottom: 15,
-    width: (width - 50) / 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 16,
+    marginBottom: 16,
+    width: '100%',
+    height: 200, // Fixed height for consistency
     borderWidth: 1,
-    borderColor: 'rgba(0, 255, 136, 0.2)',
+    borderColor: 'rgba(0, 255, 136, 0.3)',
     overflow: 'hidden',
-  },
-  courseImageContainer: {
+    shadowColor: BRAND.primaryColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
     position: 'relative',
-    height: 120,
   },
+  
+  // UPDATED: Full width and height image
   courseImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
     height: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  courseBadge: {
+  
+  // UPDATED: Badges positioned over the image
+  topBadgesRow: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: BRAND.primaryColor,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  courseBadgeText: {
-    color: BRAND.backgroundColor,
-    fontSize: 10,
-    fontWeight: '600',
+    top: 12,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    zIndex: 3,
   },
   categoryBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   categoryBadgeText: {
     color: '#ffffff',
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
-  courseContent: {
-    padding: 12,
-  },
-  courseTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ffffff',
-    marginBottom: 4,
-    lineHeight: 18,
-  },
-  courseTutor: {
-    fontSize: 11,
-    color: BRAND.primaryColor,
-    marginBottom: 6,
-  },
-  courseSubtitle: {
-    fontSize: 11,
-    color: '#cccccc',
-    marginBottom: 8,
-    lineHeight: 14,
-  },
-  courseStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  ratingText: {
-    fontSize: 10,
-    color: '#ffffff',
-  },
-  studentsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  studentsText: {
-    fontSize: 10,
-    color: '#aaaaaa',
-  },
-  videosContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  videosText: {
-    fontSize: 10,
-    color: '#aaaaaa',
-  },
-  classContainer: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(0, 255, 136, 0.2)',
+  classBadge: {
+    backgroundColor: 'rgba(0, 255, 136, 0.9)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
-  classText: {
+  classBadgeText: {
+    color: BRAND.backgroundColor,
     fontSize: 10,
+    fontWeight: '700',
+  },
+  priceBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: BRAND.primaryColor,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 4,
+    zIndex: 3,
+  },
+  priceBadgeText: {
+    color: BRAND.backgroundColor,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  
+  // NEW: Translucent overlay container
+  courseContentOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '50%', // Takes up bottom half of the card
+    // For React Native, we'll use a dark overlay with opacity
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+    zIndex: 2,
+  },
+  
+  // UPDATED: Course content positioned within the overlay
+  courseContent: {
+    padding: 16,
+    paddingTop: 24, // Extra padding to ensure text doesn't blend with image
+  },
+  courseTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 4,
+    lineHeight: 18,
+    letterSpacing: 0.3,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  courseTutor: {
+    fontSize: 11,
     color: BRAND.primaryColor,
+    marginBottom: 8,
     fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  
+  // UPDATED: Stats and enrollment with better contrast
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ratingText: {
+    fontSize: 11,
+    color: '#ffffff',
+    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  videosText: {
+    fontSize: 11,
+    color: '#cccccc',
+    fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  enrollmentRow: {
+    alignItems: 'flex-start',
+  },
+  enrollmentText: {
+    fontSize: 10,
+    color: '#aaaaaa',
+    fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 
   // Loading and Empty States
