@@ -33,6 +33,66 @@ const BRAND = {
   accentColor: '#1a2e1a',
 };
 
+// Quick Actions Configuration
+const QUICK_ACTIONS = [
+  {
+    id: 'paid_notes',
+    title: 'Paid Notes',
+    icon: 'note-add',
+    color: '#FFD700',
+    screen: 'AdminPaidNotesScreen',
+  },
+  {
+    id: 'free_notes',
+    title: 'Free Notes',
+    icon: 'note',
+    color: '#4CAF50',
+    screen: 'AdminAddFreeNotesScreen',
+  },
+  {
+    id: 'paid_materials',
+    title: 'Paid Materials',
+    icon: 'library-books',
+    color: '#FF6B6B',
+    screen: 'AdminAddPaidMaterialsScreen',
+  },
+  {
+    id: 'free_materials',
+    title: 'Free Materials',
+    icon: 'menu-book',
+    color: '#4ECDC4',
+    screen: 'AdminAddFreeMaterialsScreen',
+  },
+  {
+    id: 'paid_dpp',
+    title: 'Paid DPPs',
+    icon: 'assignment',
+    color: '#9C27B0',
+    screen: 'AdminAddPaidDPPScreen',
+  },
+  {
+    id: 'free_dpp',
+    title: 'Free DPPs',
+    icon: 'assignment-turned-in',
+    color: '#2196F3',
+    screen: 'AdminAddFreeDPPScreen',
+  },
+  {
+    id: 'paid_test_series',
+    title: 'Paid Tests',
+    icon: 'quiz',
+    color: '#FF5722',
+    screen: 'AdminAddPaidTestSeriesScreen',
+  },
+  {
+    id: 'free_test_series',
+    title: 'Free Tests',
+    icon: 'fact-check',
+    color: '#8BC34A',
+    screen: 'AdminAddFreeTestSeriesScreen',
+  },
+];
+
 export default function AdminDashboardScreen() {
   const navigation = useNavigation<AdminDashboardNavigationProp>();
   const [isLoading, setIsLoading] = useState(false);
@@ -44,6 +104,8 @@ export default function AdminDashboardScreen() {
   const headerTranslateY = useRef(new Animated.Value(-20)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.8)).current;
+  const quickActionsOpacity = useRef(new Animated.Value(0)).current;
+  const quickActionsTranslateY = useRef(new Animated.Value(30)).current;
   const glowOpacity = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
 
@@ -86,6 +148,22 @@ export default function AdminDashboardScreen() {
         }),
       ]).start();
     }, 200);
+
+    // Quick Actions animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(quickActionsOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(quickActionsTranslateY, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 400);
 
     // Cards animation
     setTimeout(() => {
@@ -131,38 +209,21 @@ export default function AdminDashboardScreen() {
     pulse();
   };
 
+  // Simplified quick action handler - direct navigation
+  const handleQuickAction = (action: typeof QUICK_ACTIONS[0]) => {
+    console.log(`Navigating to ${action.screen}`);
+    navigation.navigate(action.screen as keyof RootStackParamList);
+  };
+
+  // Simplified course handlers - direct navigation
   const handleAddPaidCourse = () => {
-    Alert.alert(
-      "Add Paid Course",
-      "Navigate to create a new paid course?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Continue", 
-          onPress: () => {
-            console.log("Navigate to Add Paid Course Screen");
-            navigation.navigate('AdminAddPaidCourseScreen');
-          }
-        }
-      ]
-    );
+    console.log("Navigate to Add Paid Course Screen");
+    navigation.navigate('AdminAddPaidCourseScreen');
   };
 
   const handleAddFreeCourse = () => {
-    Alert.alert(
-      "Add Free Course",
-      "Navigate to create a new free course?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Continue", 
-          onPress: () => {
-            console.log("Navigate to Add Free Course Screen");
-            navigation.navigate('AdminAddUnpaidCourseScreen');
-          }
-        }
-      ]
-    );
+    console.log("Navigate to Add Free Course Screen");
+    navigation.navigate('AdminAddUnpaidCourseScreen');
   };
 
   const handleLogout = async () => {
@@ -196,6 +257,36 @@ export default function AdminDashboardScreen() {
       ]
     );
   };
+
+  const renderQuickActionButton = (action: typeof QUICK_ACTIONS[0], index: number) => (
+    <Animated.View
+      key={action.id}
+      style={[
+        styles.quickActionButton,
+        {
+          opacity: quickActionsOpacity,
+          transform: [
+            { translateY: quickActionsTranslateY },
+            { scale: pulseScale }
+          ],
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          styles.quickActionTouchable,
+          { borderColor: action.color + '40' }
+        ]}
+        onPress={() => handleQuickAction(action)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.quickActionIconContainer, { backgroundColor: action.color + '20' }]}>
+          <MaterialIcons name={action.icon as keyof typeof MaterialIcons.glyphMap} size={24} color={action.color} />
+        </View>
+        <Text style={styles.quickActionTitle}>{action.title}</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
 
   const renderActionCard = (
     title: string,
@@ -319,6 +410,22 @@ export default function AdminDashboardScreen() {
       >
         {/* Main Content */}
         <View style={styles.contentContainer}>
+          {/* Quick Actions Section */}
+          <Animated.View 
+            style={[
+              styles.quickActionsSection,
+              {
+                opacity: quickActionsOpacity,
+                transform: [{ translateY: quickActionsTranslateY }],
+              },
+            ]}
+          >
+            <Text style={styles.quickActionsTitle}>Quick Actions</Text>
+            <View style={styles.quickActionsGrid}>
+              {QUICK_ACTIONS.map((action, index) => renderQuickActionButton(action, index))}
+            </View>
+          </Animated.View>
+
           <Animated.View style={[styles.welcomeSection, { opacity: fadeAnim }]}>
             <Text style={styles.sectionTitle}>Course Management</Text>
             <Text style={styles.sectionSubtitle}>
@@ -484,8 +591,54 @@ const styles = StyleSheet.create({
   // Content
   contentContainer: {
     paddingHorizontal: 20,
-    paddingTop: 30,
+    paddingTop: 20,
   },
+
+  // Quick Actions Section
+  quickActionsSection: {
+    marginBottom: 30,
+  },
+  quickActionsTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 15,
+    letterSpacing: 0.5,
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 5,
+  },
+  quickActionButton: {
+    width: (width - 60) / 4, // 4 buttons per row with spacing
+    marginBottom: 15,
+  },
+  quickActionTouchable: {
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  quickActionIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  quickActionTitle: {
+    fontSize: 10,
+    color: '#ffffff',
+    textAlign: 'center',
+    fontWeight: '600',
+    lineHeight: 12,
+  },
+
   welcomeSection: {
     marginBottom: 30,
   },

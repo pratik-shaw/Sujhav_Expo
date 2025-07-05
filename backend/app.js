@@ -1,3 +1,4 @@
+// app.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -14,10 +15,12 @@ app.use(cors());
 const authRoutes = require('./routes/authRoutes');
 const unpaidCourseRoutes = require('./routes/unpaidCourseRoutes');
 const paidCourseRoutes = require('./routes/paidCourseRoutes');
+const paidNotesRoutes = require('./routes/paidNotesRoutes'); // New route
 
 app.use('/api/auth', authRoutes);
 app.use('/api/unpaidCourses', unpaidCourseRoutes);
 app.use('/api/paidCourses', paidCourseRoutes);
+app.use('/api/paidNotes', paidNotesRoutes); // New route
 
 // Static file serving
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
