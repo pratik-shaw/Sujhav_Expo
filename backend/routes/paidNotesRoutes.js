@@ -5,19 +5,20 @@ const {
   createNotes,
   getAllNotes,
   getNotesById,
+  getThumbnail,
+  getPDF,
   updateNotes,
   deleteNotes,
   addPDFToNotes,
   updatePDFInNotes,
   deletePDFFromNotes,
-  enrollStudent,
   getNotesByCategory,
+  incrementViewCount,
+  purchaseNotes,
+  getStudentPurchasedNotes,
   thumbnailUpload,
   pdfUpload
 } = require('../controllers/paidNotesController');
-
-// Note: Add authentication middleware as needed
-// const { authenticateAdmin, authenticateUser } = require('../middleware/auth');
 
 // Admin routes (require admin authentication)
 router.post('/', thumbnailUpload.single('thumbnail'), createNotes);
@@ -25,16 +26,32 @@ router.put('/:id', thumbnailUpload.single('thumbnail'), updateNotes);
 router.delete('/:id', deleteNotes);
 
 // PDF management routes (Admin only)
-router.post('/:id/pdfs', pdfUpload.single('pdf'), addPDFToNotes);
+router.post('/:id/pdfs', (req, res, next) => {
+  pdfUpload.single('pdf')(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'File upload error'
+      });
+    }
+    next();
+  });
+}, addPDFToNotes);
+
 router.put('/:id/pdfs/:pdfId', pdfUpload.single('pdf'), updatePDFInNotes);
 router.delete('/:id/pdfs/:pdfId', deletePDFFromNotes);
 
 // Public routes (accessible by users)
 router.get('/', getAllNotes);
 router.get('/category/:category', getNotesByCategory);
-router.get('/:id', getNotesById); // This should be last among GET routes
+router.get('/:id', getNotesById);
 
-// User routes (require user authentication and payment)
-router.post('/:id/enroll', enrollStudent);
+// File serving routes
+router.get('/:id/thumbnail', getThumbnail);
+router.get('/:id/pdfs/:pdfId', getPDF);
+
+// User interaction routes
+router.post('/:id/view', incrementViewCount);
 
 module.exports = router;

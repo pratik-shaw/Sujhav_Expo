@@ -31,7 +31,7 @@ const BRAND = {
   goldColor: '#ffd700',
 };
 
-// Mock API configuration
+// API configuration
 const API_BASE_URL = API_BASE;
 
 // Types
@@ -40,40 +40,27 @@ interface PaidNotes {
   notesTitle: string;
   tutor: string;
   rating: number;
-  price: number;
   category: 'jee' | 'neet' | 'boards';
   class: string;
+  price: number;
   notesDetails: {
     subtitle: string;
     description: string;
   };
-  pdfLinks: PDFLink[];
-  notesThumbnail: string;
+  pdfs: PDF[];
   thumbnailUri?: string;
-  thumbnailMetadata?: {
-    originalName: string;
-    size: number;
-    mimeType: string;
-    uploadedAt: Date;
-  };
   isActive: boolean;
-  studentsEnrolled?: StudentEnrollment[];
+  viewCount?: number;
   createdAt?: string;
 }
 
-interface PDFLink {
+interface PDF {
   _id?: string;
   pdfTitle: string;
   pdfDescription: string;
-  pdfUrl: string;
-  fileSize: string;
+  originalName: string;
+  fileSize: number;
   pages?: number;
-}
-
-interface StudentEnrollment {
-  _id?: string;
-  studentId: string;
-  enrolledAt?: Date;
 }
 
 interface AdminPaidNotesScreenProps {
@@ -98,30 +85,27 @@ export default function AdminPaidNotesScreen({
     notesTitle: '',
     tutor: '',
     rating: 0,
-    price: 1,
     category: 'jee',
     class: '',
+    price: 0,
     notesDetails: {
       subtitle: '',
       description: '',
     },
-    pdfLinks: [],
-    notesThumbnail: '',
+    pdfs: [],
     thumbnailUri: '',
     isActive: true,
-    studentsEnrolled: [],
   });
 
   // PDF form state
-  const [pdfForm, setPdfForm] = useState<PDFLink>({
+  const [pdfForm, setPdfForm] = useState<PDF>({
     pdfTitle: '',
     pdfDescription: '',
-    pdfUrl: '',
-    fileSize: '',
+    originalName: '',
+    fileSize: 0,
     pages: 0,
   });
 
-  const [editingPDF, setEditingPDF] = useState<PDFLink | null>(null);
   const [selectedPDFFile, setSelectedPDFFile] = useState<any>(null);
 
   // Load notes on mount
@@ -154,8 +138,7 @@ export default function AdminPaidNotesScreen({
         const imageUri = result.assets[0].uri;
         setNotesForm({ 
           ...notesForm, 
-          thumbnailUri: imageUri,
-          notesThumbnail: imageUri
+          thumbnailUri: imageUri
         });
       }
     } catch (error) {
@@ -178,7 +161,8 @@ export default function AdminPaidNotesScreen({
         setPdfForm({
           ...pdfForm,
           pdfTitle: pdfFile.name || 'PDF Document',
-          fileSize: pdfFile.size ? `${(pdfFile.size / 1024 / 1024).toFixed(2)} MB` : 'Unknown',
+          originalName: pdfFile.name || 'document.pdf',
+          fileSize: pdfFile.size || 0,
         });
       }
     } catch (error) {
@@ -226,78 +210,72 @@ export default function AdminPaidNotesScreen({
   };
 
   const saveNotes = async () => {
-  try {
-    if (!validateNotes()) return;
-    
-    setLoading(true);
-    const url = editingNotes 
-      ? `${API_BASE_URL}/paidNotes/${editingNotes._id}`
-      : `${API_BASE_URL}/paidNotes`;
-    
-    const method = editingNotes ? 'PUT' : 'POST';
-    
-    const formData = new FormData();
-    
-    // Add text fields
-    formData.append('notesTitle', notesForm.notesTitle);
-    formData.append('tutor', notesForm.tutor);
-    formData.append('rating', notesForm.rating.toString());
-    formData.append('price', notesForm.price.toString());
-    formData.append('category', notesForm.category);
-    formData.append('class', notesForm.class);
-    formData.append('isActive', notesForm.isActive.toString());
-    
-    // Add notesDetails as individual fields instead of JSON string
-    formData.append('notesDetails[subtitle]', notesForm.notesDetails.subtitle);
-    formData.append('notesDetails[description]', notesForm.notesDetails.description);
-    
-    // Add pdfLinks as JSON string (empty array if no PDFs)
-    formData.append('pdfLinks', JSON.stringify(notesForm.pdfLinks || []));
-    
-    // Add thumbnail file if exists
-    if (notesForm.thumbnailUri) {
-      const filename = notesForm.thumbnailUri.split('/').pop() || 'thumbnail.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : 'image/jpeg';
+    try {
+      if (!validateNotes()) return;
       
-      formData.append('thumbnail', {
-        uri: notesForm.thumbnailUri,
-        type: type,
-        name: filename,
-      } as any);
+      setLoading(true);
+      const url = editingNotes 
+        ? `${API_BASE_URL}/paidNotes/${editingNotes._id}`
+        : `${API_BASE_URL}/paidNotes`;
+      
+      const method = editingNotes ? 'PUT' : 'POST';
+      
+      const formData = new FormData();
+      
+      // Add text fields
+      formData.append('notesTitle', notesForm.notesTitle);
+      formData.append('tutor', notesForm.tutor);
+      formData.append('rating', notesForm.rating.toString());
+      formData.append('category', notesForm.category);
+      formData.append('class', notesForm.class);
+      formData.append('price', notesForm.price.toString());
+      formData.append('isActive', notesForm.isActive.toString());
+      formData.append('notesDetails', JSON.stringify(notesForm.notesDetails));
+      
+      // Add thumbnail file if exists
+      if (notesForm.thumbnailUri) {
+        const filename = notesForm.thumbnailUri.split('/').pop() || 'thumbnail.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        
+        formData.append('thumbnail', {
+          uri: notesForm.thumbnailUri,
+          type: type,
+          name: filename,
+        } as any);
+      }
+      
+      const response = await fetch(url, {
+        method,
+        body: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        Alert.alert('Success', editingNotes ? 'Paid notes updated!' : 'Paid notes created!');
+        resetForm();
+        setShowAddModal(false);
+        loadNotes();
+      } else {
+        Alert.alert('Error', data.message || 'Failed to save paid notes');
+      }
+    } catch (error) {
+      console.error('Error saving paid notes:', error);
+      Alert.alert('Error', 'Failed to save paid notes. Please check your internet connection.');
+    } finally {
+      setLoading(false);
     }
-    
-    const response = await fetch(url, {
-      method,
-      body: formData,
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Server response:', errorText);
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (data.success) {
-      Alert.alert('Success', editingNotes ? 'Paid notes updated!' : 'Paid notes created!');
-      resetForm();
-      setShowAddModal(false);
-      loadNotes();
-    } else {
-      Alert.alert('Error', data.message || 'Failed to save paid notes');
-    }
-  } catch (error) {
-    console.error('Error saving paid notes:', error);
-    Alert.alert('Error', 'Failed to save paid notes. Please check your internet connection.');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const deleteNotes = async (notesId: string) => {
     if (!notesId) {
@@ -353,20 +331,27 @@ export default function AdminPaidNotesScreen({
       }
       
       setLoading(true);
+      console.log('Adding PDF to notes:', selectedNotes._id);
+      console.log('PDF Form:', pdfForm);
+      console.log('Selected PDF File:', selectedPDFFile);
+      
       const formData = new FormData();
       
-      formData.append('pdfTitle', pdfForm.pdfTitle);
-      formData.append('pdfDescription', pdfForm.pdfDescription);
-      formData.append('fileSize', pdfForm.fileSize);
-      formData.append('pages', pdfForm.pages?.toString() || '0');
+      // Add text fields
+      formData.append('pdfTitle', pdfForm.pdfTitle.trim());
+      formData.append('pdfDescription', pdfForm.pdfDescription.trim());
+      formData.append('pages', (pdfForm.pages || 0).toString());
       
+      // Add PDF file
       if (selectedPDFFile) {
         formData.append('pdf', {
           uri: selectedPDFFile.uri,
           type: 'application/pdf',
-          name: selectedPDFFile.name,
+          name: selectedPDFFile.name || 'document.pdf',
         } as any);
       }
+      
+      console.log('FormData prepared, making request...');
       
       const response = await fetch(`${API_BASE_URL}/paidNotes/${selectedNotes._id}/pdfs`, {
         method: 'POST',
@@ -376,11 +361,16 @@ export default function AdminPaidNotesScreen({
         },
       });
       
+      console.log('Response status:', response.status);
+      
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server error response:', errorText);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log('Success response:', data);
       
       if (data.success) {
         Alert.alert('Success', 'PDF added to paid notes!');
@@ -392,7 +382,7 @@ export default function AdminPaidNotesScreen({
       }
     } catch (error) {
       console.error('Error adding PDF:', error);
-      Alert.alert('Error', 'Failed to add PDF. Please check your internet connection.');
+      Alert.alert('Error', 'Failed to add PDF. Please check your internet connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -466,16 +456,16 @@ export default function AdminPaidNotesScreen({
       Alert.alert('Error', 'Description is required');
       return false;
     }
-    if (!notesForm.thumbnailUri && !notesForm.notesThumbnail) {
+    if (!notesForm.thumbnailUri && !editingNotes) {
       Alert.alert('Error', 'Thumbnail is required');
-      return false;
-    }
-    if (notesForm.price < 1) {
-      Alert.alert('Error', 'Price must be at least ₹1 for paid notes');
       return false;
     }
     if (notesForm.rating < 0 || notesForm.rating > 5) {
       Alert.alert('Error', 'Rating must be between 0 and 5');
+      return false;
+    }
+    if (notesForm.price < 0) {
+      Alert.alert('Error', 'Price must be 0 or greater');
       return false;
     }
     return true;
@@ -490,7 +480,7 @@ export default function AdminPaidNotesScreen({
       Alert.alert('Error', 'PDF description is required');
       return false;
     }
-    if (!selectedPDFFile && !editingPDF) {
+    if (!selectedPDFFile) {
       Alert.alert('Error', 'Please select a PDF file');
       return false;
     }
@@ -503,18 +493,16 @@ export default function AdminPaidNotesScreen({
       notesTitle: '',
       tutor: '',
       rating: 0,
-      price: 1,
       category: 'jee',
       class: '',
+      price: 0,
       notesDetails: {
         subtitle: '',
         description: '',
       },
-      pdfLinks: [],
-      notesThumbnail: '',
+      pdfs: [],
       thumbnailUri: '',
       isActive: true,
-      studentsEnrolled: [],
     });
     setEditingNotes(null);
   };
@@ -523,23 +511,21 @@ export default function AdminPaidNotesScreen({
     setPdfForm({
       pdfTitle: '',
       pdfDescription: '',
-      pdfUrl: '',
-      fileSize: '',
+      originalName: '',
+      fileSize: 0,
       pages: 0,
     });
     setSelectedPDFFile(null);
-    setEditingPDF(null);
   };
 
   const editNotes = (notes: PaidNotes) => {
     setNotesForm({
       ...notes,
       notesDetails: notes.notesDetails || { subtitle: '', description: '' },
-      pdfLinks: notes.pdfLinks || [],
+      pdfs: notes.pdfs || [],
       rating: notes.rating || 0,
-      price: notes.price || 1,
+      price: notes.price || 0,
       isActive: notes.isActive !== undefined ? notes.isActive : true,
-      studentsEnrolled: notes.studentsEnrolled || [],
       thumbnailUri: '',
     });
     setEditingNotes(notes);
@@ -551,8 +537,16 @@ export default function AdminPaidNotesScreen({
     setShowPDFModal(true);
   };
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   const formatPrice = (price: number) => {
-    return price >= 1000 ? `₹${(price / 1000).toFixed(1)}K` : `₹${price}`;
+    return `₹${price.toLocaleString('en-IN')}`;
   };
 
   // Render functions
@@ -564,8 +558,7 @@ export default function AdminPaidNotesScreen({
           <Text style={styles.notesTutor}>by {item.tutor || 'Unknown'}</Text>
         </View>
         <View style={styles.priceContainer}>
-          <Text style={styles.priceText}>{formatPrice(item.price || 1)}</Text>
-          <Text style={styles.priceLabel}>PREMIUM</Text>
+          <Text style={styles.priceText}>{formatPrice(item.price || 0)}</Text>
         </View>
       </View>
       
@@ -573,9 +566,7 @@ export default function AdminPaidNotesScreen({
         <Text style={styles.infoText}>Category: {item.category ? item.category.toUpperCase() : 'N/A'}</Text>
         <Text style={styles.infoText}>Class: {item.class || 'N/A'}</Text>
         <Text style={styles.infoText}>Rating: ⭐ {item.rating || 0}</Text>
-        <Text style={styles.infoText}>
-          Students: {item.studentsEnrolled?.length || 0}
-        </Text>
+        <Text style={styles.infoText}>Views: {item.viewCount || 0}</Text>
         <Text style={[styles.infoText, { color: item.isActive ? BRAND.primaryColor : BRAND.errorColor }]}>
           {item.isActive ? 'Active' : 'Inactive'}
         </Text>
@@ -597,7 +588,7 @@ export default function AdminPaidNotesScreen({
           style={[styles.actionButton, styles.pdfButton]}
           onPress={() => managePDFs(item)}
         >
-          <Text style={styles.actionButtonText}>PDFs ({item.pdfLinks?.length || 0})</Text>
+          <Text style={styles.actionButtonText}>PDFs ({item.pdfs?.length || 0})</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -610,12 +601,12 @@ export default function AdminPaidNotesScreen({
     </View>
   );
 
-  const renderPDFItem = ({ item }: { item: PDFLink }) => (
+  const renderPDFItem = ({ item }: { item: PDF }) => (
     <View style={styles.pdfItem}>
       <View style={styles.pdfContent}>
         <Text style={styles.pdfTitle}>{item.pdfTitle || 'Untitled PDF'}</Text>
         <Text style={styles.pdfDescription}>{item.pdfDescription || 'No description'}</Text>
-        <Text style={styles.pdfSize}>Size: {item.fileSize || 'N/A'}</Text>
+        <Text style={styles.pdfSize}>Size: {formatFileSize(item.fileSize || 0)}</Text>
         {item.pages && item.pages > 0 && (
           <Text style={styles.pdfPages}>Pages: {item.pages}</Text>
         )}
@@ -732,36 +723,36 @@ export default function AdminPaidNotesScreen({
               />
             </View>
 
-            {/* Rating and Price */}
-            <View style={styles.rowContainer}>
-              <View style={styles.halfInput}>
-                <Text style={styles.inputLabel}>Rating (0-5)</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={notesForm.rating?.toString() || '0'}
-                  onChangeText={(text) => {
-                    const rating = parseFloat(text) || 0;
-                    setNotesForm({ ...notesForm, rating: Math.min(Math.max(rating, 0), 5) });
-                  }}
-                  placeholder="0"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                />
-              </View>
-              <View style={styles.halfInput}>
-                <Text style={styles.inputLabel}>Price (₹) - Min ₹1 *</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={notesForm.price?.toString() || '1'}
-                  onChangeText={(text) => {
-                    const price = parseFloat(text) || 1;
-                    setNotesForm({ ...notesForm, price: Math.max(price, 1) });
-                  }}
-                  placeholder="1"
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
-                />
-              </View>
+            {/* Price */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Price (₹) *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={notesForm.price?.toString() || '0'}
+                onChangeText={(text) => {
+                  const price = parseFloat(text) || 0;
+                  setNotesForm({ ...notesForm, price: Math.max(price, 0) });
+                }}
+                placeholder="0"
+                placeholderTextColor="#666"
+                keyboardType="numeric"
+              />
+            </View>
+
+            {/* Rating */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Rating (0-5)</Text>
+              <TextInput
+                style={styles.textInput}
+                value={notesForm.rating?.toString() || '0'}
+                onChangeText={(text) => {
+                  const rating = parseFloat(text) || 0;
+                  setNotesForm({ ...notesForm, rating: Math.min(Math.max(rating, 0), 5) });
+                }}
+                placeholder="0"
+                placeholderTextColor="#666"
+                keyboardType="numeric"
+              />
             </View>
 
             {/* Category */}
@@ -846,9 +837,9 @@ export default function AdminPaidNotesScreen({
                 </Text>
               </TouchableOpacity>
               
-              {(notesForm.thumbnailUri || notesForm.notesThumbnail) && (
+              {notesForm.thumbnailUri && (
                 <Image
-                  source={{ uri: notesForm.thumbnailUri || notesForm.notesThumbnail }}
+                  source={{ uri: notesForm.thumbnailUri }}
                   style={styles.thumbnailPreview}
                   resizeMode="cover"
                 />
@@ -908,7 +899,7 @@ export default function AdminPaidNotesScreen({
               <Text style={styles.modalBackButtonText}>← Back</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>
-              Manage PDFs: {selectedNotes?.notesTitle || 'Unknown'}
+              Manage PDFs - {selectedNotes?.notesTitle || 'Unknown Notes'}
             </Text>
             <TouchableOpacity
               style={styles.closeButton}
@@ -920,7 +911,7 @@ export default function AdminPaidNotesScreen({
 
           <ScrollView style={styles.modalContent}>
             {/* Add PDF Section */}
-            <View style={styles.section}>
+            <View style={styles.addPDFSection}>
               <Text style={styles.sectionTitle}>Add New PDF</Text>
               
               {/* PDF Title */}
@@ -954,34 +945,34 @@ export default function AdminPaidNotesScreen({
                 <Text style={styles.inputLabel}>Number of Pages</Text>
                 <TextInput
                   style={styles.textInput}
-                  value={pdfForm.pages?.toString() || ''}
+                  value={pdfForm.pages?.toString() || '0'}
                   onChangeText={(text) => {
                     const pages = parseInt(text) || 0;
                     setPdfForm({ ...pdfForm, pages: Math.max(pages, 0) });
                   }}
-                  placeholder="Enter number of pages"
+                  placeholder="0"
                   placeholderTextColor="#666"
                   keyboardType="numeric"
                 />
               </View>
 
-              {/* PDF File Selection */}
+              {/* PDF File Upload */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>PDF File *</Text>
                 <TouchableOpacity
-                  style={styles.pdfPickerButton}
+                  style={styles.pdfUploadButton}
                   onPress={pickPDF}
                 >
-                  <Text style={styles.pdfPickerButtonText}>
-                    {selectedPDFFile ? selectedPDFFile.name : 'Select PDF File'}
+                  <Text style={styles.pdfUploadButtonText}>
+                    {selectedPDFFile ? 'Change PDF File' : 'Select PDF File'}
                   </Text>
                 </TouchableOpacity>
                 
                 {selectedPDFFile && (
                   <View style={styles.selectedFileInfo}>
-                    <Text style={styles.selectedFileName}>📄 {selectedPDFFile.name}</Text>
+                    <Text style={styles.selectedFileName}>{selectedPDFFile.name}</Text>
                     <Text style={styles.selectedFileSize}>
-                      Size: {pdfForm.fileSize || 'Calculating...'}
+                      Size: {formatFileSize(selectedPDFFile.size || 0)}
                     </Text>
                   </View>
                 )}
@@ -1002,39 +993,29 @@ export default function AdminPaidNotesScreen({
             </View>
 
             {/* Existing PDFs Section */}
-            <View style={styles.section}>
+            <View style={styles.existingPDFsSection}>
               <Text style={styles.sectionTitle}>
-                Existing PDFs ({selectedNotes?.pdfLinks?.length || 0})
+                Existing PDFs ({selectedNotes?.pdfs?.length || 0})
               </Text>
               
-              {selectedNotes?.pdfLinks && selectedNotes.pdfLinks.length > 0 ? (
+              {selectedNotes?.pdfs && selectedNotes.pdfs.length > 0 ? (
                 <FlatList
-                  data={selectedNotes.pdfLinks}
+                  data={selectedNotes.pdfs}
                   renderItem={renderPDFItem}
                   keyExtractor={(item, index) => item._id || index.toString()}
                   scrollEnabled={false}
-                  ItemSeparatorComponent={() => <View style={styles.pdfSeparator} />}
+                  ItemSeparatorComponent={() => <View style={styles.pdfItemSeparator} />}
                 />
               ) : (
                 <View style={styles.noPDFsContainer}>
                   <Text style={styles.noPDFsText}>No PDFs added yet</Text>
-                  <Text style={styles.noPDFsSubtext}>
-                    Add your first PDF to get started
-                  </Text>
+                  <Text style={styles.noPDFsSubtext}>Add your first PDF above</Text>
                 </View>
               )}
             </View>
           </ScrollView>
         </SafeAreaView>
       </Modal>
-
-      {/* Loading Overlay */}
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={BRAND.primaryColor} />
-          <Text style={styles.loadingOverlayText}>Please wait...</Text>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -1051,141 +1032,47 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: BRAND.accentColor,
     borderBottomWidth: 1,
-    borderBottomColor: BRAND.primaryColor,
+    borderBottomColor: BRAND.accentColor,
   },
   backButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: BRAND.backgroundColor,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: BRAND.accentColor,
   },
   backButtonText: {
     color: BRAND.primaryColor,
-    fontSize: 14,
     fontWeight: '600',
+    fontSize: 16,
   },
   headerTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
+    color: BRAND.primaryColor,
     textAlign: 'center',
     flex: 1,
   },
   addButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingVertical: 8,
+    borderRadius: 8,
     backgroundColor: BRAND.primaryColor,
   },
   addButtonText: {
     color: BRAND.backgroundColor,
-    fontSize: 14,
     fontWeight: '600',
+    fontSize: 16,
   },
   listContainer: {
-    padding: 16,
-  },
-  notesCard: {
-    backgroundColor: BRAND.accentColor,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '20',
-  },
-  notesHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  notesHeaderLeft: {
-    flex: 1,
-  },
-  notesTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  notesTutor: {
-    color: '#999',
-    fontSize: 14,
-  },
-  priceContainer: {
-    alignItems: 'center',
-    backgroundColor: BRAND.goldColor + '20',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BRAND.goldColor,
-  },
-  priceText: {
-    color: BRAND.goldColor,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  priceLabel: {
-    color: BRAND.goldColor,
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  notesInfo: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-  },
-  infoText: {
-    color: '#ccc',
-    fontSize: 12,
-    marginRight: 16,
-    marginBottom: 4,
-  },
-  notesSubtitle: {
-    color: '#ddd',
-    fontSize: 14,
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  notesActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-  editButton: {
-    backgroundColor: BRAND.primaryColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor,
-  },
-  pdfButton: {
-    backgroundColor: BRAND.warningColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.warningColor,
-  },
-  deleteButton: {
-    backgroundColor: BRAND.errorColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.errorColor,
-  },
-  actionButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 40,
   },
   loadingText: {
     color: BRAND.primaryColor,
@@ -1196,23 +1083,105 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
   },
   emptyText: {
-    color: '#999',
-    fontSize: 16,
+    fontSize: 18,
+    color: '#666',
     marginBottom: 20,
   },
   createButton: {
-    backgroundColor: BRAND.primaryColor,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
+    backgroundColor: BRAND.primaryColor,
   },
   createButtonText: {
     color: BRAND.backgroundColor,
-    fontSize: 16,
     fontWeight: '600',
+    fontSize: 16,
+  },
+  notesCard: {
+    backgroundColor: BRAND.accentColor,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#2a3a2a',
+  },
+  notesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  notesHeaderLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  notesTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: BRAND.primaryColor,
+    marginBottom: 4,
+  },
+  notesTutor: {
+    fontSize: 14,
+    color: '#888',
+  },
+  priceContainer: {
+    backgroundColor: BRAND.goldColor,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  priceText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: BRAND.backgroundColor,
+  },
+  notesInfo: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 12,
+    color: '#ccc',
+    marginRight: 12,
+    marginBottom: 4,
+  },
+  notesSubtitle: {
+    fontSize: 14,
+    color: '#bbb',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  notesActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  editButton: {
+    backgroundColor: '#4a90e2',
+  },
+  pdfButton: {
+    backgroundColor: '#7b68ee',
+  },
+  deleteButton: {
+    backgroundColor: BRAND.errorColor,
+  },
+  actionButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 12,
   },
   modalContainer: {
     flex: 1,
@@ -1224,84 +1193,78 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: BRAND.accentColor,
     borderBottomWidth: 1,
-    borderBottomColor: BRAND.primaryColor,
+    borderBottomColor: BRAND.accentColor,
   },
   modalBackButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: BRAND.backgroundColor,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: BRAND.accentColor,
   },
   modalBackButtonText: {
     color: BRAND.primaryColor,
-    fontSize: 14,
     fontWeight: '600',
+    fontSize: 16,
   },
   modalTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    flex: 1,
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    color: BRAND.primaryColor,
     fontSize: 18,
     fontWeight: 'bold',
+    color: BRAND.primaryColor,
+    textAlign: 'center',
+    flex: 1,
+    marginHorizontal: 16,
+  },
+  closeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: BRAND.errorColor,
+  },
+  closeButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
   },
   modalContent: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   inputGroup: {
     marginBottom: 20,
   },
   inputLabel: {
-    color: BRAND.primaryColor,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
+    color: BRAND.primaryColor,
     marginBottom: 8,
   },
   textInput: {
     backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: '#fff',
-    fontSize: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: 'white',
+    borderWidth: 1,
+    borderColor: '#333',
   },
   textArea: {
-    minHeight: 80,
     textAlignVertical: 'top',
-  },
-  rowContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  halfInput: {
-    flex: 0.48,
+    minHeight: 100,
   },
   categoryContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 8,
   },
   categoryButton: {
-    flex: 1,
-    paddingVertical: 12,
     paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
     backgroundColor: BRAND.accentColor,
-    alignItems: 'center',
-    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#333',
   },
   categoryButtonActive: {
     backgroundColor: BRAND.primaryColor,
@@ -1309,7 +1272,6 @@ const styles = StyleSheet.create({
   },
   categoryButtonText: {
     color: '#ccc',
-    fontSize: 12,
     fontWeight: '600',
   },
   categoryButtonTextActive: {
@@ -1317,48 +1279,46 @@ const styles = StyleSheet.create({
   },
   thumbnailButton: {
     backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 8,
     paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333',
     alignItems: 'center',
-    marginBottom: 12,
   },
   thumbnailButtonText: {
     color: BRAND.primaryColor,
-    fontSize: 14,
     fontWeight: '600',
   },
   thumbnailPreview: {
     width: '100%',
-    height: 120,
+    height: 200,
     borderRadius: 8,
-    backgroundColor: BRAND.accentColor,
+    marginTop: 12,
   },
   statusButton: {
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
-    borderWidth: 1,
     alignItems: 'center',
+    borderWidth: 1,
   },
   statusButtonActive: {
-    backgroundColor: BRAND.primaryColor + '20',
+    backgroundColor: BRAND.primaryColor,
     borderColor: BRAND.primaryColor,
   },
   statusButtonInactive: {
-    backgroundColor: BRAND.errorColor + '20',
+    backgroundColor: BRAND.errorColor,
     borderColor: BRAND.errorColor,
   },
   statusButtonText: {
-    fontSize: 14,
     fontWeight: '600',
   },
   statusButtonTextActive: {
-    color: BRAND.primaryColor,
+    color: BRAND.backgroundColor,
   },
   statusButtonTextInactive: {
-    color: BRAND.errorColor,
+    color: 'white',
   },
   saveButton: {
     backgroundColor: BRAND.primaryColor,
@@ -1369,55 +1329,51 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   saveButtonDisabled: {
-    backgroundColor: BRAND.primaryColor + '60',
+    backgroundColor: '#555',
   },
   saveButtonText: {
     color: BRAND.backgroundColor,
-    fontSize: 16,
     fontWeight: 'bold',
+    fontSize: 18,
   },
-  section: {
-    marginBottom: 30,
+  addPDFSection: {
+    backgroundColor: BRAND.accentColor,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
   },
   sectionTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
+    color: BRAND.primaryColor,
     marginBottom: 16,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.primaryColor + '30',
   },
-  pdfPickerButton: {
+  pdfUploadButton: {
     backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333',
     alignItems: 'center',
   },
-  pdfPickerButtonText: {
+  pdfUploadButtonText: {
     color: BRAND.primaryColor,
-    fontSize: 14,
     fontWeight: '600',
   },
   selectedFileInfo: {
-    marginTop: 12,
+    backgroundColor: '#2a3a2a',
     padding: 12,
-    backgroundColor: BRAND.accentColor,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '20',
+    marginTop: 12,
   },
   selectedFileName: {
-    color: BRAND.primaryColor,
-    fontSize: 14,
+    color: 'white',
     fontWeight: '600',
     marginBottom: 4,
   },
   selectedFileSize: {
-    color: '#999',
+    color: '#888',
     fontSize: 12,
   },
   addPDFButton: {
@@ -1428,87 +1384,76 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   addPDFButtonDisabled: {
-    backgroundColor: BRAND.primaryColor + '60',
+    backgroundColor: '#555',
   },
   addPDFButtonText: {
     color: BRAND.backgroundColor,
-    fontSize: 14,
     fontWeight: 'bold',
+    fontSize: 16,
+  },
+  existingPDFsSection: {
+    backgroundColor: BRAND.accentColor,
+    borderRadius: 12,
+    padding: 16,
   },
   pdfItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: BRAND.accentColor,
+    backgroundColor: '#2a3a2a',
     borderRadius: 8,
     padding: 12,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '20',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   pdfContent: {
     flex: 1,
     marginRight: 12,
   },
   pdfTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
     marginBottom: 4,
   },
   pdfDescription: {
+    fontSize: 14,
     color: '#ccc',
-    fontSize: 12,
     marginBottom: 4,
   },
   pdfSize: {
-    color: '#999',
-    fontSize: 11,
+    fontSize: 12,
+    color: '#888',
   },
   pdfPages: {
-    color: '#999',
-    fontSize: 11,
+    fontSize: 12,
+    color: '#888',
   },
   pdfActionButton: {
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 6,
-    minWidth: 60,
-    alignItems: 'center',
   },
   pdfDeleteButton: {
-    backgroundColor: BRAND.errorColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.errorColor,
+    backgroundColor: BRAND.errorColor,
   },
   pdfActionButtonText: {
-    fontSize: 12,
+    color: 'white',
     fontWeight: '600',
-    color: BRAND.errorColor,
+    fontSize: 12,
   },
-  pdfSeparator: {
-    height: 12,
+  pdfItemSeparator: {
+    height: 8,
   },
   noPDFsContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 20,
   },
   noPDFsText: {
-    color: '#999',
     fontSize: 16,
-    marginBottom: 8,
+    color: '#666',
+    marginBottom: 4,
   },
   noPDFsSubtext: {
-    color: '#666',
     fontSize: 14,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingOverlayText: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-    marginTop: 12,
+    color: '#888',
   },
 });

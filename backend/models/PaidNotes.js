@@ -1,7 +1,7 @@
 // models/PaidNotes.js
 const mongoose = require('mongoose');
 
-const PDFLinkSchema = new mongoose.Schema({
+const pdfSchema = new mongoose.Schema({
   pdfTitle: {
     type: String,
     required: true,
@@ -12,12 +12,21 @@ const PDFLinkSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  pdfUrl: {
+  pdfData: {
+    type: Buffer,
+    required: true
+  },
+  pdfMimeType: {
+    type: String,
+    required: true,
+    default: 'application/pdf'
+  },
+  originalName: {
     type: String,
     required: true
   },
   fileSize: {
-    type: String,
+    type: Number,
     required: true
   },
   pages: {
@@ -28,15 +37,15 @@ const PDFLinkSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
-});
+}, { _id: true });
 
-const StudentEnrollmentSchema = new mongoose.Schema({
+const purchasedStudentSchema = new mongoose.Schema({
   studentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  enrolledAt: {
+  purchasedAt: {
     type: Date,
     default: Date.now
   },
@@ -44,18 +53,31 @@ const StudentEnrollmentSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'completed', 'failed'],
-    default: 'completed'
+  amount: {
+    type: Number,
+    required: true
   }
-});
+}, { _id: true });
 
-const PaidNotesSchema = new mongoose.Schema({
-  notesTitle: {
+const notesDetailsSchema = new mongoose.Schema({
+  subtitle: {
     type: String,
     required: true,
     trim: true
+  },
+  description: {
+    type: String,
+    required: true,
+    trim: true
+  }
+}, { _id: false });
+
+const paidNotesSchema = new mongoose.Schema({
+  notesTitle: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 200
   },
   tutor: {
     type: String,
@@ -71,84 +93,103 @@ const PaidNotesSchema = new mongoose.Schema({
   price: {
     type: Number,
     required: true,
-    min: 1 // Minimum price for paid notes
+    min: 0.01, // Minimum 1 paisa/cent - cannot be zero for paid notes
+    validate: {
+      validator: function(v) {
+        return v > 0;
+      },
+      message: 'Price must be greater than 0 for paid notes'
+    }
   },
   category: {
     type: String,
     required: true,
     enum: ['jee', 'neet', 'boards'],
-    lowercase: true
+    lowercase: true,
+    default: 'jee'
   },
   class: {
     type: String,
     required: true,
     trim: true
   },
+  purchasedStudents: [purchasedStudentSchema],
   notesDetails: {
-    subtitle: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    description: {
-      type: String,
-      required: true,
-      trim: true
-    }
-  },
-  pdfLinks: [PDFLinkSchema],
-  notesThumbnail: {
-    type: String,
+    type: notesDetailsSchema,
     required: true
   },
-  thumbnailMetadata: {
-    originalName: String,
-    size: Number,
-    mimeType: String,
+  pdfs: [pdfSchema],
+  thumbnail: {
+    data: {
+      type: Buffer,
+      required: true
+    },
+    mimeType: {
+      type: String,
+      required: true
+    },
+    originalName: {
+      type: String,
+      required: true
+    },
+    size: {
+      type: Number,
+      required: true
+    },
     uploadedAt: {
       type: Date,
       default: Date.now
     }
   },
+  viewCount: {
+    type: Number,
+    default: 0
+  },
   isActive: {
     type: Boolean,
     default: true
-  },
-  studentsEnrolled: [StudentEnrollmentSchema],
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: false // Make optional for now
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
   }
+}, {
+  timestamps: true
 });
 
-// Update the updatedAt field on save
-PaidNotesSchema.pre('save', function(next) {
-  this.updatedAt = Date.now();
-  next();
+// Virtual for total purchased students count
+paidNotesSchema.virtual('totalPurchasedStudents').get(function() {
+  return this.purchasedStudents.length;
 });
 
-// Virtual for student count
-PaidNotesSchema.virtual('studentCount').get(function() {
-  return this.studentsEnrolled.length;
+// Virtual for total PDFs count
+paidNotesSchema.virtual('totalPDFs').get(function() {
+  return this.pdfs.length;
 });
 
-// Virtual for PDF count
-PaidNotesSchema.virtual('pdfCount').get(function() {
-  return this.pdfLinks.length;
+// Virtual for total revenue
+paidNotesSchema.virtual('totalRevenue').get(function() {
+  return this.purchasedStudents.reduce((total, student) => total + student.amount, 0);
 });
 
-// Index for better performance
-PaidNotesSchema.index({ category: 1, isActive: 1 });
-PaidNotesSchema.index({ createdAt: -1 });
-PaidNotesSchema.index({ price: 1 });
+// Method to check if a student has purchased these notes
+paidNotesSchema.methods.hasPurchased = function(studentId) {
+  return this.purchasedStudents.some(student => 
+    student.studentId.toString() === studentId.toString()
+  );
+};
 
-module.exports = mongoose.model('PaidNotes', PaidNotesSchema);
+// Method to add a purchase
+paidNotesSchema.methods.addPurchase = function(studentId, paymentId, amount) {
+  this.purchasedStudents.push({
+    studentId,
+    paymentId,
+    amount
+  });
+};
+
+// Index for better search performance
+paidNotesSchema.index({ category: 1, isActive: 1 });
+paidNotesSchema.index({ notesTitle: 'text', 'notesDetails.description': 'text' });
+paidNotesSchema.index({ price: 1 });
+paidNotesSchema.index({ 'purchasedStudents.studentId': 1 });
+
+const PaidNotes = mongoose.model('PaidNotes', paidNotesSchema);
+
+module.exports = PaidNotes;
