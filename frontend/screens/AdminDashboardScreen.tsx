@@ -47,7 +47,7 @@ const QUICK_ACTIONS = [
     title: 'Free Notes',
     icon: 'note',
     color: '#4CAF50',
-    screen: 'AdminAddFreeNotesScreen',
+    screen: 'AdminUnpaidNotesScreen',
   },
   {
     id: 'paid_materials',

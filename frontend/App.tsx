@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AdminAddPaidCourseScreen from './screens/AdminAddPaidCourseScreen';
 import AllCoursesScreen from './screens/AllCoursesScreen';
 import AdminPaidNotesScreen from './screens/AdminPaidNotesScreen'; // Import the new screen
+import AdminUnpaidNotesScreen from './screens/AdminUnpaidNotesScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -27,6 +28,7 @@ export type RootStackParamList = {
   AdminAddPaidCourseScreen: undefined; // Add this line for the new screen
  AllCoursesScreen: undefined;
   AdminPaidNotesScreen: undefined; // Add this line for the new screen
+  AdminUnpaidNotesScreen: undefined; // Add this line for the new screen
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -169,6 +171,11 @@ export default function App() {
         <Stack.Screen 
           name="AdminPaidNotesScreen" 
           component={AdminPaidNotesScreen}
+          options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen 
+          name="AdminUnpaidNotesScreen" 
+          component={AdminUnpaidNotesScreen}
           options={{ gestureEnabled: false }}
         />
       </Stack.Navigator>
