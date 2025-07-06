@@ -34,8 +34,7 @@ const MoreOptionSection: React.FC<MoreOptionSectionProps> = ({
   };
 
   const handleChapterNotesPress = () => {
-    // navigation.navigate('ChapterNotesScreen');
-    console.log('Chapter-wise Notes pressed');
+    navigation.navigate('AllNotesScreen');
   };
 
   const handleDPPPress = () => {
