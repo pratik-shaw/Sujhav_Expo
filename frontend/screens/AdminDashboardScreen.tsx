@@ -37,14 +37,14 @@ const BRAND = {
 const QUICK_ACTIONS = [
   {
     id: 'paid_notes',
-    title: 'Paid Notes',
+    title: 'Paid        Notes',
     icon: 'note-add',
     color: '#FFD700',
     screen: 'AdminPaidNotesScreen',
   },
   {
     id: 'free_notes',
-    title: 'Free Notes',
+    title: 'Free        Notes',
     icon: 'note',
     color: '#4CAF50',
     screen: 'AdminUnpaidNotesScreen',
@@ -54,7 +54,7 @@ const QUICK_ACTIONS = [
     title: 'Paid Materials',
     icon: 'library-books',
     color: '#FF6B6B',
-    screen: 'AdminAddPaidMaterialsScreen',
+    screen: 'AdminPaidMaterialsScreen',
   },
   {
     id: 'free_materials',
