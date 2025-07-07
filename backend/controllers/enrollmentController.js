@@ -1,4 +1,4 @@
-// controllers/enrollmentController.js - Updated error handling
+// controllers/enrollmentController.js - Fixed Razorpay authentication
 const Enrollment = require('../models/Enrollment');
 const UnpaidCourse = require('../models/UnpaidCourse');
 const PaidCourse = require('../models/PaidCourse');
@@ -6,11 +6,36 @@ const User = require('../models/User');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
-// Initialize Razorpay
+// Initialize Razorpay with debug logging
+console.log('Initializing Razorpay with keys:', {
+  key_id: process.env.RAZORPAY_KEY_ID ? `${process.env.RAZORPAY_KEY_ID.substring(0, 8)}...` : 'NOT_SET',
+  key_secret: process.env.RAZORPAY_KEY_SECRET ? `${process.env.RAZORPAY_KEY_SECRET.substring(0, 8)}...` : 'NOT_SET'
+});
+
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
+
+// Test Razorpay connection on startup
+const testRazorpayConnection = async () => {
+  try {
+    // Try to fetch a non-existent order to test authentication
+    await razorpay.orders.fetch('test_order_id');
+  } catch (error) {
+    if (error.statusCode === 401) {
+      console.error('❌ RAZORPAY AUTHENTICATION FAILED - Check your API keys');
+      console.error('Make sure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are set correctly');
+    } else if (error.statusCode === 400 && error.error.code === 'BAD_REQUEST_ERROR') {
+      console.log('✅ Razorpay authentication successful (expected 400 for invalid order ID)');
+    } else {
+      console.error('❌ Razorpay connection error:', error);
+    }
+  }
+};
+
+// Test connection
+testRazorpayConnection();
 
 // Enroll in a course (handles both free and paid)
 const enrollInCourse = async (req, res) => {
@@ -26,6 +51,7 @@ const enrollInCourse = async (req, res) => {
     }
     
     const studentId = req.user.id;
+    console.log('Processing enrollment for user:', studentId, 'course:', courseId);
 
     // Validate required fields
     if (!courseId || !courseType || !mode || !schedule) {
@@ -76,6 +102,13 @@ const enrollInCourse = async (req, res) => {
       });
     }
 
+    console.log('Course found:', { 
+      id: course._id, 
+      title: course.courseTitle, 
+      type: courseType, 
+      price: course.price 
+    });
+
     // Create enrollment record
     const enrollment = new Enrollment({
       studentId,
@@ -88,6 +121,7 @@ const enrollInCourse = async (req, res) => {
 
     // Handle free courses
     if (courseType === 'UnpaidCourse' && course.price === 0) {
+      console.log('Processing free course enrollment');
       await enrollment.completeEnrollment();
       
       // Add student to course's enrolled students array
@@ -108,36 +142,78 @@ const enrollInCourse = async (req, res) => {
 
     // Handle paid courses
     if (courseType === 'PaidCourse' || (courseType === 'UnpaidCourse' && course.price > 0)) {
-      // Create Razorpay order
-      const razorpayOrder = await razorpay.orders.create({
-        amount: course.price * 100, // Convert to paise
-        currency: 'INR',
-        receipt: `course_${courseId}_${studentId}_${Date.now()}`,
-        notes: {
-          courseId: courseId,
-          studentId: studentId,
-          courseType: courseType
-        }
-      });
+      console.log('Processing paid course enrollment, creating Razorpay order...');
+      
+      // Validate Razorpay credentials before creating order
+      if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+        console.error('❌ Razorpay credentials not configured');
+        return res.status(500).json({
+          success: false,
+          message: 'Payment gateway not configured'
+        });
+      }
 
-      // Update enrollment with payment details
-      enrollment.paymentStatus = 'pending';
-      enrollment.paymentDetails.razorpayOrderId = razorpayOrder.id;
-      enrollment.paymentDetails.amount = course.price;
-      enrollment.paymentDetails.currency = 'INR';
+      try {
+        // Create Razorpay order with detailed logging
+        const orderData = {
+          amount: course.price * 100, // Convert to paise
+          currency: 'INR',
+          receipt: `course_${courseId}_${studentId}_${Date.now()}`,
+          notes: {
+            courseId: courseId,
+            studentId: studentId,
+            courseType: courseType
+          }
+        };
 
-      await enrollment.save();
+        console.log('Creating Razorpay order with data:', orderData);
 
-      return res.status(201).json({
-        success: true,
-        message: 'Enrollment created. Please complete payment to access the course',
-        enrollment: enrollment,
-        razorpayOrder: {
+        const razorpayOrder = await razorpay.orders.create(orderData);
+        
+        console.log('✅ Razorpay order created successfully:', {
           id: razorpayOrder.id,
           amount: razorpayOrder.amount,
-          currency: razorpayOrder.currency
+          currency: razorpayOrder.currency,
+          status: razorpayOrder.status
+        });
+
+        // Update enrollment with payment details
+        enrollment.paymentStatus = 'pending';
+        enrollment.paymentDetails.razorpayOrderId = razorpayOrder.id;
+        enrollment.paymentDetails.amount = course.price;
+        enrollment.paymentDetails.currency = 'INR';
+
+        await enrollment.save();
+
+        return res.status(201).json({
+          success: true,
+          message: 'Enrollment created. Please complete payment to access the course',
+          enrollment: enrollment,
+          razorpayOrder: {
+            id: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            currency: razorpayOrder.currency
+          }
+        });
+
+      } catch (razorpayError) {
+        console.error('❌ Razorpay order creation failed:', razorpayError);
+        
+        // Log detailed error information
+        if (razorpayError.statusCode === 401) {
+          console.error('❌ RAZORPAY AUTHENTICATION FAILED');
+          console.error('- Check if RAZORPAY_KEY_ID is correct');
+          console.error('- Check if RAZORPAY_KEY_SECRET is correct');
+          console.error('- Make sure you are using the correct Test/Live mode keys');
+          console.error('- Verify keys are properly loaded in environment variables');
         }
-      });
+
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to create payment order. Please try again.',
+          error: process.env.NODE_ENV === 'development' ? razorpayError.message : 'Payment gateway error'
+        });
+      }
     }
 
     return res.status(400).json({
@@ -146,11 +222,11 @@ const enrollInCourse = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Enrollment error:', error);
+    console.error('❌ Enrollment error:', error);
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
     });
   }
 };
@@ -195,7 +271,7 @@ const checkCourseAccess = async (req, res) => {
   }
 };
 
-// Update all other controller functions with the same authentication check
+// Verify payment and complete enrollment
 const verifyPaymentAndEnroll = async (req, res) => {
   try {
     const { enrollmentId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
