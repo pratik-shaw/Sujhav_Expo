@@ -13,6 +13,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigation from '../components/BottomNavigation';
 import CoursesSection from '../components/CoursesSection';
 import MoreOptionSection from '../components/MoreOptionSection';
@@ -45,6 +46,16 @@ interface Course {
   studentsEnrolled: Array<any>;
   isActive: boolean;
   type: 'paid' | 'free';
+  isEnrolled?: boolean; // Add enrollment status
+  enrollmentId?: string; // Add enrollment ID
+}
+
+interface UserData {
+  id: string;
+  email: string;
+  name: string;
+  token: string;
+  role?: string;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -68,6 +79,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'jee' | 'neet' | 'boards'>('all');
   const [selectedClass, setSelectedClass] = useState<'all' | '11th' | '12th'>('all');
   const [selectedType, setSelectedType] = useState<'all' | 'paid' | 'free'>('all');
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -79,7 +92,107 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   // API Base URL
   const API_BASE_URL = API_BASE;
 
-  // Improved fetchCourses function with better error handling
+  // Check authentication status
+  const checkAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      const userRole = await AsyncStorage.getItem('userRole');
+      const userId = await AsyncStorage.getItem('userId');
+      const userName = await AsyncStorage.getItem('userName');
+      const storedUserData = await AsyncStorage.getItem('userData');
+      
+      if (token && userId && userName) {
+        let parsedUserData = null;
+        
+        if (storedUserData) {
+          try {
+            parsedUserData = JSON.parse(storedUserData);
+          } catch (e) {
+            console.error('Error parsing stored user data:', e);
+          }
+        }
+        
+        const userDataObj: UserData = {
+          id: userId,
+          name: userName,
+          email: parsedUserData?.email || '',
+          token: token,
+          role: userRole || 'user'
+        };
+        
+        setUserData(userDataObj);
+        setIsLoggedIn(true);
+        return userDataObj;
+      } else {
+        setIsLoggedIn(false);
+        setUserData(null);
+        return null;
+      }
+    } catch (error) {
+      console.error('Auth check error:', error);
+      setIsLoggedIn(false);
+      setUserData(null);
+      return null;
+    }
+  };
+
+  // Check enrollment status for multiple courses
+  const checkEnrollmentStatus = async (coursesData: Course[], userToken: string) => {
+    if (!coursesData.length || !userToken) return coursesData;
+
+    try {
+      console.log('Checking enrollment status for', coursesData.length, 'courses');
+      
+      // Create promises for all enrollment checks
+      const enrollmentPromises = coursesData.map(async (course) => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/enrollment/access/${course._id}`, {
+            headers: {
+              'Authorization': `Bearer ${userToken}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              ...course,
+              isEnrolled: data.hasAccess,
+              enrollmentId: data.enrollment?._id || null
+            };
+          } else {
+            return {
+              ...course,
+              isEnrolled: false,
+              enrollmentId: null
+            };
+          }
+        } catch (error) {
+          console.error(`Error checking enrollment for course ${course._id}:`, error);
+          return {
+            ...course,
+            isEnrolled: false,
+            enrollmentId: null
+          };
+        }
+      });
+
+      // Wait for all enrollment checks to complete
+      const coursesWithEnrollment = await Promise.all(enrollmentPromises);
+      console.log('Enrollment status check completed');
+      
+      return coursesWithEnrollment;
+    } catch (error) {
+      console.error('Error in batch enrollment check:', error);
+      return coursesData.map(course => ({
+        ...course,
+        isEnrolled: false,
+        enrollmentId: null
+      }));
+    }
+  };
+
+  // Improved fetchCourses function with enrollment status
   const fetchCourses = async () => {
     try {
       setLoading(true);
@@ -131,12 +244,27 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       const unpaidData = Array.isArray(unpaidCourses) ? unpaidCourses : (unpaidCourses.data || []);
       
       // Combine and mark course types
-      const allCourses = [
+      let allCourses = [
         ...paidData.map((course: any) => ({ ...course, type: 'paid' })),
         ...unpaidData.map((course: any) => ({ ...course, type: 'free' }))
       ];
       
       console.log('Successfully fetched courses:', allCourses.length);
+      
+      // Check enrollment status if user is logged in
+      const currentUserData = await checkAuthStatus();
+      if (currentUserData && currentUserData.token) {
+        console.log('User is logged in, checking enrollment status...');
+        allCourses = await checkEnrollmentStatus(allCourses, currentUserData.token);
+      } else {
+        console.log('User not logged in, skipping enrollment check');
+        allCourses = allCourses.map(course => ({
+          ...course,
+          isEnrolled: false,
+          enrollmentId: null
+        }));
+      }
+      
       setCourses(allCourses);
       setFilteredCourses(allCourses);
       
@@ -193,11 +321,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     console.log('View details pressed:', courseId);
   };
 
-  // Handle enroll now button press
+  // Updated handle enroll now button press
   const handleEnrollNow = (courseId: string) => {
-    // Navigate to enrollment screen or show enrollment modal
-    navigation.navigate('EnrollmentScreen', { courseId });
-    console.log('Enroll now pressed:', courseId);
+    // Find the course to check enrollment status
+    const course = filteredCourses.find(c => c._id === courseId);
+    
+    if (course && course.isEnrolled && course.enrollmentId) {
+      // User is enrolled, navigate to course content
+      console.log('User is enrolled, navigating to course content');
+      navigation.navigate('CourseContent', { 
+        courseId: courseId,
+        enrollmentId: course.enrollmentId
+      });
+    } else {
+      // User is not enrolled, navigate to course details for enrollment
+      console.log('User not enrolled, navigating to course details');
+      navigation.navigate('CourseDetails', { courseId });
+    }
   };
 
   // Handle view all courses press - Navigate to AllCoursesScreen
@@ -225,6 +365,16 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     startEntranceAnimation();
     startPulseAnimation();
   }, []);
+
+  // Auto-refresh when screen is focused to check for enrollment changes
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('Screen focused, refreshing courses...');
+      fetchCourses();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     applyFilters();

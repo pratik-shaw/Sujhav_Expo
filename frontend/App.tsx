@@ -8,16 +8,17 @@ import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import TeacherDashboardScreen from './screens/TeacherDashboardScreen';
 import AdminDashboardScreen from './screens/AdminDashboardScreen';
-import SplashScreen from './components/SplashScreen'; // Import your splash screen
+import SplashScreen from './components/SplashScreen';
 import AdminAddUnpaidCourseScreen from './screens/AdminAddUnpaidCourseScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AdminAddPaidCourseScreen from './screens/AdminAddPaidCourseScreen';
 import AllCoursesScreen from './screens/AllCoursesScreen';
-import AdminPaidNotesScreen from './screens/AdminPaidNotesScreen'; // Import the new screen
+import AdminPaidNotesScreen from './screens/AdminPaidNotesScreen';
 import AdminUnpaidNotesScreen from './screens/AdminUnpaidNotesScreen';
 import AdminPaidMaterialsScreen from './screens/AdminPaidMaterialsScreen';
 import AllNotesScreen from './screens/AllNotesScreen';
 import CourseDetailsScreen from './screens/CourseDetailsScreen';
+import CourseContentScreen from './screens/CourseContentScreen'; // Add enrollment screen
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -27,21 +28,44 @@ export type RootStackParamList = {
   SignUp: undefined;
   TeacherDashboard: undefined;
   AdminDashboard: undefined;
-  AdminAddUnpaidCourseScreen: undefined; // Add this line for the new screen
-  AdminAddPaidCourseScreen: undefined; // Add this line for the new screen
-  AllCoursesScreen: undefined;
-  AdminPaidNotesScreen: undefined; // Add this line for the new screen
-  AdminUnpaidNotesScreen: undefined; // Add this line for the new screen
-  AdminPaidMaterialsScreen: undefined; // Add this line for the new screen
-  AllNotesScreen: undefined; // Add this line for the new screen
-  CourseDetails: { courseId: string }; // Add this line for course details
+  AdminAddUnpaidCourseScreen: undefined;
+  AdminAddPaidCourseScreen: undefined;
+  AllCoursesScreen: {
+    courses?: any[];
+    selectedCategory?: string;
+    selectedClass?: string;
+    selectedType?: string;
+  };
+  AdminPaidNotesScreen: undefined;
+  AdminUnpaidNotesScreen: undefined;
+  AdminPaidMaterialsScreen: undefined;
+  AllNotesScreen: undefined;
+  CourseDetails: { 
+    courseId: string;
+    fromScreen?: string; // Track navigation source
+  };
+  CourseContent: { 
+    courseId: string; 
+    enrollmentId?: string;
+    fromScreen?: string;
+  };
+  PaymentScreen: {
+    enrollment: any;
+    razorpayOrder: any;
+    course: any;
+    onPaymentSuccess: (paymentData: any) => void;
+  };
+  EnrollmentScreen: {
+    courseId: string;
+    courseType?: 'paid' | 'free';
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const [showSplash, setShowSplash] = useState(true); // Always start with splash screen
+  const [showSplash, setShowSplash] = useState(true);
   const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList>('Intro');
 
   useEffect(() => {
@@ -65,8 +89,17 @@ export default function App() {
     try {
       const userToken = await AsyncStorage.getItem('userToken');
       const userRole = await AsyncStorage.getItem('userRole');
+      const userId = await AsyncStorage.getItem('userId');
+      const userName = await AsyncStorage.getItem('userName');
 
-      if (userToken && userRole) {
+      console.log('Auth check:', { 
+        hasToken: !!userToken, 
+        userRole, 
+        userId, 
+        userName 
+      });
+
+      if (userToken && userRole && userId && userName) {
         // User is logged in, route based on role
         switch (userRole) {
           case 'admin':
@@ -81,7 +114,7 @@ export default function App() {
             break;
         }
       } else {
-        // No token found, skip splash and go directly to intro
+        // No complete auth data found, skip splash and go directly to intro
         setShowSplash(false);
         setInitialRoute('Intro');
       }
@@ -122,85 +155,155 @@ export default function App() {
         screenOptions={{
           headerShown: false,
           animation: 'fade',
+          animationDuration: 300,
         }}
       >
         <Stack.Screen 
           name="Intro" 
           component={IntroScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: false,
+            animation: 'fade'
+          }}
         />
+        
         <Stack.Screen 
           name="Home" 
           component={HomeScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: false,
+            animation: 'fade'
+          }}
         />
+        
         <Stack.Screen 
           name="TeacherDashboard" 
           component={TeacherDashboardScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: false,
+            animation: 'fade'
+          }}
         />
+        
         <Stack.Screen 
           name="AdminDashboard" 
           component={AdminDashboardScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: false,
+            animation: 'fade'
+          }}
         />
+        
         <Stack.Screen 
           name="UserProfile" 
           component={UserProfileScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="SignIn" 
           component={SignInScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_bottom'
+          }}
         />
+        
         <Stack.Screen 
           name="SignUp" 
           component={SignUpScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_bottom'
+          }}
         />
+        
         <Stack.Screen 
           name="AdminAddUnpaidCourseScreen" 
           component={AdminAddUnpaidCourseScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="AdminAddPaidCourseScreen" 
           component={AdminAddPaidCourseScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="AllCoursesScreen" 
           component={AllCoursesScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="AdminPaidNotesScreen" 
           component={AdminPaidNotesScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="AdminUnpaidNotesScreen" 
           component={AdminUnpaidNotesScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="AdminPaidMaterialsScreen" 
           component={AdminPaidMaterialsScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="AllNotesScreen" 
           component={AllNotesScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right'
+          }}
         />
+        
         <Stack.Screen 
           name="CourseDetails" 
           component={CourseDetailsScreen}
-          options={{ gestureEnabled: false }}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right',
+            presentation: 'card'
+          }}
+        />
+        
+        <Stack.Screen 
+          name="CourseContent" 
+          component={CourseContentScreen}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right',
+            presentation: 'card'
+          }}
         />
       </Stack.Navigator>
-
     </NavigationContainer>
   );
 }
