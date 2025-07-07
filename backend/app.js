@@ -18,6 +18,7 @@ const paidCourseRoutes = require('./routes/paidCourseRoutes');
 const paidNotesRoutes = require('./routes/paidNotesRoutes'); // New route
 const unpaidNotesRoutes = require('./routes/unpaidNotesRoutes'); // Unpaid notes route
 const paidMaterialsRoutes = require('./routes/paidMaterialsRoutes'); // Paid materials route
+const enrollmentRoutes = require('./routes/enrollmentRoutes'); // Uncomment if needed
 
 app.use('/api/auth', authRoutes);
 app.use('/api/unpaidCourses', unpaidCourseRoutes);
@@ -25,6 +26,7 @@ app.use('/api/paidCourses', paidCourseRoutes);
 app.use('/api/paidNotes', paidNotesRoutes); // New route
 app.use('/api/unpaidNotes', unpaidNotesRoutes); // Unpaid notes route
 app.use('/api/paidMaterials', paidMaterialsRoutes); // Paid materials route
+app.use('/api/enrollment', enrollmentRoutes); // Uncomment if needed
 
 // Static file serving
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));

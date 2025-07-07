@@ -17,6 +17,7 @@ import AdminPaidNotesScreen from './screens/AdminPaidNotesScreen'; // Import the
 import AdminUnpaidNotesScreen from './screens/AdminUnpaidNotesScreen';
 import AdminPaidMaterialsScreen from './screens/AdminPaidMaterialsScreen';
 import AllNotesScreen from './screens/AllNotesScreen';
+import CourseDetailsScreen from './screens/CourseDetailsScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -33,6 +34,7 @@ export type RootStackParamList = {
   AdminUnpaidNotesScreen: undefined; // Add this line for the new screen
   AdminPaidMaterialsScreen: undefined; // Add this line for the new screen
   AllNotesScreen: undefined; // Add this line for the new screen
+  CourseDetails: { courseId: string }; // Add this line for course details
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -190,6 +192,11 @@ export default function App() {
         <Stack.Screen 
           name="AllNotesScreen" 
           component={AllNotesScreen}
+          options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen 
+          name="CourseDetails" 
+          component={CourseDetailsScreen}
           options={{ gestureEnabled: false }}
         />
       </Stack.Navigator>
