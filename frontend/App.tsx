@@ -20,6 +20,7 @@ import AllNotesScreen from './screens/AllNotesScreen';
 import CourseDetailsScreen from './screens/CourseDetailsScreen';
 import CourseContentScreen from './screens/CourseContentScreen'; // Add enrollment screen
 import MyContentScreen from './screens/MyContentScreen';
+import UnpaidNotesDetailsScreen from './screens/UnpaidNotesDetails';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -51,6 +52,7 @@ export type RootStackParamList = {
     fromScreen?: string;
   };
   MyContent: undefined; // Add MyContent screen
+  UnpaidNotesDetails: { notesId: string; fromScreen?: string }; // Add UnpaidNotesDetails screen  
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -191,7 +193,7 @@ export default function App() {
           component={UserProfileScreen}
           options={{ 
             gestureEnabled: true,
-            animation: 'slide_from_right'
+            animation: 'fade'
           }}
         />
         
@@ -298,6 +300,15 @@ export default function App() {
         <Stack.Screen 
           name="MyContent" 
           component={MyContentScreen}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'fade',
+            presentation: 'card'
+          }}
+        />
+        <Stack.Screen 
+          name="UnpaidNotesDetails" 
+          component={UnpaidNotesDetailsScreen}
           options={{ 
             gestureEnabled: true,
             animation: 'slide_from_right',

@@ -189,7 +189,7 @@ const AllNotesScreen: React.FC<AllNotesScreenProps> = ({ navigation, route }) =>
     if (isPaid) {
       navigation.navigate('PaidNotesDetails', { notesId });
     } else {
-      navigation.navigate('NotesDetails', { notesId });
+      navigation.navigate('UnpaidNotesDetails', { notesId });
     }
   };
 
