@@ -1,6 +1,15 @@
 // controllers/paidNotesController.js
 const PaidNotes = require('../models/PaidNotes');
+const PurchasedNotes = require('../models/PurchasedNotes');
 const multer = require('multer');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+
+// Initialize Razorpay
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -83,10 +92,10 @@ const createNotes = async (req, res) => {
 
     // Validate price for paid notes
     const parsedPrice = parseFloat(price);
-    if (isNaN(parsedPrice) || parsedPrice <= 0) {
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
       return res.status(400).json({
         success: false,
-        message: 'Price must be greater than 0 for paid notes'
+        message: 'Price must be 0 or greater'
       });
     }
 
@@ -144,14 +153,14 @@ const createNotes = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Paid notes created successfully',
+      message: 'Notes created successfully',
       data: responseData
     });
   } catch (error) {
-    console.error('Error creating paid notes:', error);
+    console.error('Error creating notes:', error);
     res.status(500).json({
       success: false,
-      message: 'Error creating paid notes',
+      message: 'Error creating notes',
       error: error.message
     });
   }
@@ -187,10 +196,10 @@ const getAllNotes = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error getting paid notes:', error);
+    console.error('Error getting notes:', error);
     res.status(500).json({
       success: false,
-      message: 'Error retrieving paid notes',
+      message: 'Error retrieving notes',
       error: error.message
     });
   }
@@ -205,7 +214,7 @@ const getNotesById = async (req, res) => {
     if (!notes) {
       return res.status(404).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes not found'
       });
     }
     
@@ -214,10 +223,10 @@ const getNotesById = async (req, res) => {
       data: notes
     });
   } catch (error) {
-    console.error('Error getting paid notes by ID:', error);
+    console.error('Error getting notes by ID:', error);
     res.status(500).json({
       success: false,
-      message: 'Error retrieving paid notes',
+      message: 'Error retrieving notes',
       error: error.message
     });
   }
@@ -251,7 +260,7 @@ const getThumbnail = async (req, res) => {
   }
 };
 
-// Get PDF file (only for purchased students)
+// Get PDF file (with access control)
 const getPDF = async (req, res) => {
   try {
     const notes = await PaidNotes.findById(req.params.id);
@@ -263,9 +272,29 @@ const getPDF = async (req, res) => {
       });
     }
     
-    // Check if student has purchased the notes
-    // This would require authentication middleware to get the student ID
-    // For now, we'll assume the check is done in middleware
+    // Check if user has purchased the notes (if not free)
+    if (notes.price > 0) {
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required'
+        });
+      }
+
+      const purchase = await PurchasedNotes.findOne({
+        studentId: req.user.id,
+        notesId: req.params.id,
+        purchaseStatus: 'completed',
+        isActive: true
+      });
+
+      if (!purchase) {
+        return res.status(403).json({
+          success: false,
+          message: 'You need to purchase these notes to access the PDF'
+        });
+      }
+    }
     
     const pdf = notes.pdfs.id(req.params.pdfId);
     
@@ -293,6 +322,7 @@ const getPDF = async (req, res) => {
   }
 };
 
+// Update notes
 const updateNotes = async (req, res) => {
   try {
     const {
@@ -310,17 +340,17 @@ const updateNotes = async (req, res) => {
     if (!notes) {
       return res.status(404).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes not found'
       });
     }
 
     // Validate price if provided
     if (price !== undefined) {
       const parsedPrice = parseFloat(price);
-      if (isNaN(parsedPrice) || parsedPrice <= 0) {
+      if (isNaN(parsedPrice) || parsedPrice < 0) {
         return res.status(400).json({
           success: false,
-          message: 'Price must be greater than 0 for paid notes'
+          message: 'Price must be 0 or greater'
         });
       }
       notes.price = parsedPrice;
@@ -365,20 +395,20 @@ const updateNotes = async (req, res) => {
     
     res.json({
       success: true,
-      message: 'Paid notes updated successfully',
+      message: 'Notes updated successfully',
       data: responseData
     });
   } catch (error) {
-    console.error('Error updating paid notes:', error);
+    console.error('Error updating notes:', error);
     res.status(500).json({
       success: false,
-      message: 'Error updating paid notes',
+      message: 'Error updating notes',
       error: error.message
     });
   }
 };
 
-// Delete paid notes
+// Delete notes
 const deleteNotes = async (req, res) => {
   try {
     const notes = await PaidNotes.findById(req.params.id);
@@ -386,7 +416,7 @@ const deleteNotes = async (req, res) => {
     if (!notes) {
       return res.status(404).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes not found'
       });
     }
 
@@ -394,13 +424,13 @@ const deleteNotes = async (req, res) => {
     
     res.json({
       success: true,
-      message: 'Paid notes deleted successfully'
+      message: 'Notes deleted successfully'
     });
   } catch (error) {
-    console.error('Error deleting paid notes:', error);
+    console.error('Error deleting notes:', error);
     res.status(500).json({
       success: false,
-      message: 'Error deleting paid notes',
+      message: 'Error deleting notes',
       error: error.message
     });
   }
@@ -409,9 +439,6 @@ const deleteNotes = async (req, res) => {
 // Add PDF to notes
 const addPDFToNotes = async (req, res) => {
   try {
-    console.log('Add PDF Request Body:', req.body);
-    console.log('Add PDF File:', req.file);
-    
     const { pdfTitle, pdfDescription, pages } = req.body;
     
     // Validate required fields
@@ -443,7 +470,7 @@ const addPDFToNotes = async (req, res) => {
     if (!notes) {
       return res.status(404).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes not found'
       });
     }
 
@@ -467,14 +494,14 @@ const addPDFToNotes = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'PDF added to paid notes successfully',
+      message: 'PDF added successfully',
       data: responseData
     });
   } catch (error) {
-    console.error('Error adding PDF to paid notes:', error);
+    console.error('Error adding PDF:', error);
     res.status(500).json({
       success: false,
-      message: 'Error adding PDF to paid notes',
+      message: 'Error adding PDF',
       error: error.message
     });
   }
@@ -489,7 +516,7 @@ const updatePDFInNotes = async (req, res) => {
     if (!notes) {
       return res.status(404).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes not found'
       });
     }
 
@@ -497,7 +524,7 @@ const updatePDFInNotes = async (req, res) => {
     if (!pdf) {
       return res.status(404).json({
         success: false,
-        message: 'PDF not found in paid notes'
+        message: 'PDF not found'
       });
     }
 
@@ -525,10 +552,10 @@ const updatePDFInNotes = async (req, res) => {
       data: responseData
     });
   } catch (error) {
-    console.error('Error updating PDF in paid notes:', error);
+    console.error('Error updating PDF:', error);
     res.status(500).json({
       success: false,
-      message: 'Error updating PDF in paid notes',
+      message: 'Error updating PDF',
       error: error.message
     });
   }
@@ -541,7 +568,7 @@ const deletePDFFromNotes = async (req, res) => {
     if (!notes) {
       return res.status(404).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes not found'
       });
     }
 
@@ -549,7 +576,7 @@ const deletePDFFromNotes = async (req, res) => {
     if (!pdf) {
       return res.status(404).json({
         success: false,
-        message: 'PDF not found in paid notes'
+        message: 'PDF not found'
       });
     }
 
@@ -562,20 +589,20 @@ const deletePDFFromNotes = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'PDF deleted from paid notes successfully',
+      message: 'PDF deleted successfully',
       data: responseData
     });
   } catch (error) {
-    console.error('Error deleting PDF from paid notes:', error);
+    console.error('Error deleting PDF:', error);
     res.status(500).json({
       success: false,
-      message: 'Error deleting PDF from paid notes',
+      message: 'Error deleting PDF',
       error: error.message
     });
   }
 };
 
-// Get paid notes by category
+// Get notes by category
 const getNotesByCategory = async (req, res) => {
   try {
     const { category } = req.params;
@@ -608,10 +635,10 @@ const getNotesByCategory = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error getting paid notes by category:', error);
+    console.error('Error getting notes by category:', error);
     res.status(500).json({
       success: false,
-      message: 'Error retrieving paid notes by category',
+      message: 'Error retrieving notes by category',
       error: error.message
     });
   }
@@ -629,7 +656,7 @@ const incrementViewCount = async (req, res) => {
     if (!notes) {
       return res.status(404).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes not found'
       });
     }
     
@@ -651,58 +678,206 @@ const incrementViewCount = async (req, res) => {
 // Purchase notes
 const purchaseNotes = async (req, res) => {
   try {
-    const { studentId, paymentId, amount } = req.body;
+    const { notesId } = req.body;
     
-    if (!studentId || !paymentId || !amount) {
-      return res.status(400).json({
+    // Check if user is authenticated
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
         success: false,
-        message: 'Student ID, payment ID, and amount are required'
+        message: 'Authentication required'
       });
     }
+    
+    const studentId = req.user.id;
 
-    const notes = await PaidNotes.findById(req.params.id);
-    if (!notes) {
-      return res.status(404).json({
+    // Validate required fields
+    if (!notesId) {
+      return res.status(400).json({
         success: false,
-        message: 'Paid notes not found'
+        message: 'Notes ID is required'
       });
     }
 
     // Check if student has already purchased
-    if (notes.hasPurchased(studentId)) {
+    const existingPurchase = await PurchasedNotes.findOne({
+      studentId,
+      notesId,
+      purchaseStatus: { $in: ['completed', 'pending'] },
+      isActive: true
+    });
+
+    if (existingPurchase) {
       return res.status(400).json({
         success: false,
-        message: 'Student has already purchased these notes'
+        message: 'You have already purchased these notes or have a pending purchase'
       });
     }
 
-    // Validate amount
-    if (parseFloat(amount) !== notes.price) {
-      return res.status(400).json({
+    // Get notes details
+    const notes = await PaidNotes.findById(notesId);
+
+    if (!notes) {
+      return res.status(404).json({
         success: false,
-        message: 'Payment amount does not match notes price'
+        message: 'Notes not found'
       });
     }
 
-    // Add purchase
-    notes.addPurchase(studentId, paymentId, parseFloat(amount));
-    await notes.save();
+    if (!notes.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notes are not available for purchase'
+      });
+    }
 
-    res.json({
-      success: true,
-      message: 'Notes purchased successfully',
-      data: {
-        notesId: notes._id,
-        studentId,
-        paymentId,
-        amount: parseFloat(amount)
+    // Create purchase record
+    const purchase = new PurchasedNotes({
+      studentId,
+      notesId,
+      purchaseStatus: 'pending',
+      paymentDetails: {
+        amount: notes.price,
+        currency: 'INR'
       }
     });
+
+    // Handle free notes
+    if (notes.price === 0) {
+      await purchase.completePurchase();
+
+      return res.status(201).json({
+        success: true,
+        message: 'Successfully purchased the free notes',
+        purchase: purchase
+      });
+    }
+
+    // Handle paid notes
+    if (notes.price > 0) {
+      if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+        return res.status(500).json({
+          success: false,
+          message: 'Payment gateway not configured'
+        });
+      }
+
+      try {
+        const orderData = {
+          amount: notes.price * 100, // Convert to paise
+          currency: 'INR',
+          receipt: `notes_${notesId}_${studentId}_${Date.now()}`,
+          notes: {
+            notesId: notesId,
+            studentId: studentId,
+            type: 'notes_purchase'
+          }
+        };
+
+        const razorpayOrder = await razorpay.orders.create(orderData);
+
+        // Update purchase with payment details
+        purchase.paymentStatus = 'pending';
+        purchase.paymentDetails.razorpayOrderId = razorpayOrder.id;
+        purchase.paymentDetails.amount = notes.price;
+        purchase.paymentDetails.currency = 'INR';
+
+        await purchase.save();
+
+        return res.status(201).json({
+          success: true,
+          message: 'Purchase created. Please complete payment to access the notes',
+          purchase: purchase,
+          razorpayOrder: {
+            id: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            currency: razorpayOrder.currency
+          }
+        });
+
+      } catch (razorpayError) {
+        console.error('Razorpay order creation failed:', razorpayError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to create payment order. Please try again.',
+          error: process.env.NODE_ENV === 'development' ? razorpayError.message : 'Payment gateway error'
+        });
+      }
+    }
+
   } catch (error) {
-    console.error('Error purchasing notes:', error);
-    res.status(500).json({
+    console.error('Notes purchase error:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Error purchasing notes',
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+    });
+  }
+};
+
+// Verify payment and complete purchase
+const verifyPayment = async (req, res) => {
+  try {
+    const { purchaseId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+    
+    const studentId = req.user.id;
+
+    // Find purchase
+    const purchase = await PurchasedNotes.findOne({
+      _id: purchaseId,
+      studentId,
+      paymentStatus: 'pending'
+    });
+
+    if (!purchase) {
+      return res.status(404).json({
+        success: false,
+        message: 'Purchase not found or payment already processed'
+      });
+    }
+
+    // Verify Razorpay signature
+    const body = razorpay_order_id + '|' + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(body.toString())
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      purchase.paymentStatus = 'failed';
+      purchase.purchaseStatus = 'failed';
+      await purchase.save();
+      
+      return res.status(400).json({
+        success: false,
+        message: 'Payment verification failed'
+      });
+    }
+
+    // Complete payment and purchase
+    await purchase.completePayment({
+      razorpayPaymentId: razorpay_payment_id,
+      razorpaySignature: razorpay_signature,
+      paymentMethod: 'razorpay'
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Payment verified and purchase completed successfully',
+      purchase: purchase
+    });
+
+  } catch (error) {
+    console.error('Payment verification error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
       error: error.message
     });
   }
@@ -711,28 +886,39 @@ const purchaseNotes = async (req, res) => {
 // Get student's purchased notes
 const getStudentPurchasedNotes = async (req, res) => {
   try {
-    const { studentId } = req.params;
-    const { page = 1, limit = 10 } = req.query;
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
     
+    const studentId = req.user.id;
+    const { status = 'completed', page = 1, limit = 10 } = req.query;
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const notes = await PaidNotes.find({
-      'purchasedStudents.studentId': studentId,
+
+    const purchases = await PurchasedNotes.find({
+      studentId,
+      purchaseStatus: status,
       isActive: true
     })
-      .select('-thumbnail.data -pdfs.pdfData')
-      .sort({ 'purchasedStudents.purchasedAt': -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-    
-    const total = await PaidNotes.countDocuments({
-      'purchasedStudents.studentId': studentId,
+    .populate('notesId', '-thumbnail.data -pdfs.pdfData')
+    .populate('studentId', 'name email')
+    .sort({ purchasedAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+
+    const total = await PurchasedNotes.countDocuments({
+      studentId,
+      purchaseStatus: status,
       isActive: true
     });
-    
-    res.json({
+
+    return res.status(200).json({
       success: true,
-      data: notes,
+      count: purchases.length,
+      purchases,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -740,11 +926,69 @@ const getStudentPurchasedNotes = async (req, res) => {
         pages: Math.ceil(total / parseInt(limit))
       }
     });
+
   } catch (error) {
-    console.error('Error getting student purchased notes:', error);
-    res.status(500).json({
+    console.error('Get purchased notes error:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Error retrieving student purchased notes',
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// Check if student has access to notes
+const checkNotesAccess = async (req, res) => {
+  try {
+    const { notesId } = req.params;
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+    
+    const studentId = req.user.id;
+
+    // Check if notes are free
+    const notes = await PaidNotes.findById(notesId);
+    if (!notes) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notes not found'
+      });
+    }
+
+    if (notes.price === 0) {
+      return res.status(200).json({
+        success: true,
+        hasAccess: true,
+        isFree: true
+      });
+    }
+
+    const purchase = await PurchasedNotes.findOne({
+      studentId,
+      notesId,
+      purchaseStatus: 'completed',
+      isActive: true
+    });
+
+    const hasAccess = purchase && purchase.isValidPurchase;
+
+    return res.status(200).json({
+      success: true,
+      hasAccess,
+      isFree: false,
+      purchase: hasAccess ? purchase : null
+    });
+
+  } catch (error) {
+    console.error('Check notes access error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
       error: error.message
     });
   }
@@ -764,7 +1008,9 @@ module.exports = {
   getNotesByCategory,
   incrementViewCount,
   purchaseNotes,
+  verifyPayment,
   getStudentPurchasedNotes,
+  checkNotesAccess,
   thumbnailUpload,
   pdfUpload
 };

@@ -15,10 +15,15 @@ const {
   getNotesByCategory,
   incrementViewCount,
   purchaseNotes,
+  verifyPayment,
   getStudentPurchasedNotes,
+  checkNotesAccess,
   thumbnailUpload,
   pdfUpload
 } = require('../controllers/paidNotesController');
+
+// Import authentication middleware
+const { authenticateUser } = require('../middlewares/auth');
 
 // Admin routes (require admin authentication)
 router.post('/', thumbnailUpload.single('thumbnail'), createNotes);
@@ -49,9 +54,15 @@ router.get('/:id', getNotesById);
 
 // File serving routes
 router.get('/:id/thumbnail', getThumbnail);
-router.get('/:id/pdfs/:pdfId', getPDF);
+router.get('/:id/pdfs/:pdfId', getPDF); // This route includes access control
 
 // User interaction routes
 router.post('/:id/view', incrementViewCount);
+
+// Purchase-related routes (require authentication)
+router.post('/purchase', authenticateUser, purchaseNotes);
+router.post('/verify-payment', authenticateUser, verifyPayment);
+router.get('/my-purchases', authenticateUser, getStudentPurchasedNotes);
+router.get('/access/:notesId', authenticateUser, checkNotesAccess);
 
 module.exports = router;
