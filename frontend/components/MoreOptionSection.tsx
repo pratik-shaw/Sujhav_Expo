@@ -32,8 +32,7 @@ const MoreOptionSection: React.FC<MoreOptionSectionProps> = ({
   };
 
   const handleDPPPress = () => {
-    // navigation.navigate('DPPScreen');
-    console.log('Daily Practice Problems pressed');
+    navigation.navigate('AllDPPScreen');
   };
 
   const handleTestSeriesPress = () => {

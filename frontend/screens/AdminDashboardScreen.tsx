@@ -33,35 +33,35 @@ const BRAND = {
   accentColor: '#1a2e1a',
 };
 
-// Quick Actions Configuration (excluding tests)
+// Quick Actions Configuration
 const QUICK_ACTIONS = [
   {
     id: 'paid_notes',
     title: 'Paid Notes',
     icon: 'note-add',
     color: '#FFD700',
-    screen: 'AdminPaidNotesScreen',
+    screen: 'AdminPaidNotesScreen' as keyof RootStackParamList,
   },
   {
     id: 'free_notes',
     title: 'Free Notes',
     icon: 'note',
     color: '#4CAF50',
-    screen: 'AdminUnpaidNotesScreen',
+    screen: 'AdminUnpaidNotesScreen' as keyof RootStackParamList,
   },
   {
     id: 'paid_materials',
     title: 'Materials',
     icon: 'library-books',
     color: '#FF6B6B',
-    screen: 'AdminPaidMaterialsScreen',
+    screen: 'AdminPaidMaterialsScreen' as keyof RootStackParamList,
   },
   {
     id: 'free_dpp',
-    title: 'Free DPPs',
+    title: 'DPPs',
     icon: 'assignment-turned-in',
     color: '#2196F3',
-    screen: 'AdminAddFreeDPPScreen',
+    screen: 'AdminDPPScreen' as keyof RootStackParamList,
   },
 ];
 
@@ -72,14 +72,14 @@ const TEST_ACTIONS = [
     title: 'Paid Tests',
     icon: 'quiz',
     color: '#FF5722',
-    screen: 'AdminAddPaidTestSeriesScreen',
+    screen: 'AdminAddPaidTestSeriesScreen' as keyof RootStackParamList,
   },
   {
     id: 'free_test_series',
     title: 'Free Tests',
     icon: 'fact-check',
     color: '#8BC34A',
-    screen: 'AdminAddFreeTestSeriesScreen',
+    screen: 'AdminAddFreeTestSeriesScreen' as keyof RootStackParamList,
   },
 ];
 
@@ -217,52 +217,35 @@ export default function AdminDashboardScreen() {
     pulse();
   };
 
-  // Fixed navigation function with proper typing
+  // Simplified navigation function
+  const navigateToScreen = (screenName: keyof RootStackParamList) => {
+  console.log(`Navigating to ${screenName}`);
+  try {
+    // Type assertion to satisfy TypeScript's strict navigation typing
+    (navigation as any).navigate(screenName);
+  } catch (error) {
+    console.error('Navigation error:', error);
+    Alert.alert('Navigation Error', 'Could not navigate to the requested screen.');
+  }
+};
+
+  // Handle quick actions
   const handleQuickAction = (action: typeof QUICK_ACTIONS[0]) => {
-    console.log(`Navigating to ${action.screen}`);
-    // Using the navigation with explicit typing
-    switch (action.screen) {
-      case 'AdminPaidNotesScreen':
-        navigation.navigate('AdminPaidNotesScreen');
-        break;
-      case 'AdminUnpaidNotesScreen':
-        navigation.navigate('AdminUnpaidNotesScreen');
-        break;
-      case 'AdminPaidMaterialsScreen':
-        navigation.navigate('AdminPaidMaterialsScreen');
-        break;
-      case 'AdminAddFreeDPPScreen':
-        //navigation.navigate('AdminAddFreeDPPScreen');
-        break;
-      default:
-        console.warn('Unknown screen:', action.screen);
-    }
+    navigateToScreen(action.screen);
   };
 
-  // Fixed test action handler
+  // Handle test actions
   const handleTestAction = (action: typeof TEST_ACTIONS[0]) => {
-    console.log(`Navigating to ${action.screen}`);
-    switch (action.screen) {
-      case 'AdminAddPaidTestSeriesScreen':
-        //navigation.navigate('AdminAddPaidTestSeriesScreen');
-        break;
-      case 'AdminAddFreeTestSeriesScreen':
-        //navigation.navigate('AdminAddFreeTestSeriesScreen');
-        break;
-      default:
-        console.warn('Unknown screen:', action.screen);
-    }
+    navigateToScreen(action.screen);
   };
 
-  // Simplified course handlers - direct navigation
+  // Handle course actions
   const handleAddPaidCourse = () => {
-    console.log("Navigate to Add Paid Course Screen");
-    navigation.navigate('AdminAddPaidCourseScreen');
+    navigateToScreen('AdminAddPaidCourseScreen');
   };
 
   const handleAddFreeCourse = () => {
-    console.log("Navigate to Add Free Course Screen");
-    navigation.navigate('AdminAddUnpaidCourseScreen');
+    navigateToScreen('AdminAddUnpaidCourseScreen');
   };
 
   const handleLogout = async () => {
