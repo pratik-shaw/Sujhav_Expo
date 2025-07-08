@@ -48,12 +48,6 @@ interface EnrollmentData {
   schedule: string;
   enrolledAt: string;
   paymentStatus: string;
-  progress: {
-    completedVideos: string[];
-    totalWatchTime: number;
-    lastWatchedVideo?: string;
-    lastWatchedAt?: string;
-  };
   courseType: string;
 }
 
@@ -446,9 +440,7 @@ const MyContentScreen: React.FC<MyContentScreenProps> = ({ navigation }) => {
     return duration.replace('hours', 'hrs').replace('minutes', 'min');
   };
 
-  const renderCourseCard = ({ item }: { item: EnrollmentData }) => {
-    const progressPercentage = getProgressPercentage(item.progress);
-    
+  const renderCourseCard = ({ item }: { item: EnrollmentData }) => {    
     return (
       <Animated.View
         style={[
@@ -472,10 +464,6 @@ const MyContentScreen: React.FC<MyContentScreenProps> = ({ navigation }) => {
               resizeMode="contain"
             />
             
-            {/* Progress overlay */}
-            <View style={styles.progressOverlay}>
-              <View style={[styles.progressBar, { width: `${progressPercentage}%` }]} />
-            </View>
             
             {/* Course type badge */}
             <View style={[styles.courseTypeBadge, { 
@@ -525,16 +513,6 @@ const MyContentScreen: React.FC<MyContentScreenProps> = ({ navigation }) => {
               </Text>
             </View>
             
-            {/* Progress Info */}
-            <View style={styles.progressInfo}>
-              <Text style={styles.progressText}>
-                Progress: {progressPercentage}%
-              </Text>
-              <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBarFull, { width: `${progressPercentage}%` }]} />
-              </View>
-            </View>
-            
             {/* Enrollment Status */}
             <View style={styles.enrollmentStatus}>
               <View style={[styles.statusDot, { 
@@ -552,7 +530,7 @@ const MyContentScreen: React.FC<MyContentScreenProps> = ({ navigation }) => {
 
   const renderFilterTabs = () => (
     <Animated.View style={[styles.filterContainer, { opacity: fadeAnim }]}>
-      {['enrolled', 'pending'].map((filter) => (
+      {['enrolled'].map((filter) => (
         <TouchableOpacity
           key={filter}
           style={[

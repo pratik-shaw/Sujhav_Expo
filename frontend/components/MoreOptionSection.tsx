@@ -27,12 +27,6 @@ const MoreOptionSection: React.FC<MoreOptionSectionProps> = ({
   navigation,
   fadeAnim,
 }) => {
-  // Navigation handlers (commented out as requested)
-  const handleFreeMaterialPress = () => {
-    // navigation.navigate('FreeMaterialScreen');
-    console.log('Free Material pressed');
-  };
-
   const handleChapterNotesPress = () => {
     navigation.navigate('AllNotesScreen');
   };
@@ -45,6 +39,7 @@ const MoreOptionSection: React.FC<MoreOptionSectionProps> = ({
   const handleTestSeriesPress = () => {
     // navigation.navigate('TestSeriesScreen');
     console.log('Test Series pressed');
+    alert('Test Series feature is under development');
   };
 
   const renderOptionButton = (
@@ -104,14 +99,6 @@ const MoreOptionSection: React.FC<MoreOptionSectionProps> = ({
       <View style={styles.optionsGrid}>
         {/* First Row */}
         <View style={styles.optionRow}>
-          {renderOptionButton(
-            'Free Material',
-            'Access premium content at no cost',
-            '📚',
-            handleFreeMaterialPress,
-            ['rgba(0, 255, 136, 0.15)', 'rgba(0, 255, 136, 0.05)'],
-            true
-          )}
           {renderOptionButton(
             'Chapter-wise Notes',
             'Organized study notes by chapters',

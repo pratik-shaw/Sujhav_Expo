@@ -33,42 +33,28 @@ const BRAND = {
   accentColor: '#1a2e1a',
 };
 
-// Quick Actions Configuration
+// Quick Actions Configuration (excluding tests)
 const QUICK_ACTIONS = [
   {
     id: 'paid_notes',
-    title: 'Paid        Notes',
+    title: 'Paid Notes',
     icon: 'note-add',
     color: '#FFD700',
     screen: 'AdminPaidNotesScreen',
   },
   {
     id: 'free_notes',
-    title: 'Free        Notes',
+    title: 'Free Notes',
     icon: 'note',
     color: '#4CAF50',
     screen: 'AdminUnpaidNotesScreen',
   },
   {
     id: 'paid_materials',
-    title: 'Paid Materials',
+    title: 'Materials',
     icon: 'library-books',
     color: '#FF6B6B',
     screen: 'AdminPaidMaterialsScreen',
-  },
-  {
-    id: 'free_materials',
-    title: 'Free Materials',
-    icon: 'menu-book',
-    color: '#4ECDC4',
-    screen: 'AdminAddFreeMaterialsScreen',
-  },
-  {
-    id: 'paid_dpp',
-    title: 'Paid DPPs',
-    icon: 'assignment',
-    color: '#9C27B0',
-    screen: 'AdminAddPaidDPPScreen',
   },
   {
     id: 'free_dpp',
@@ -77,6 +63,10 @@ const QUICK_ACTIONS = [
     color: '#2196F3',
     screen: 'AdminAddFreeDPPScreen',
   },
+];
+
+// Test Series Configuration
+const TEST_ACTIONS = [
   {
     id: 'paid_test_series',
     title: 'Paid Tests',
@@ -106,6 +96,8 @@ export default function AdminDashboardScreen() {
   const cardScale = useRef(new Animated.Value(0.8)).current;
   const quickActionsOpacity = useRef(new Animated.Value(0)).current;
   const quickActionsTranslateY = useRef(new Animated.Value(30)).current;
+  const testSectionOpacity = useRef(new Animated.Value(0)).current;
+  const testSectionTranslateY = useRef(new Animated.Value(30)).current;
   const glowOpacity = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
 
@@ -165,6 +157,22 @@ export default function AdminDashboardScreen() {
       ]).start();
     }, 400);
 
+    // Test Section animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(testSectionOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(testSectionTranslateY, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 500);
+
     // Cards animation
     setTimeout(() => {
       Animated.parallel([
@@ -209,10 +217,41 @@ export default function AdminDashboardScreen() {
     pulse();
   };
 
-  // Simplified quick action handler - direct navigation
+  // Fixed navigation function with proper typing
   const handleQuickAction = (action: typeof QUICK_ACTIONS[0]) => {
     console.log(`Navigating to ${action.screen}`);
-    navigation.navigate(action.screen as keyof RootStackParamList);
+    // Using the navigation with explicit typing
+    switch (action.screen) {
+      case 'AdminPaidNotesScreen':
+        navigation.navigate('AdminPaidNotesScreen');
+        break;
+      case 'AdminUnpaidNotesScreen':
+        navigation.navigate('AdminUnpaidNotesScreen');
+        break;
+      case 'AdminPaidMaterialsScreen':
+        navigation.navigate('AdminPaidMaterialsScreen');
+        break;
+      case 'AdminAddFreeDPPScreen':
+        //navigation.navigate('AdminAddFreeDPPScreen');
+        break;
+      default:
+        console.warn('Unknown screen:', action.screen);
+    }
+  };
+
+  // Fixed test action handler
+  const handleTestAction = (action: typeof TEST_ACTIONS[0]) => {
+    console.log(`Navigating to ${action.screen}`);
+    switch (action.screen) {
+      case 'AdminAddPaidTestSeriesScreen':
+        //navigation.navigate('AdminAddPaidTestSeriesScreen');
+        break;
+      case 'AdminAddFreeTestSeriesScreen':
+        //navigation.navigate('AdminAddFreeTestSeriesScreen');
+        break;
+      default:
+        console.warn('Unknown screen:', action.screen);
+    }
   };
 
   // Simplified course handlers - direct navigation
@@ -284,6 +323,39 @@ export default function AdminDashboardScreen() {
           <MaterialIcons name={action.icon as keyof typeof MaterialIcons.glyphMap} size={24} color={action.color} />
         </View>
         <Text style={styles.quickActionTitle}>{action.title}</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderTestButton = (action: typeof TEST_ACTIONS[0], index: number) => (
+    <Animated.View
+      key={action.id}
+      style={[
+        styles.testButton,
+        {
+          opacity: testSectionOpacity,
+          transform: [
+            { translateY: testSectionTranslateY },
+            { scale: pulseScale }
+          ],
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          styles.testTouchable,
+          { borderColor: action.color + '40' }
+        ]}
+        onPress={() => handleTestAction(action)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.testIconContainer, { backgroundColor: action.color + '20' }]}>
+          <MaterialIcons name={action.icon as keyof typeof MaterialIcons.glyphMap} size={28} color={action.color} />
+        </View>
+        <Text style={styles.testTitle}>{action.title}</Text>
+        <View style={styles.testArrow}>
+          <Feather name="arrow-right" size={18} color={action.color} />
+        </View>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -423,6 +495,22 @@ export default function AdminDashboardScreen() {
             <Text style={styles.quickActionsTitle}>Quick Actions</Text>
             <View style={styles.quickActionsGrid}>
               {QUICK_ACTIONS.map((action, index) => renderQuickActionButton(action, index))}
+            </View>
+          </Animated.View>
+
+          {/* Test Series Section */}
+          <Animated.View 
+            style={[
+              styles.testSeriesSection,
+              {
+                opacity: testSectionOpacity,
+                transform: [{ translateY: testSectionTranslateY }],
+              },
+            ]}
+          >
+            <Text style={styles.testSeriesTitle}>Test Series</Text>
+            <View style={styles.testSeriesGrid}>
+              {TEST_ACTIONS.map((action, index) => renderTestButton(action, index))}
             </View>
           </Animated.View>
 
@@ -632,11 +720,61 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   quickActionTitle: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#ffffff',
     textAlign: 'center',
     fontWeight: '600',
     lineHeight: 12,
+  },
+
+  // Test Series Section
+  testSeriesSection: {
+    marginBottom: 30,
+  },
+  testSeriesTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 15,
+    letterSpacing: 0.5,
+  },
+  testSeriesGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 5,
+  },
+  testButton: {
+    width: (width - 60) / 2, // 2 buttons per row with spacing
+    marginBottom: 15,
+  },
+  testTouchable: {
+    alignItems: 'center',
+    padding: 15,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    position: 'relative',
+  },
+  testIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  testTitle: {
+    fontSize: 14,
+    color: '#ffffff',
+    textAlign: 'center',
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  testArrow: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
   },
 
   welcomeSection: {

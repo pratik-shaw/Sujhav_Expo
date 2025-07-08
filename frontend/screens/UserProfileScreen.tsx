@@ -403,19 +403,23 @@ const UserProfileScreen: React.FC<UserProfileScreenProps> = ({ navigation }) => 
   };
 
   const handleEditProfile = () => {
-    navigation.navigate('EditProfile', { userData });
+    //navigation.navigate('EditProfile', { userData });
+    alert('Edit Profile feature is under development');
   };
 
   const handleSettings = () => {
-    navigation.navigate('Settings');
+    //navigation.navigate('Settings');
+    alert('Settings feature is under development');
   };
 
   const handleNotifications = () => {
-    navigation.navigate('Notifications');
+    //navigation.navigate('Notifications');
+    alert('Notifications feature is under development');
   };
 
   const handleHelpSupport = () => {
-    navigation.navigate('HelpSupport');
+    //navigation.navigate('HelpSupport');
+    alert('Help & Support feature is under development');
   };
 
   const handleBannerClose = () => {
