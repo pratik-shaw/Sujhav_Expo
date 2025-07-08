@@ -17,7 +17,9 @@ import {
   Linking,
 } from 'react-native';
 import { NavigationProp, RouteProp } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from '../config/api';
+import SignupLoginBanner from '../components/SignupLoginBanner';
 
 // Define the route params type
 interface RouteParams {
@@ -91,6 +93,14 @@ interface RazorpayOrder {
   currency: string;
 }
 
+interface UserData {
+  id: string;
+  email: string;
+  name: string;
+  token: string;
+  role?: string;
+}
+
 const { width, height } = Dimensions.get('window');
 
 // Brand configuration
@@ -118,6 +128,11 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
   const [purchaseData, setPurchaseData] = useState<PurchaseData | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(false);
+  
+  // Authentication state
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [showLoginBanner, setShowLoginBanner] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -129,6 +144,63 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
   // API Base URL
   const API_BASE_URL = API_BASE;
 
+  // Authentication check function (matching CourseDetailsScreen pattern)
+  const checkAuthStatus = async () => {
+    try {
+      console.log('Checking auth status...');
+      
+      // Updated to use storage keys from SignIn screen (matching UserProfileScreen)
+      const token = await AsyncStorage.getItem('userToken');
+      const userRole = await AsyncStorage.getItem('userRole');
+      const userId = await AsyncStorage.getItem('userId');
+      const userName = await AsyncStorage.getItem('userName');
+      const storedUserData = await AsyncStorage.getItem('userData');
+      
+      console.log('Auth data found:', { 
+        hasToken: !!token, 
+        userRole, 
+        userId, 
+        userName,
+        hasStoredData: !!storedUserData
+      });
+      
+      if (token && userId && userName) {
+        let parsedUserData = null;
+        
+        // Try to get detailed user data from storage first
+        if (storedUserData) {
+          try {
+            parsedUserData = JSON.parse(storedUserData);
+          } catch (e) {
+            console.error('Error parsing stored user data:', e);
+          }
+        }
+        
+        // Create user data object with available information
+        const userDataObj: UserData = {
+          id: userId,
+          name: userName,
+          email: parsedUserData?.email || '',
+          token: token,
+          role: userRole || 'user'
+        };
+        
+        console.log('Setting user data:', userDataObj);
+        setUserData(userDataObj);
+        setIsLoggedIn(true);
+        return true;
+      } else {
+        console.log('No auth data found, user not logged in');
+        setIsLoggedIn(false);
+        return false;
+      }
+    } catch (error) {
+      console.error('Auth check error:', error);
+      setIsLoggedIn(false);
+      return false;
+    }
+  };
+
   // Early return if notesId is not provided
   useEffect(() => {
     if (!notesId) {
@@ -137,9 +209,26 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
       return;
     }
     fetchNotesDetails();
-    checkNotesAccess();
+    checkAuthStatus();
     startEntranceAnimation();
   }, [notesId]);
+
+  // Check access when user data is available
+  useEffect(() => {
+    if (isLoggedIn && userData && notesData) {
+      checkNotesAccess();
+    }
+  }, [isLoggedIn, userData, notesData]);
+
+  // Auto-refresh when screen is focused
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('Screen focused, checking auth status...');
+      checkAuthStatus();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   // Fetch notes details
   const fetchNotesDetails = async () => {
@@ -175,7 +264,7 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
 
   // Check if user has access to notes
   const checkNotesAccess = async () => {
-    if (!notesId) return;
+    if (!notesId || !userData) return;
     
     try {
       setCheckingAccess(true);
@@ -184,8 +273,7 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          // Add your auth token here
-          // 'Authorization': `Bearer ${authToken}`
+          'Authorization': `Bearer ${userData.token}`
         },
       });
       
@@ -195,6 +283,13 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
         if (data.purchase) {
           setPurchaseData(data.purchase);
         }
+      } else if (response.status === 401) {
+        // Token expired or invalid
+        console.log('Token expired, clearing auth data');
+        await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName', 'userData']);
+        setIsLoggedIn(false);
+        setUserData(null);
+        setHasAccess(false);
       }
       
     } catch (error) {
@@ -220,7 +315,10 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
   // Handle refresh
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchNotesDetails(), checkNotesAccess()]);
+    await fetchNotesDetails();
+    if (userData) {
+      await checkNotesAccess();
+    }
     setRefreshing(false);
   };
 
@@ -244,7 +342,7 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
 
   // Handle PDF download/view (for purchased notes)
   const handlePdfDownload = async (pdf: PdfItem) => {
-    if (!notesId || !hasAccess) {
+    if (!notesId || !hasAccess || !userData) {
       Alert.alert('Error', 'You need to purchase these notes to download PDFs');
       return;
     }
@@ -266,19 +364,42 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
     }
   };
 
-  // Handle purchase
+  // Handle purchase with authentication check
   const handlePurchase = async () => {
     if (!notesId || !notesData) return;
     
+    console.log('Attempting purchase...');
+    console.log('Current auth state:', { isLoggedIn, userData: !!userData });
+
+    // Check if user is authenticated
+    const isAuthenticated = await checkAuthStatus();
+    console.log('Authentication result:', isAuthenticated);
+    
+    if (!isAuthenticated || !userData) {
+      console.log('User not authenticated, showing login banner');
+      setShowLoginBanner(true);
+      return;
+    }
+
+    // If already has access, show message
+    if (hasAccess) {
+      Alert.alert(
+        'Already Purchased',
+        'You already have access to these notes.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
     try {
       setPurchasing(true);
+      console.log('Starting purchase process...');
       
       const response = await fetch(`${API_BASE_URL}/purchased-notes/purchase`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Add your auth token here
-          // 'Authorization': `Bearer ${authToken}`
+          'Authorization': `Bearer ${userData.token}`
         },
         body: JSON.stringify({
           notesId: notesId
@@ -286,28 +407,48 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
       });
       
       const data = await response.json();
+      console.log('Purchase response:', { status: response.status, data });
       
-      if (data.success) {
-        // Handle free notes
-        if (notesData.price === 0) {
-          Alert.alert('Success', 'Successfully purchased the free notes!');
-          setHasAccess(true);
-          setPurchaseData(data.purchase);
-        } else {
-          // Handle paid notes - navigate to payment
-          if (data.razorpayOrder) {
-            handleRazorpayPayment(data.purchase, data.razorpayOrder);
+      if (response.ok) {
+        if (data.success) {
+          // Handle free notes
+          if (notesData.price === 0) {
+            Alert.alert('Success', 'Successfully purchased the free notes!');
+            setHasAccess(true);
+            setPurchaseData(data.purchase);
           } else {
-            Alert.alert('Error', 'Failed to initialize payment');
+            // Handle paid notes - navigate to payment
+            if (data.razorpayOrder) {
+              handleRazorpayPayment(data.purchase, data.razorpayOrder);
+            } else {
+              Alert.alert('Error', 'Failed to initialize payment');
+            }
           }
+        } else {
+          Alert.alert('Error', data.message || 'Failed to purchase notes');
         }
       } else {
+        if (response.status === 401) {
+          // Token expired or invalid
+          console.log('Token expired, clearing auth data');
+          await AsyncStorage.multiRemove(['userToken', 'userRole', 'userId', 'userName', 'userData']);
+          setIsLoggedIn(false);
+          setUserData(null);
+          setShowLoginBanner(true);
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please sign in again.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
         Alert.alert('Error', data.message || 'Failed to purchase notes');
       }
       
     } catch (error) {
       console.error('Error purchasing notes:', error);
-      Alert.alert('Error', 'Failed to purchase notes. Please try again.');
+      const errorMessage = (error instanceof Error && error.message) ? error.message : 'Failed to purchase notes. Please try again.';
+      Alert.alert('Error', errorMessage);
     } finally {
       setPurchasing(false);
     }
@@ -336,14 +477,15 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
 
   // Simulate payment success (replace with actual Razorpay integration)
   const simulatePaymentSuccess = async (purchase: PurchaseData, razorpayOrder: RazorpayOrder) => {
+    if (!userData) return;
+    
     try {
       // In real implementation, this would be called after successful Razorpay payment
       const response = await fetch(`${API_BASE_URL}/purchased-notes/verify-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Add your auth token here
-          // 'Authorization': `Bearer ${authToken}`
+          'Authorization': `Bearer ${userData.token}`
         },
         body: JSON.stringify({
           purchaseId: purchase._id,
@@ -384,6 +526,11 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
   // Handle back button
   const handleBackPress = () => {
     navigation.goBack();
+  };
+
+  // Close login banner
+  const handleCloseBanner = () => {
+    setShowLoginBanner(false);
   };
 
   // Get thumbnail source
@@ -762,9 +909,14 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
               <Text style={styles.footerLabel}>Updated:</Text>
               <Text style={styles.footerValue}>{formatDate(notesData.updatedAt)}</Text>
             </View>
+            <View style={styles.footerItem}>
+              <Text style={styles.footerLabel}>Status:</Text>
+              <Text style={[styles.footerValue, { color: notesData.isActive ? BRAND.primaryColor : '#ff6b6b' }]}>
+                {notesData.isActive ? 'Active' : 'Inactive'}
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.bottomPadding} />
         </ScrollView>
       </Animated.View>
 
@@ -775,57 +927,54 @@ const PaidNotesDetailsScreen: React.FC<PaidNotesDetailsScreenProps> = ({ navigat
         visible={pdfModalVisible}
         onRequestClose={() => setPdfModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle} numberOfLines={2}>
-                {selectedPdf?.pdfTitle}
-              </Text>
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setPdfModalVisible(false)}
-              >
-                <Text style={styles.modalCloseButtonText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.modalBody}>
-              <Text style={styles.modalDescription}>
-                {selectedPdf?.pdfDescription}
-              </Text>
-              
-              <View style={styles.modalStats}>
-                <View style={styles.modalStatItem}>
-                  <Text style={styles.modalStatLabel}>Size:</Text>
-                  <Text style={styles.modalStatValue}>
-                    {selectedPdf ? formatFileSize(selectedPdf.fileSize) : ''}
-                  </Text>
+            {selectedPdf && (
+              <>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>{selectedPdf.pdfTitle}</Text>
+                  <TouchableOpacity
+                    style={styles.modalCloseButton}
+                    onPress={() => setPdfModalVisible(false)}
+                  >
+                    <Text style={styles.modalCloseButtonText}>×</Text>
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.modalStatItem}>
-                  <Text style={styles.modalStatLabel}>Pages:</Text>
-                  <Text style={styles.modalStatValue}>{selectedPdf?.pages || 0}</Text>
+                
+                <View style={styles.modalBody}>
+                  <Text style={styles.modalDescription}>{selectedPdf.pdfDescription}</Text>
+                  
+                  <View style={styles.modalMeta}>
+                    <Text style={styles.modalMeta}>File Size: {formatFileSize(selectedPdf.fileSize)}</Text>
+                    <Text style={styles.modalMeta}>Pages: {selectedPdf.pages}</Text>
+                    <Text style={styles.modalMeta}>Original Name: {selectedPdf.originalName}</Text>
+                  </View>
                 </View>
-              </View>
-            </View>
-            
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => {
-                  setPdfModalVisible(false);
-                  if (selectedPdf) {
-                    handlePdfDownload(selectedPdf);
-                  }
-                }}
-              >
-                <Text style={styles.modalButtonText}>
-                  {hasAccess ? 'Open PDF' : 'Purchase Required'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity
+                    style={styles.modalDownloadButton}
+                    onPress={() => {
+                      handlePdfDownload(selectedPdf);
+                      setPdfModalVisible(false);
+                    }}
+                  >
+                    <Text style={styles.modalDownloadButtonText}>Download PDF</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
+
+      {/* Login Banner */}
+      {showLoginBanner && (
+        <SignupLoginBanner
+          onClose={handleCloseBanner}
+          navigation={navigation}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -835,6 +984,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
   },
+  
+  // Background Elements
   backgroundElements: {
     position: 'absolute',
     top: 0,
@@ -842,17 +993,20 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  
   glowCircle: {
     position: 'absolute',
     borderRadius: 200,
     backgroundColor: 'rgba(0, 255, 136, 0.2)',
   },
+  
   glowCircle1: {
     width: 400,
     height: 400,
     top: -200,
     right: -150,
   },
+  
   glowCircle2: {
     width: 300,
     height: 300,
@@ -860,7 +1014,7 @@ const styles = StyleSheet.create({
     left: -100,
   },
 
-  // Header Section
+  // Header Styles
   headerSection: {
     height: 60,
     justifyContent: 'center',
@@ -870,10 +1024,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(10, 26, 10, 0.95)',
     zIndex: 10,
   },
+  
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  
   backButton: {
     width: 40,
     height: 40,
@@ -883,20 +1039,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 15,
   },
+  
   backButtonText: {
     color: BRAND.primaryColor,
     fontSize: 20,
     fontWeight: '600',
   },
+  
   headerTitleContainer: {
     flex: 1,
   },
+  
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#ffffff',
     letterSpacing: 0.5,
   },
+  
   shareButton: {
     width: 40,
     height: 40,
@@ -905,19 +1065,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  
   shareButtonText: {
     fontSize: 18,
   },
 
-  // Content Container
+  // Content Styles
   contentContainer: {
     flex: 1,
   },
+  
   scrollView: {
     flex: 1,
   },
 
-  // Thumbnail Section
+  // Thumbnail Styles
   thumbnailContainer: {
     height: 200,
     margin: 20,
@@ -925,11 +1087,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
+  
   thumbnail: {
     width: '100%',
     height: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
+  
   thumbnailOverlay: {
     position: 'absolute',
     top: 0,
@@ -941,35 +1105,44 @@ const styles = StyleSheet.create({
     padding: 12,
     flexDirection: 'row',
   },
+  
   categoryBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(0, 255, 136, 0.9)',
   },
+  
   categoryBadgeText: {
-    color: BRAND.backgroundColor,
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
   },
+  
   priceBadge: {
-    backgroundColor: 'rgba(255, 193, 7, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: BRAND.priceColor,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
     borderRadius: 8,
+    shadowColor: BRAND.priceColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
+  
   priceBadgeText: {
     color: BRAND.backgroundColor,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
   },
 
-  // Notes Header
+  // Notes Header Styles
   notesHeader: {
     paddingHorizontal: 20,
     marginBottom: 20,
   },
+  
   notesTitle: {
     fontSize: 24,
     fontWeight: '700',
@@ -977,31 +1150,37 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     lineHeight: 30,
   },
+  
   notesSubtitle: {
     fontSize: 16,
     color: '#cccccc',
     marginBottom: 16,
     lineHeight: 22,
   },
+  
   notesMeta: {
     marginBottom: 16,
   },
+  
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 4,
   },
+  
   metaLabel: {
     fontSize: 14,
     color: '#aaaaaa',
     marginRight: 8,
     fontWeight: '500',
   },
+  
   metaValue: {
     fontSize: 14,
     color: BRAND.primaryColor,
     fontWeight: '600',
   },
+  
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -1011,50 +1190,55 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
+  
   statItem: {
     alignItems: 'center',
   },
+  
   statValue: {
     fontSize: 16,
     fontWeight: '700',
     color: '#ffffff',
     marginBottom: 4,
   },
+  
   statLabel: {
     fontSize: 12,
     color: '#aaaaaa',
     fontWeight: '500',
   },
 
-  // Purchase Section
+  // Purchase Section Styles
   purchaseSection: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  purchaseContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    margin: 20,
+    marginTop: 10,
+    padding: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 12,
-    padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(0, 255, 136, 0.2)',
   },
+  
   priceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
+  
   priceLabel: {
-    fontSize: 16,
-    color: '#aaaaaa',
-    marginRight: 8,
+    color: '#cccccc',
+    fontSize: 18,
+    marginRight: 10,
     fontWeight: '500',
   },
+  
   priceValue: {
-    fontSize: 24,
+    color: BRAND.priceColor,
+    fontSize: 28,
     fontWeight: '700',
-    color: '#ffc107',
   },
+  
   buyButton: {
     backgroundColor: BRAND.primaryColor,
     paddingVertical: 14,
@@ -1063,51 +1247,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: BRAND.primaryColor,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
   },
+  
   buyButtonDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    opacity: 0.7,
+    backgroundColor: '#666666',
+    shadowOpacity: 0,
+    elevation: 0,
   },
+  
   buyButtonText: {
     color: BRAND.backgroundColor,
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
+  
   accessGrantedContainer: {
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
-    borderColor: BRAND.primaryColor,
-    borderWidth: 1,
+    backgroundColor: 'rgba(0, 255, 136, 0.2)',
     paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 12,
     alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: BRAND.primaryColor,
   },
+  
   accessGrantedText: {
     color: BRAND.primaryColor,
     fontSize: 16,
     fontWeight: '600',
   },
 
-  // Description Section
+  // Description Section Styles
   descriptionSection: {
     paddingHorizontal: 20,
     marginBottom: 20,
   },
+  
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#ffffff',
     marginBottom: 12,
   },
+  
   descriptionText: {
     fontSize: 14,
     color: '#cccccc',
@@ -1115,39 +1302,45 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
 
-  // PDFs Section
+  // PDFs Section Styles
   pdfsSection: {
     paddingHorizontal: 20,
     marginBottom: 20,
   },
+  
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
+  
   pdfCount: {
     fontSize: 16,
     color: BRAND.primaryColor,
     fontWeight: '500',
     marginLeft: 8,
   },
+  
   accessWarning: {
-    backgroundColor: 'rgba(255, 193, 7, 0.1)',
-    borderColor: '#ffc107',
-    borderWidth: 1,
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    padding: 15,
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
   },
+  
   accessWarningText: {
-    color: '#ffc107',
+    color: '#ff6b6b',
     fontSize: 14,
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '600',
   },
+  
   pdfsList: {
     gap: 12,
   },
+  
   pdfItem: {
     flexDirection: 'row',
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -1156,10 +1349,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 136, 0.2)',
   },
+  
   pdfItemLocked: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
+  
   pdfIcon: {
     width: 40,
     height: 40,
@@ -1169,15 +1364,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  pdfIconLocked: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
+  
   pdfIconText: {
     fontSize: 16,
   },
+  
   pdfInfo: {
     flex: 1,
   },
+  
   pdfTitle: {
     fontSize: 14,
     fontWeight: '600',
@@ -1185,30 +1380,37 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     lineHeight: 18,
   },
+  
   pdfTitleLocked: {
     color: '#aaaaaa',
   },
+  
   pdfDescription: {
     fontSize: 12,
     color: '#cccccc',
     marginBottom: 8,
     lineHeight: 16,
   },
+  
   pdfDescriptionLocked: {
-    color: '#888888',
+    color: '#666666',
   },
+  
   pdfMeta: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  
   pdfMetaText: {
     fontSize: 12,
     color: BRAND.primaryColor,
     fontWeight: '500',
   },
+  
   pdfMetaTextLocked: {
-    color: '#888888',
+    color: '#666666',
   },
+  
   downloadButton: {
     width: 36,
     height: 36,
@@ -1218,12 +1420,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 8,
   },
+  
   downloadButtonLocked: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
+  
   downloadButtonText: {
     fontSize: 16,
   },
+  
   noPdfsText: {
     fontSize: 14,
     color: '#aaaaaa',
@@ -1232,7 +1437,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-  // Footer Section
+  // Footer Section Styles
   footerSection: {
     paddingHorizontal: 20,
     marginBottom: 20,
@@ -1243,69 +1448,57 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
+  
   footerItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
+  
   footerLabel: {
     fontSize: 14,
     color: '#aaaaaa',
     fontWeight: '500',
   },
+  
   footerValue: {
     fontSize: 14,
     color: BRAND.primaryColor,
     fontWeight: '600',
   },
 
-  // Loading and Error States
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  // Brand Footer Styles
+  brandFooter: {
     alignItems: 'center',
+    padding: 30,
+    paddingBottom: 50,
   },
-  loadingText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '500',
+  
+  brandName: {
+    color: BRAND.primaryColor,
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 8,
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  
+  brandSubtitle: {
+    color: '#666666',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
     paddingHorizontal: 20,
-  },
-  errorText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  errorBackButton: {
-    backgroundColor: BRAND.primaryColor,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  errorBackButtonText: {
-    color: BRAND.backgroundColor,
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
   },
 
   // Modal Styles
-  modalContainer: {
+  modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
+  
   modalContent: {
     width: '100%',
     maxWidth: 400,
@@ -1322,6 +1515,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 20,
   },
+  
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1330,6 +1524,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
+  
   modalTitle: {
     flex: 1,
     fontSize: 18,
@@ -1338,6 +1533,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
     lineHeight: 24,
   },
+  
   modalCloseButton: {
     width: 32,
     height: 32,
@@ -1346,21 +1542,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  
   modalCloseButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
   },
+  
   modalBody: {
     padding: 20,
   },
+  
   modalDescription: {
     fontSize: 14,
-    color: '#cccccc',
+    color: '#ccccce',
     lineHeight: 20,
     marginBottom: 16,
   },
-  modalStats: {
+  
+  modalMeta: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -1369,26 +1569,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  modalStatItem: {
+  
+  modalMetaItem: {
     alignItems: 'center',
   },
-  modalStatLabel: {
+  
+  modalMetaLabel: {
     fontSize: 12,
     color: '#aaaaaa',
     fontWeight: '500',
     marginBottom: 4,
   },
-  modalStatValue: {
+  
+  modalMetaValue: {
     fontSize: 16,
     color: BRAND.primaryColor,
     fontWeight: '700',
   },
-  modalActions: {
+  
+  modalFooter: {
     padding: 20,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
-  modalButton: {
+  
+  modalDownloadButton: {
     backgroundColor: BRAND.primaryColor,
     paddingVertical: 14,
     paddingHorizontal: 24,
@@ -1404,11 +1609,55 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  modalButtonText: {
+  
+  modalDownloadButtonText: {
     color: BRAND.backgroundColor,
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+
+  // Loading and Error Styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  loadingText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  
+  errorText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  
+  errorBackButton: {
+    backgroundColor: BRAND.primaryColor,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 16,
+  },
+  
+  errorBackButtonText: {
+    color: BRAND.backgroundColor,
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 
   // Bottom Padding
