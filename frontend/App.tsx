@@ -19,6 +19,7 @@ import AdminPaidMaterialsScreen from './screens/AdminPaidMaterialsScreen';
 import AllNotesScreen from './screens/AllNotesScreen';
 import CourseDetailsScreen from './screens/CourseDetailsScreen';
 import CourseContentScreen from './screens/CourseContentScreen'; // Add enrollment screen
+import MyContentScreen from './screens/MyContentScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -49,16 +50,7 @@ export type RootStackParamList = {
     enrollmentId?: string;
     fromScreen?: string;
   };
-  PaymentScreen: {
-    enrollment: any;
-    razorpayOrder: any;
-    course: any;
-    onPaymentSuccess: (paymentData: any) => void;
-  };
-  EnrollmentScreen: {
-    courseId: string;
-    courseType?: 'paid' | 'free';
-  };
+  MyContent: undefined; // Add MyContent screen
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -297,6 +289,15 @@ export default function App() {
         <Stack.Screen 
           name="CourseContent" 
           component={CourseContentScreen}
+          options={{ 
+            gestureEnabled: true,
+            animation: 'slide_from_right',
+            presentation: 'card'
+          }}
+        />
+        <Stack.Screen 
+          name="MyContent" 
+          component={MyContentScreen}
           options={{ 
             gestureEnabled: true,
             animation: 'slide_from_right',
