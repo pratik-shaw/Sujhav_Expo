@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigation from '../components/BottomNavigation';
 import CoursesSection from '../components/CoursesSection';
 import MoreOptionSection from '../components/MoreOptionSection';
+import OfflinePromotionSection from '../components/OfflinePromotionSection';
 import { API_BASE } from '../config/api';
 
 interface HomeScreenProps {
@@ -449,18 +450,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  // Render header component for ScrollView
+  // Render header component for ScrollView - NOW INCLUDES OFFLINE PROMOTION
   const renderHeader = () => (
     <>
-      {/* Welcome Section */}
+      {/* Offline Promotion Section - MOVED HERE (FIRST) */}
+      <Animated.View style={[styles.offlinePromotionContainer, { opacity: fadeAnim }]}>
+        <OfflinePromotionSection navigation={navigation} fadeAnim={fadeAnim} />
+      </Animated.View>
+
+      {/* Courses Section Title */}
       <Animated.View
         style={[
-          styles.welcomeSection,
+          styles.sectionTitleContainer,
           { opacity: fadeAnim },
         ]}
       >
-        <Text style={styles.welcomeTitle}>Explore Our Courses</Text>
-        <Text style={styles.welcomeSubtitle}>
+        <Text style={styles.sectionTitle}>Explore Our Courses</Text>
+        <Text style={styles.sectionSubtitle}>
           Choose from our premium and free courses
         </Text>
       </Animated.View>
@@ -490,10 +496,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     </>
   );
 
-  // Render footer component for ScrollView
+  // Render footer component for ScrollView - NOW ONLY HAS MORE OPTIONS
   const renderFooter = () => (
     <>
-      {/* More Options Section - Now with proper spacing */}
+      {/* More Options Section - MOVED HERE (LAST) */}
       <Animated.View style={[styles.moreOptionsContainer, { opacity: fadeAnim }]}>
         <MoreOptionSection navigation={navigation} fadeAnim={fadeAnim} />
       </Animated.View>
@@ -552,7 +558,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         </View>
       </Animated.View>
 
-      {/* Main Content - CoursesSection with integrated MoreOptionSection */}
+      {/* Main Content - Layout: OfflinePromotion -> Courses -> MoreOptions */}
       <CoursesSection
         courses={getLatestCourses()}
         loading={loading}
@@ -645,10 +651,38 @@ const styles = StyleSheet.create({
   // Welcome Section
   welcomeSection: {
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 20,
     alignItems: 'center',
   },
   welcomeTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  welcomeSubtitle: {
+    fontSize: 16,
+    color: '#cccccc',
+    textAlign: 'center',
+    opacity: 0.9,
+  },
+
+  // Offline Promotion Container - Now appears first after welcome
+  offlinePromotionContainer: {
+    marginTop: 10,
+    marginBottom: 20,
+    paddingHorizontal: 0,
+  },
+
+  // Section Title Container - For courses section
+  sectionTitleContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  sectionTitle: {
     fontSize: 24,
     fontWeight: '600',
     color: '#ffffff',
@@ -656,7 +690,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     letterSpacing: 0.5,
   },
-  welcomeSubtitle: {
+  sectionSubtitle: {
     fontSize: 14,
     color: '#cccccc',
     textAlign: 'center',
@@ -667,6 +701,7 @@ const styles = StyleSheet.create({
   filtersSection: {
     paddingHorizontal: 20,
     paddingVertical: 10,
+    marginBottom: 10,
   },
   filterRow: {
     flexDirection: 'row',
@@ -695,10 +730,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // More Options Container - Fixed spacing
+  // More Options Container - Now appears last
   moreOptionsContainer: {
-    marginTop: 2, // Reduced gap between sections
-    paddingHorizontal: 0, // Remove horizontal padding to match CoursesSection
+    marginTop: 20,
+    paddingHorizontal: 0,
   },
 
   // Bottom padding

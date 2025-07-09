@@ -15,6 +15,7 @@ import {
   Linking,
 } from 'react-native';
 import { NavigationProp, RouteProp } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from '../config/api';
 
 interface AllDPPScreenProps {
@@ -42,6 +43,14 @@ interface DPP {
   viewCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+interface UserData {
+  id: string;
+  email: string;
+  name: string;
+  token: string;
+  role?: string;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -75,6 +84,11 @@ const AllDPPScreen: React.FC<AllDPPScreenProps> = ({ navigation, route }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedDPP, setSelectedDPP] = useState<DPP | null>(null);
 
+  // Authentication state
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [showLoginBanner, setShowLoginBanner] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(0)).current;
@@ -84,6 +98,62 @@ const AllDPPScreen: React.FC<AllDPPScreenProps> = ({ navigation, route }) => {
 
   // API Base URL
   const API_BASE_URL = API_BASE;
+
+  // Authentication check function
+  const checkAuthStatus = async () => {
+    try {
+      console.log('Checking auth status...');
+      
+      const token = await AsyncStorage.getItem('userToken');
+      const userRole = await AsyncStorage.getItem('userRole');
+      const userId = await AsyncStorage.getItem('userId');
+      const userName = await AsyncStorage.getItem('userName');
+      const storedUserData = await AsyncStorage.getItem('userData');
+      
+      console.log('Auth data found:', { 
+        hasToken: !!token, 
+        userRole, 
+        userId, 
+        userName,
+        hasStoredData: !!storedUserData
+      });
+      
+      if (token && userId && userName) {
+        let parsedUserData = null;
+        
+        // Try to get detailed user data from storage first
+        if (storedUserData) {
+          try {
+            parsedUserData = JSON.parse(storedUserData);
+          } catch (e) {
+            console.error('Error parsing stored user data:', e);
+          }
+        }
+        
+        // Create user data object with available information
+        const userDataObj: UserData = {
+          id: userId,
+          name: userName,
+          email: parsedUserData?.email || '',
+          token: token,
+          role: userRole || 'user'
+        };
+        
+        console.log('Setting user data:', userDataObj);
+        setUserData(userDataObj);
+        setIsLoggedIn(true);
+        return true;
+      } else {
+        console.log('No auth data found, user not logged in');
+        setIsLoggedIn(false);
+        return false;
+      }
+    } catch (error) {
+      console.error('Auth check error:', error);
+      setIsLoggedIn(false);
+      return false;
+    }
+  };
 
   // Fetch all DPPs
   const fetchAllDPPs = async () => {
@@ -145,6 +215,7 @@ const AllDPPScreen: React.FC<AllDPPScreenProps> = ({ navigation, route }) => {
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchAllDPPs();
+    await checkAuthStatus();
     setRefreshing(false);
   };
 
@@ -174,32 +245,58 @@ const AllDPPScreen: React.FC<AllDPPScreenProps> = ({ navigation, route }) => {
     });
   };
 
-  // Handle PDF Open
-  // Handle PDF Open - Corrected to match backend routes
-const handleOpenPDF = async (type: 'question' | 'answer') => {
-  if (!selectedDPP) return;
+  // Handle PDF Open with authentication check
+  const handleOpenPDF = async (type: 'question' | 'answer') => {
+    if (!selectedDPP) return;
 
-  try {
-    // Corrected URL to match backend routes
-    const pdfUrl = `${API_BASE_URL}/dpp/${selectedDPP._id}/${type}-pdf`;
+    console.log('PDF open requested, checking authentication...');
     
-    const canOpen = await Linking.canOpenURL(pdfUrl);
+    // Check if user is authenticated
+    const isAuthenticated = await checkAuthStatus();
+    console.log('Authentication result:', isAuthenticated);
     
-    if (canOpen) {
-      await Linking.openURL(pdfUrl);
-    } else {
-      console.error('Cannot open PDF URL:', pdfUrl);
+    if (!isAuthenticated || !userData) {
+      console.log('User not authenticated, showing login banner');
+      setShowLoginBanner(true);
+      return;
+    }
+
+    try {
+      // Corrected URL to match backend routes
+      const pdfUrl = `${API_BASE_URL}/dpp/${selectedDPP._id}/${type}-pdf`;
+      
+      const canOpen = await Linking.canOpenURL(pdfUrl);
+      
+      if (canOpen) {
+        await Linking.openURL(pdfUrl);
+      } else {
+        console.error('Cannot open PDF URL:', pdfUrl);
+        // You might want to show an alert here
+      }
+    } catch (error) {
+      console.error('Error opening PDF:', error);
       // You might want to show an alert here
     }
-  } catch (error) {
-    console.error('Error opening PDF:', error);
-    // You might want to show an alert here
-  }
-};
+  };
 
   // Handle back button
   const handleBackPress = () => {
     navigation.goBack();
+  };
+
+  // Close login banner
+  const handleCloseBanner = () => {
+    setShowLoginBanner(false);
+  };
+
+  // Handle login banner sign in - close modal and navigate
+  const handleLoginBannerSignIn = () => {
+    setShowLoginBanner(false);
+    // Close modal if it's open
+    if (modalVisible) {
+      handleModalClose();
+    }
+    navigation.navigate('SignIn');
   };
 
   // Helper function to format file size
@@ -226,8 +323,19 @@ const handleOpenPDF = async (type: 'question' | 'answer') => {
     if (initialDPPs.length === 0) {
       fetchAllDPPs();
     }
+    checkAuthStatus();
     startEntranceAnimation();
   }, []);
+
+  // Check authentication on focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('Screen focused, checking auth status...');
+      checkAuthStatus();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     applyFilters();
@@ -423,6 +531,21 @@ const handleOpenPDF = async (type: 'question' | 'answer') => {
                   </Text>
                 </View>
               </View>
+
+              {/* Authentication Notice */}
+              {!isLoggedIn && (
+                <View style={styles.authNotice}>
+                  <Text style={styles.authNoticeText}>
+                    🔒 Please sign in to access PDF files
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.authNoticeButton}
+                    onPress={handleLoginBannerSignIn}
+                  >
+                    <Text style={styles.authNoticeButtonText}>Sign In</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* PDF Actions */}
               <View style={styles.pdfActions}>
@@ -642,6 +765,7 @@ const handleOpenPDF = async (type: 'question' | 'answer') => {
 
       {/* Modal */}
       {renderModal()}
+
     </SafeAreaView>
   );
 };
@@ -650,6 +774,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
+  },
+  loginBannerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    padding: 16,
   },
   backgroundElements: {
     position: 'absolute',
@@ -1162,6 +1294,35 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
   },
+  authNotice: {
+  backgroundColor: 'rgba(255, 193, 7, 0.1)',
+  borderRadius: 12,
+  padding: 16,
+  marginBottom: 20,
+  borderWidth: 1,
+  borderColor: 'rgba(255, 193, 7, 0.3)',
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+},
+authNoticeText: {
+  color: '#ffc107',
+  fontSize: 14,
+  fontWeight: '500',
+  flex: 1,
+  marginRight: 12,
+},
+authNoticeButton: {
+  backgroundColor: BRAND.primaryColor,
+  paddingHorizontal: 16,
+  paddingVertical: 8,
+  borderRadius: 8,
+},
+authNoticeButtonText: {
+  color: BRAND.backgroundColor,
+  fontSize: 12,
+  fontWeight: '700',
+},
 });
 
 export default AllDPPScreen;

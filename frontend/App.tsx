@@ -24,6 +24,7 @@ import UnpaidNotesDetailsScreen from './screens/UnpaidNotesDetails';
 import PaidNotesDetailsScreen from './screens/PaidNotesDetailsScreen';
 import AdminDPPScreen from './screens/AdminDPPScreen';
 import AllDPPScreen from './screens/AllDPPScreen';
+import OfflineCenterScreen from './screens/OfflineCenterScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -62,6 +63,7 @@ export type RootStackParamList = {
   AdminAddPaidTestSeriesScreen: undefined; // Add this line
   AdminAddFreeTestSeriesScreen: undefined; // Add this line
   AllDPPScreen: undefined; // Add this line
+  OfflineCenterScreen: undefined; // Add this line
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -179,6 +181,9 @@ export default function App() {
         <Stack.Screen name="UnpaidNotesDetails" component={UnpaidNotesDetailsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="PaidNotesDetails" component={PaidNotesDetailsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="AllDPPScreen" component={AllDPPScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="OfflineCenterScreen" component={OfflineCenterScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
+        
+        {/* Admin DPP Screens */}
         
       </Stack.Navigator>
     </NavigationContainer>
