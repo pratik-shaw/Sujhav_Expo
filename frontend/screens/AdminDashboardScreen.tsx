@@ -83,6 +83,31 @@ const TEST_ACTIONS = [
   },
 ];
 
+// Offline Batch Management Configuration
+const BATCH_MANAGEMENT_ACTIONS = [
+  {
+    id: 'create_manage_batches',
+    title: 'Create & Manage Batches',
+    icon: 'group',
+    color: '#9C27B0',
+    screen: 'AdminCreateBatchesScreen' as keyof RootStackParamList,
+  },
+  {
+    id: 'add_students_teacher',
+    title: 'Add Students Under Teacher',
+    icon: 'person-add',
+    color: '#FF9800',
+    screen: 'AdminAddStudentsToTeacherScreen' as keyof RootStackParamList,
+  },
+  {
+    id: 'manage_access_reports',
+    title: 'Manage Student Access & Reports',
+    icon: 'assessment',
+    color: '#607D8B',
+    screen: 'AdminManageAccessReportsScreen' as keyof RootStackParamList,
+  },
+];
+
 export default function AdminDashboardScreen() {
   const navigation = useNavigation<AdminDashboardNavigationProp>();
   const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +123,10 @@ export default function AdminDashboardScreen() {
   const quickActionsTranslateY = useRef(new Animated.Value(30)).current;
   const testSectionOpacity = useRef(new Animated.Value(0)).current;
   const testSectionTranslateY = useRef(new Animated.Value(30)).current;
+  const batchSectionOpacity = useRef(new Animated.Value(0)).current;
+  const batchSectionTranslateY = useRef(new Animated.Value(30)).current;
+  const merchandiseOpacity = useRef(new Animated.Value(0)).current;
+  const merchandiseTranslateY = useRef(new Animated.Value(30)).current;
   const glowOpacity = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
 
@@ -173,6 +202,38 @@ export default function AdminDashboardScreen() {
       ]).start();
     }, 500);
 
+    // Batch Management Section animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(batchSectionOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(batchSectionTranslateY, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 600);
+
+    // Merchandise Section animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(merchandiseOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(merchandiseTranslateY, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 700);
+
     // Cards animation
     setTimeout(() => {
       Animated.parallel([
@@ -187,7 +248,7 @@ export default function AdminDashboardScreen() {
           useNativeDriver: true,
         }),
       ]).start();
-    }, 600);
+    }, 800);
 
     // Content fade in
     setTimeout(() => {
@@ -219,15 +280,15 @@ export default function AdminDashboardScreen() {
 
   // Simplified navigation function
   const navigateToScreen = (screenName: keyof RootStackParamList) => {
-  console.log(`Navigating to ${screenName}`);
-  try {
-    // Type assertion to satisfy TypeScript's strict navigation typing
-    (navigation as any).navigate(screenName);
-  } catch (error) {
-    console.error('Navigation error:', error);
-    Alert.alert('Navigation Error', 'Could not navigate to the requested screen.');
-  }
-};
+    console.log(`Navigating to ${screenName}`);
+    try {
+      // Type assertion to satisfy TypeScript's strict navigation typing
+      (navigation as any).navigate(screenName);
+    } catch (error) {
+      console.error('Navigation error:', error);
+      Alert.alert('Navigation Error', 'Could not navigate to the requested screen.');
+    }
+  };
 
   // Handle quick actions
   const handleQuickAction = (action: typeof QUICK_ACTIONS[0]) => {
@@ -237,6 +298,16 @@ export default function AdminDashboardScreen() {
   // Handle test actions
   const handleTestAction = (action: typeof TEST_ACTIONS[0]) => {
     navigateToScreen(action.screen);
+  };
+
+  // Handle batch management actions
+  const handleBatchAction = (action: typeof BATCH_MANAGEMENT_ACTIONS[0]) => {
+    navigateToScreen(action.screen);
+  };
+
+  // Handle merchandise action
+  const handleMerchandise = () => {
+    navigateToScreen('AdminMerchandiseScreen' as keyof RootStackParamList);
   };
 
   // Handle course actions
@@ -338,6 +409,39 @@ export default function AdminDashboardScreen() {
         <Text style={styles.testTitle}>{action.title}</Text>
         <View style={styles.testArrow}>
           <Feather name="arrow-right" size={18} color={action.color} />
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderBatchButton = (action: typeof BATCH_MANAGEMENT_ACTIONS[0], index: number) => (
+    <Animated.View
+      key={action.id}
+      style={[
+        styles.batchButton,
+        {
+          opacity: batchSectionOpacity,
+          transform: [
+            { translateY: batchSectionTranslateY },
+            { scale: pulseScale }
+          ],
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          styles.batchTouchable,
+          { borderColor: action.color + '40' }
+        ]}
+        onPress={() => handleBatchAction(action)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.batchIconContainer, { backgroundColor: action.color + '20' }]}>
+          <MaterialIcons name={action.icon as keyof typeof MaterialIcons.glyphMap} size={24} color={action.color} />
+        </View>
+        <Text style={styles.batchTitle}>{action.title}</Text>
+        <View style={styles.batchArrow}>
+          <Feather name="arrow-right" size={16} color={action.color} />
         </View>
       </TouchableOpacity>
     </Animated.View>
@@ -495,6 +599,53 @@ export default function AdminDashboardScreen() {
             <View style={styles.testSeriesGrid}>
               {TEST_ACTIONS.map((action, index) => renderTestButton(action, index))}
             </View>
+          </Animated.View>
+
+          {/* Offline Batch Management Section */}
+          <Animated.View 
+            style={[
+              styles.batchManagementSection,
+              {
+                opacity: batchSectionOpacity,
+                transform: [{ translateY: batchSectionTranslateY }],
+              },
+            ]}
+          >
+            <Text style={styles.batchManagementTitle}>Offline Batch Management</Text>
+            <View style={styles.batchManagementGrid}>
+              {BATCH_MANAGEMENT_ACTIONS.map((action, index) => renderBatchButton(action, index))}
+            </View>
+          </Animated.View>
+
+          {/* Merchandise Section */}
+          <Animated.View 
+            style={[
+              styles.merchandiseSection,
+              {
+                opacity: merchandiseOpacity,
+                transform: [{ translateY: merchandiseTranslateY }],
+              },
+            ]}
+          >
+            <Text style={styles.merchandiseTitle}>Merchandise</Text>
+            <TouchableOpacity
+              style={styles.merchandiseCard}
+              onPress={handleMerchandise}
+              activeOpacity={0.8}
+            >
+              <View style={styles.merchandiseIconContainer}>
+                <MaterialIcons name="shopping-bag" size={32} color="#E91E63" />
+              </View>
+              <View style={styles.merchandiseTextContainer}>
+                <Text style={styles.merchandiseCardTitle}>Add Merchandise</Text>
+                <Text style={styles.merchandiseCardDescription}>
+                  Manage and add merchandise items for sale
+                </Text>
+              </View>
+              <View style={styles.merchandiseArrow}>
+                <Feather name="arrow-right" size={20} color="#E91E63" />
+              </View>
+            </TouchableOpacity>
           </Animated.View>
 
           <Animated.View style={[styles.welcomeSection, { opacity: fadeAnim }]}>
@@ -760,44 +911,149 @@ const styles = StyleSheet.create({
     right: 15,
   },
 
-  welcomeSection: {
+  // Batch Management Section
+  batchManagementSection: {
     marginBottom: 30,
   },
-  sectionTitle: {
-    fontSize: 28,
+  batchManagementTitle: {
+    fontSize: 20,
     fontWeight: '700',
     color: '#ffffff',
-    marginBottom: 8,
+    marginBottom: 15,
     letterSpacing: 0.5,
-    textShadowColor: BRAND.primaryColor,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 8,
   },
-  sectionSubtitle: {
-    fontSize: 16,
-    color: '#cccccc',
-    opacity: 0.8,
-    lineHeight: 22,
+  batchManagementGrid: {
+    flexDirection: 'column',
+    paddingHorizontal: 5,
   },
-
-  // Action Cards
-  cardsContainer: {
-    marginBottom: 30,
+  batchButton: {
+    width: '100%',
+    marginBottom: 12,
   },
-  actionCard: {
-    marginBottom: 20,
-  },
-  primaryCard: {
-    // Special styling for primary card if needed
-  },
-  cardTouchable: {
+  batchTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderRadius: 12,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    borderRadius: 15,
-    padding: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     position: 'relative',
+  },
+  batchIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  batchTitle: {
+    fontSize: 14,
+    color: '#ffffff',
+    fontWeight: '600',
+    flex: 1,
+    lineHeight: 16,
+  },
+  batchArrow: {
+    marginLeft: 10,
+  },
+
+  // Merchandise Section
+  merchandiseSection: {
+    marginBottom: 30,
+  },
+  merchandiseTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 15,
+    letterSpacing: 0.5,
+  },
+  merchandiseCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(233, 30, 99, 0.3)',
+    marginHorizontal: 5,
+  },
+  merchandiseIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(233, 30, 99, 0.2)',
+    marginRight: 15,
+  },
+  merchandiseTextContainer: {
+    flex: 1,
+  },
+  merchandiseCardTitle: {
+    fontSize: 16,
+    color: '#ffffff',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  merchandiseCardDescription: {
+    fontSize: 12,
+    color: '#cccccc',
+    lineHeight: 16,
+  },
+  merchandiseArrow: {
+    marginLeft: 10,
+  },
+
+  // Welcome Section
+  welcomeSection: {
+    marginBottom: 25,
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#ffffff',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#cccccc',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
+  // Cards Container
+  cardsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 30,
+    paddingHorizontal: 5,
+  },
+
+  // Action Cards
+  actionCard: {
+    width: (width - 60) / 2,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     overflow: 'hidden',
+    position: 'relative',
+  },
+  primaryCard: {
+    borderColor: 'rgba(0, 255, 136, 0.3)',
+    backgroundColor: 'rgba(0, 255, 136, 0.05)',
+  },
+  cardTouchable: {
+    padding: 20,
+    alignItems: 'center',
+    minHeight: 160,
+    justifyContent: 'space-between',
   },
   cardGlow: {
     position: 'absolute',
@@ -806,7 +1062,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0, 255, 136, 0.1)',
-    borderRadius: 15,
+    borderRadius: 20,
   },
   iconContainer: {
     width: 60,
@@ -814,25 +1070,27 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   cardTitle: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
     color: '#ffffff',
+    textAlign: 'center',
     marginBottom: 8,
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   cardDescription: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#cccccc',
-    lineHeight: 20,
+    textAlign: 'center',
+    lineHeight: 16,
     marginBottom: 15,
   },
   cardArrow: {
     position: 'absolute',
-    top: 20,
-    right: 20,
+    top: 15,
+    right: 15,
   },
 
   // Stats Section
@@ -852,7 +1110,8 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(0, 255, 136, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 5,
   },
   statItem: {
     flex: 1,
@@ -860,9 +1119,9 @@ const styles = StyleSheet.create({
   },
   statNumber: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: '800',
     color: BRAND.primaryColor,
-    marginBottom: 5,
+    marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
@@ -882,17 +1141,19 @@ const styles = StyleSheet.create({
   noteContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    backgroundColor: 'rgba(0, 255, 136, 0.05)',
+    borderRadius: 12,
     padding: 15,
-    borderRadius: 10,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 136, 0.2)',
+    marginHorizontal: 5,
   },
   noteText: {
-    color: '#cccccc',
     fontSize: 12,
-    marginLeft: 10,
-    fontStyle: 'italic',
+    color: '#cccccc',
+    marginLeft: 8,
     flex: 1,
+    lineHeight: 16,
   },
 });
+

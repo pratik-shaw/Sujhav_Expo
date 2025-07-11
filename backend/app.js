@@ -21,6 +21,7 @@ const paidMaterialsRoutes = require('./routes/paidMaterialsRoutes'); // Paid mat
 const enrollmentRoutes = require('./routes/enrollmentRoutes'); // Uncomment if needed
 const purchasedNotesRoutes = require('./routes/purchasedNotesRoutes'); // Uncomment if needed
 const dppRoutes = require('./routes/dppRoutes'); // Uncomment if needed
+const batchRoutes = require('./routes/batchRoutes'); // Batch routes
 
 app.use('/api/auth', authRoutes);
 app.use('/api/unpaidCourses', unpaidCourseRoutes);
@@ -31,6 +32,7 @@ app.use('/api/paidMaterials', paidMaterialsRoutes); // Paid materials route
 app.use('/api/enrollment', enrollmentRoutes); // Uncomment if needed
 app.use('/api/purchasedNotes', purchasedNotesRoutes); // Uncomment if needed
 app.use('/api/dpp', dppRoutes); // Uncomment if needed
+app.use('/api/batches', batchRoutes); // Batch routes
 
 // Static file serving
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
