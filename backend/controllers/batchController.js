@@ -33,34 +33,32 @@ const createBatch = async (req, res) => {
       });
     }
 
-    // Validate students if provided
+    // Validate students if provided - FIXED: More flexible student validation
     if (students && students.length > 0) {
       const studentUsers = await User.find({
         _id: { $in: students },
-        email: { $regex: /@sujhav\.com$/ },
-        role: 'user'
+        role: 'user' // Only check role, not email domain
       });
 
       if (studentUsers.length !== students.length) {
         return res.status(400).json({
           success: false,
-          message: 'All students must have @sujhav.com email and user role'
+          message: 'All selected students must have valid user accounts with user role'
         });
       }
     }
 
-    // Validate teachers if provided
+    // Validate teachers if provided - FIXED: More flexible teacher validation
     if (teachers && teachers.length > 0) {
       const teacherUsers = await User.find({
         _id: { $in: teachers },
-        email: { $regex: /@sujhav\.com$/ },
-        role: 'teacher'
+        role: 'teacher' // Only check role, not email domain
       });
 
       if (teacherUsers.length !== teachers.length) {
         return res.status(400).json({
           success: false,
-          message: 'All teachers must have @sujhav.com email and teacher role'
+          message: 'All selected teachers must have valid user accounts with teacher role'
         });
       }
     }
@@ -184,34 +182,32 @@ const updateBatch = async (req, res) => {
       });
     }
 
-    // Validate students if provided
+    // Validate students if provided - FIXED: More flexible student validation
     if (students && students.length > 0) {
       const studentUsers = await User.find({
         _id: { $in: students },
-        email: { $regex: /@sujhav\.com$/ },
-        role: 'user'
+        role: 'user' // Only check role, not email domain
       });
 
       if (studentUsers.length !== students.length) {
         return res.status(400).json({
           success: false,
-          message: 'All students must have @sujhav.com email and user role'
+          message: 'All selected students must have valid user accounts with user role'
         });
       }
     }
 
-    // Validate teachers if provided
+    // Validate teachers if provided - FIXED: More flexible teacher validation
     if (teachers && teachers.length > 0) {
       const teacherUsers = await User.find({
         _id: { $in: teachers },
-        email: { $regex: /@sujhav\.com$/ },
-        role: 'teacher'
+        role: 'teacher' // Only check role, not email domain
       });
 
       if (teacherUsers.length !== teachers.length) {
         return res.status(400).json({
           success: false,
-          message: 'All teachers must have @sujhav.com email and teacher role'
+          message: 'All selected teachers must have valid user accounts with teacher role'
         });
       }
     }
@@ -308,17 +304,16 @@ const assignStudentsToBatch = async (req, res) => {
       });
     }
 
-    // Validate students
+    // Validate students - FIXED: More flexible student validation
     const studentUsers = await User.find({
       _id: { $in: studentIds },
-      email: { $regex: /@sujhav\.com$/ },
-      role: 'user'
+      role: 'user' // Only check role, not email domain
     });
 
     if (studentUsers.length !== studentIds.length) {
       return res.status(400).json({
         success: false,
-        message: 'All students must have @sujhav.com email and user role'
+        message: 'All selected students must have valid user accounts with user role'
       });
     }
 
@@ -374,17 +369,16 @@ const assignTeachersToBatch = async (req, res) => {
       });
     }
 
-    // Validate teachers
+    // Validate teachers - FIXED: More flexible teacher validation
     const teacherUsers = await User.find({
       _id: { $in: teacherIds },
-      email: { $regex: /@sujhav\.com$/ },
-      role: 'teacher'
+      role: 'teacher' // Only check role, not email domain
     });
 
     if (teacherUsers.length !== teacherIds.length) {
       return res.status(400).json({
         success: false,
-        message: 'All teachers must have @sujhav.com email and teacher role'
+        message: 'All selected teachers must have valid user accounts with teacher role'
       });
     }
 
@@ -521,9 +515,11 @@ const removeTeachersFromBatch = async (req, res) => {
   }
 };
 
-// Get all eligible students NOT assigned to any batch (with @sujhav.com email)
+// Get all eligible students NOT assigned to any batch - FIXED: Removed email domain restriction
 const getEligibleStudents = async (req, res) => {
   try {
+    console.log('Fetching eligible students...');
+    
     // First, get all student IDs that are already assigned to batches
     const batches = await Batch.find({}).select('students');
     const assignedStudentIds = new Set();
@@ -534,12 +530,17 @@ const getEligibleStudents = async (req, res) => {
       });
     });
 
-    // Find users with @sujhav.com email and 'user' role who are NOT assigned to any batch
+    console.log('Already assigned student IDs:', Array.from(assignedStudentIds));
+
+    // Find users with 'user' role who are NOT assigned to any batch
+    // FIXED: Removed email domain restriction
     const students = await User.find({
-      email: { $regex: /@sujhav\.com$/ },
       role: 'user',
       _id: { $nin: Array.from(assignedStudentIds) }
     }).select('name email createdAt').sort({ name: 1 });
+
+    console.log('Found eligible students:', students.length);
+    console.log('Eligible students:', students.map(s => ({ id: s._id, name: s.name, email: s.email })));
 
     res.json({
       success: true,
@@ -556,9 +557,11 @@ const getEligibleStudents = async (req, res) => {
   }
 };
 
-// Get all eligible teachers NOT assigned to any batch (with @sujhav.com email)
+// Get all eligible teachers NOT assigned to any batch - FIXED: Removed email domain restriction
 const getEligibleTeachers = async (req, res) => {
   try {
+    console.log('Fetching eligible teachers...');
+    
     // First, get all teacher IDs that are already assigned to batches
     const batches = await Batch.find({}).select('teachers');
     const assignedTeacherIds = new Set();
@@ -569,12 +572,17 @@ const getEligibleTeachers = async (req, res) => {
       });
     });
 
-    // Find teachers with @sujhav.com email who are NOT assigned to any batch
+    console.log('Already assigned teacher IDs:', Array.from(assignedTeacherIds));
+
+    // Find teachers who are NOT assigned to any batch
+    // FIXED: Removed email domain restriction
     const teachers = await User.find({
-      email: { $regex: /@sujhav\.com$/ },
       role: 'teacher',
       _id: { $nin: Array.from(assignedTeacherIds) }
     }).select('name email createdAt').sort({ name: 1 });
+
+    console.log('Found eligible teachers:', teachers.length);
+    console.log('Eligible teachers:', teachers.map(t => ({ id: t._id, name: t.name, email: t.email })));
 
     res.json({
       success: true,
@@ -606,9 +614,9 @@ const getAvailableStudentsForBatch = async (req, res) => {
       });
     });
 
-    // Find users with @sujhav.com email and 'user' role who are NOT assigned to other batches
+    // Find users with 'user' role who are NOT assigned to other batches
+    // FIXED: Removed email domain restriction
     const students = await User.find({
-      email: { $regex: /@sujhav\.com$/ },
       role: 'user',
       _id: { $nin: Array.from(assignedStudentIds) }
     }).select('name email createdAt').sort({ name: 1 });
@@ -643,9 +651,9 @@ const getAvailableTeachersForBatch = async (req, res) => {
       });
     });
 
-    // Find teachers with @sujhav.com email who are NOT assigned to other batches
+    // Find teachers who are NOT assigned to other batches
+    // FIXED: Removed email domain restriction
     const teachers = await User.find({
-      email: { $regex: /@sujhav\.com$/ },
       role: 'teacher',
       _id: { $nin: Array.from(assignedTeacherIds) }
     }).select('name email createdAt').sort({ name: 1 });

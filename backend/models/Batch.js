@@ -3,23 +3,18 @@ const mongoose = require('mongoose');
 const batchSchema = new mongoose.Schema({
   batchName: {
     type: String,
-    required: true,
+    required: [true, 'Batch name is required'],
     trim: true,
-    maxlength: 200
+    maxLength: [100, 'Batch name cannot exceed 100 characters']
   },
-  classes: {
-    type: [String],
-    required: false,
-    validate: {
-      validator: function(classes) {
-        return classes.length > 0;
-      },
-      message: 'At least one class must be specified'
-    }
-  },
-  category: {
+  classes: [{
     type: String,
     required: true,
+    trim: true
+  }],
+  category: {
+    type: String,
+    required: [true, 'Category is required'],
     enum: ['jee', 'neet', 'boards'],
     lowercase: true
   },
@@ -28,11 +23,12 @@ const batchSchema = new mongoose.Schema({
     ref: 'User',
     validate: {
       validator: async function(studentId) {
+        // Only validate role, not email domain
         const User = mongoose.model('User');
         const student = await User.findById(studentId);
-        return student && student.email.endsWith('@sujhav.com') && student.role === 'student';
+        return student && student.role === 'user';
       },
-      message: 'Student must have @sujhav.com email and student role'
+      message: 'Student must have user role'
     }
   }],
   teachers: [{
@@ -40,54 +36,40 @@ const batchSchema = new mongoose.Schema({
     ref: 'User',
     validate: {
       validator: async function(teacherId) {
+        // Only validate role, not email domain
         const User = mongoose.model('User');
         const teacher = await User.findById(teacherId);
-        return teacher && teacher.email.endsWith('@sujhav.com') && teacher.role === 'teacher';
+        return teacher && teacher.role === 'teacher';
       },
-      message: 'Teacher must have @sujhav.com email and teacher role'
+      message: 'Teacher must have teacher role'
     }
   }],
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+  schedule: {
+    type: String,
+    trim: true,
+    maxLength: [200, 'Schedule cannot exceed 200 characters']
+  },
+  description: {
+    type: String,
+    trim: true,
+    maxLength: [500, 'Description cannot exceed 500 characters']
   },
   isActive: {
     type: Boolean,
     default: true
   },
-  schedule: {
-    type: String,
-    trim: true
-  },
-  description: {
-    type: String,
-    trim: true,
-    maxlength: 500
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   }
 }, {
   timestamps: true
 });
 
-// Virtual for total students count
-batchSchema.virtual('totalStudents').get(function() {
-  return this.students.length;
-});
-
-// Virtual for total teachers count
-batchSchema.virtual('totalTeachers').get(function() {
-  return this.teachers.length;
-});
-
-// Index for better search performance
+// Add indexes for better performance
 batchSchema.index({ category: 1, isActive: 1 });
-batchSchema.index({ batchName: 'text', description: 'text' });
 batchSchema.index({ createdBy: 1 });
+batchSchema.index({ batchName: 1 });
 
-// Ensure virtual fields are included in JSON output
-batchSchema.set('toJSON', { virtuals: true });
-batchSchema.set('toObject', { virtuals: true });
-
-const Batch = mongoose.model('Batch', batchSchema);
-
-module.exports = Batch;
+module.exports = mongoose.model('Batch', batchSchema);
