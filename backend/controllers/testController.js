@@ -624,6 +624,137 @@ const downloadPdf = async (req, res) => {
   }
 };
 
+// Add this function to your testController.js file
+
+// Assign students to test (Teacher only)
+const assignStudentsToTest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { assignedStudents } = req.body;
+
+    console.log('Assigning students to test:', id);
+    console.log('Students to assign:', assignedStudents);
+
+    // Validate input
+    if (!Array.isArray(assignedStudents)) {
+      return res.status(400).json({
+        success: false,
+        message: 'assignedStudents must be an array of student IDs'
+      });
+    }
+
+    // Find test and verify ownership
+    const test = await Test.findById(id);
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        message: 'Test not found'
+      });
+    }
+
+    if (test.createdBy.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only assign students to your own tests'
+      });
+    }
+
+    // Get batch info to validate students
+    const batch = await Batch.findById(test.batch);
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Batch not found'
+      });
+    }
+
+    // Check if teacher is assigned to this batch
+    const isTeacherAssigned = batch.teachers.some(
+      teacherId => teacherId.toString() === req.user.id
+    );
+
+    if (!isTeacherAssigned) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this batch'
+      });
+    }
+
+    // Validate all student IDs are in the batch
+    const batchStudentIds = batch.students.map(s => s.toString());
+    const invalidStudents = assignedStudents.filter(id => !batchStudentIds.includes(id));
+    
+    if (invalidStudents.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Some selected students are not in this batch'
+      });
+    }
+
+    // Validate student users exist and have correct role
+    if (assignedStudents.length > 0) {
+      const studentUsers = await User.find({
+        _id: { $in: assignedStudents },
+        role: 'user'
+      });
+
+      if (studentUsers.length !== assignedStudents.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'All selected students must have valid user accounts'
+        });
+      }
+    }
+
+    // Preserve existing marks and submission data for students who were already assigned
+    const existingStudentData = {};
+    test.assignedStudents.forEach(s => {
+      existingStudentData[s.student.toString()] = {
+        marksScored: s.marksScored,
+        submittedAt: s.submittedAt,
+        evaluatedAt: s.evaluatedAt
+      };
+    });
+
+    // Create new assignment array
+    const newAssignedStudents = assignedStudents.map(studentId => ({
+      student: studentId,
+      marksScored: existingStudentData[studentId]?.marksScored || null,
+      submittedAt: existingStudentData[studentId]?.submittedAt || null,
+      evaluatedAt: existingStudentData[studentId]?.evaluatedAt || null
+    }));
+
+    // Update test with new assignments
+    test.assignedStudents = newAssignedStudents;
+    await test.save();
+
+    // Return updated test with populated data
+    const updatedTest = await Test.findById(id)
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .populate('assignedStudents.student', 'name email')
+      .select('-questionPdf.fileData -answerPdf.fileData');
+
+    console.log('Students assigned successfully:', updatedTest.assignedStudents.length);
+
+    res.json({
+      success: true,
+      message: assignedStudents.length === 0 
+        ? 'All students unassigned successfully' 
+        : `${assignedStudents.length} students assigned successfully`,
+      data: updatedTest
+    });
+
+  } catch (error) {
+    console.error('Error assigning students to test:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to assign students to test',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   upload,
   createTest,
@@ -633,6 +764,7 @@ module.exports = {
   updateTest,
   deleteTest,
   updateStudentMarks,
+  assignStudentsToTest,
   getAvailableStudentsForTest,
   downloadPdf
 };

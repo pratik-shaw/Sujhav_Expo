@@ -10,6 +10,7 @@ const {
   deleteTest,
   updateStudentMarks,
   getAvailableStudentsForTest,
+  assignStudentsToTest, // Add this import
   downloadPdf
 } = require('../controllers/testController');
 
@@ -26,6 +27,9 @@ router.get('/batch/:batchId', getBatchTests);
 router.get('/:id', getTestById);
 router.put('/:id', upload, updateTest);
 router.delete('/:id', deleteTest);
+
+// Student assignment route (matches frontend API call)
+router.put('/:id/assign-students', assignStudentsToTest);
 
 // Student marks management
 router.put('/:id/marks', updateStudentMarks);
