@@ -26,6 +26,8 @@ import AdminDPPScreen from './screens/AdminDPPScreen';
 import AllDPPScreen from './screens/AllDPPScreen';
 import OfflineCenterScreen from './screens/OfflineCenterScreen';
 import AdminCreateBatchesScreen from './screens/AdminCreateBatchesScreen';
+import TeacherBatchDetailsScreen from './screens/TeacherBatchDetailsScreen';
+import TeacherHandleTestScreen from './screens/TeacherHandleTestScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -66,6 +68,8 @@ export type RootStackParamList = {
   AllDPPScreen: undefined; // Add this line
   OfflineCenterScreen: undefined; // Add this line
   AdminCreateBatchesScreen: undefined; // Add this line
+  TeacherBatchDetailsScreen: { batchId: string }; // Add this line
+  TeacherHandleTestScreen: { batchId: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -187,7 +191,9 @@ export default function App() {
         <Stack.Screen name="AdminCreateBatchesScreen" component={AdminCreateBatchesScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         
 
-        {/* Admin DPP Screens */}
+        {/* Teacher Screens */}
+        <Stack.Screen name="TeacherBatchDetailsScreen" component={TeacherBatchDetailsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="TeacherHandleTestScreen" component={TeacherHandleTestScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         
       </Stack.Navigator>
     </NavigationContainer>

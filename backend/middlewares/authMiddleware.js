@@ -46,4 +46,33 @@ const verifyAdmin = (req, res, next) => {
   });
 };
 
-module.exports = { verifyToken, verifyAdmin };
+const verifyTeacher = async (req, res, next) => {
+  try {
+    await verifyToken(req, res, () => {
+      if (req.user.role !== 'teacher') {
+        return res.status(403).json({ message: 'Teacher access required' });
+      }
+      next();
+    });
+  } catch (error) {
+    console.error('Teacher verification error:', error);
+    res.status(403).json({ message: 'Teacher access required' });
+  }
+};
+
+// Verify student role
+const verifyStudent = async (req, res, next) => {
+  try {
+    await verifyToken(req, res, () => {
+      if (req.user.role !== 'user') {
+        return res.status(403).json({ message: 'Student access required' });
+      }
+      next();
+    });
+  } catch (error) {
+    console.error('Student verification error:', error);
+    res.status(403).json({ message: 'Student access required' });
+  }
+};
+
+module.exports = { verifyToken, verifyAdmin, verifyTeacher, verifyStudent };

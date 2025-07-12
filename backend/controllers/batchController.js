@@ -701,6 +701,85 @@ const getBatchesByCategory = async (req, res) => {
   }
 };
 
+// Get batches assigned to a specific teacher (Teacher Dashboard)
+const getTeacherBatches = async (req, res) => {
+  try {
+    const teacherId = req.user.id; // Get teacher ID from authenticated user
+    
+    console.log('Fetching batches for teacher:', teacherId);
+
+    // Find all batches where the teacher is assigned
+    const batches = await Batch.find({
+      teachers: teacherId,
+      isActive: true // Only active batches
+    })
+      .populate('students', 'name email')
+      .populate('teachers', 'name email')
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 });
+
+    console.log(`Found ${batches.length} batches for teacher ${teacherId}`);
+
+    res.json({
+      success: true,
+      data: batches,
+      count: batches.length,
+      message: `Found ${batches.length} batches assigned to you`
+    });
+
+  } catch (error) {
+    console.error('Error fetching teacher batches:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch your assigned batches',
+      error: error.message
+    });
+  }
+};
+
+// Get specific batch details for teacher (when clicking on a batch)
+const getTeacherBatchById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const teacherId = req.user.id;
+
+    console.log('Fetching batch details for teacher:', teacherId, 'Batch ID:', id);
+
+    // Find the batch and verify teacher is assigned to it
+    const batch = await Batch.findOne({
+      _id: id,
+      teachers: teacherId, // Ensure teacher is assigned to this batch
+      isActive: true
+    })
+      .populate('students', 'name email createdAt')
+      .populate('teachers', 'name email')
+      .populate('createdBy', 'name email');
+
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Batch not found or you are not assigned to this batch'
+      });
+    }
+
+    console.log('Batch found:', batch.batchName);
+
+    res.json({
+      success: true,
+      data: batch,
+      message: 'Batch details retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('Error fetching teacher batch details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch batch details',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createBatch,
   getAllBatches,
@@ -715,5 +794,7 @@ module.exports = {
   getEligibleTeachers,
   getAvailableStudentsForBatch,
   getAvailableTeachersForBatch,
-  getBatchesByCategory
+  getBatchesByCategory,
+  getTeacherBatches,
+  getTeacherBatchById
 };

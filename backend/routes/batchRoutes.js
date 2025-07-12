@@ -14,7 +14,9 @@ const {
   getEligibleTeachers,
   getAvailableStudentsForBatch,
   getAvailableTeachersForBatch,
-  getBatchesByCategory
+  getBatchesByCategory,
+  getTeacherBatches,        // Add this
+  getTeacherBatchById       // Add this
 } = require('../controllers/batchController');
 
 // Import authentication middleware
@@ -43,5 +45,8 @@ router.get('/:id/available-teachers', verifyAdmin, getAvailableTeachersForBatch)
 router.get('/', verifyToken, getAllBatches);
 router.get('/category/:category', verifyToken, getBatchesByCategory);
 router.get('/:id', verifyToken, getBatchById); // This should be last among GET routes
+
+router.get('/teacher/my-batches', verifyToken, getTeacherBatches); // Get all batches assigned to logged-in teacher
+router.get('/teacher/batch/:id', verifyToken, getTeacherBatchById); // Get specific batch details for teacher
 
 module.exports = router;
