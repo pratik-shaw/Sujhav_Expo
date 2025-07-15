@@ -28,6 +28,8 @@ import OfflineCenterScreen from './screens/OfflineCenterScreen';
 import AdminCreateBatchesScreen from './screens/AdminCreateBatchesScreen';
 import TeacherBatchDetailsScreen from './screens/TeacherBatchDetailsScreen';
 import TeacherHandleTestScreen from './screens/TeacherHandleTestScreen';
+import TeacherHandleScoresScreen from './screens/TeacherHandleScoresScreen';
+import TeacherTestListScreen from './screens/TeacherTestListScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -70,6 +72,12 @@ export type RootStackParamList = {
   AdminCreateBatchesScreen: undefined; // Add this line
   TeacherBatchDetailsScreen: { batchId: string }; // Add this line
   TeacherHandleTestScreen: { batchId: string };
+  TeacherHandleScoresScreen: {
+    testId: string;
+    testTitle: string;
+    fullMarks: number;
+  };
+  TeacherTestListScreen: { batchId: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -194,6 +202,8 @@ export default function App() {
         {/* Teacher Screens */}
         <Stack.Screen name="TeacherBatchDetailsScreen" component={TeacherBatchDetailsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="TeacherHandleTestScreen" component={TeacherHandleTestScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="TeacherHandleScoresScreen" component={TeacherHandleScoresScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="TeacherTestListScreen" component={TeacherTestListScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         
       </Stack.Navigator>
     </NavigationContainer>

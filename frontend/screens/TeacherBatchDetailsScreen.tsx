@@ -224,62 +224,84 @@ export default function TeacherBatchDetailsScreen() {
   );
 
   const renderTestReportsSection = () => (
-    <Animated.View 
-      style={[
-        styles.reportsContainer,
-        { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] }
-      ]}
+  <Animated.View 
+    style={[
+      styles.reportsContainer,
+      { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] }
+    ]}
+  >
+    <ScrollView 
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.reportsContent}
     >
-      <ScrollView 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.reportsContent}
-      >
-        {/* Test Management Section */}
-        <View style={styles.reportsSection}>
-          <Text style={styles.sectionTitle}>Test Management</Text>
-          <TouchableOpacity 
-            style={styles.reportActionCard}
-            onPress={() => navigation.navigate('TeacherHandleTestScreen', { batchId })}
-          >
-            <View style={styles.reportActionContent}>
-              <View style={styles.reportActionIcon}>
-                <MaterialIcons name="quiz" size={28} color={BRAND.primaryColor} />
-              </View>
-              <View style={styles.reportActionText}>
-                <Text style={styles.reportActionTitle}>Create & Manage Tests</Text>
-                <Text style={styles.reportActionDescription}>
-                  Create new tests, edit existing ones, and manage test schedules
-                </Text>
-              </View>
-              <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
+      {/* Test Management Section */}
+      <View style={styles.reportsSection}>
+        <Text style={styles.sectionTitle}>Test Management</Text>
+        <TouchableOpacity 
+          style={styles.reportActionCard}
+          onPress={() => navigation.navigate('TeacherHandleTestScreen', { batchId })}
+        >
+          <View style={styles.reportActionContent}>
+            <View style={styles.reportActionIcon}>
+              <MaterialIcons name="quiz" size={28} color={BRAND.primaryColor} />
             </View>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.reportActionText}>
+              <Text style={styles.reportActionTitle}>Create & Manage Tests</Text>
+              <Text style={styles.reportActionDescription}>
+                Create new tests, edit existing ones, and manage test schedules
+              </Text>
+            </View>
+            <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
+          </View>
+        </TouchableOpacity>
+      </View>
 
-        {/* Reports Section */}
-        <View style={styles.reportsSection}>
-          <Text style={styles.sectionTitle}>Reports & Analytics</Text>
-          <TouchableOpacity 
-            style={styles.reportActionCard}
-            //onPress={() => navigation.navigate('TeacherHandleReportsScreen', { batchId })}
-          >
-            <View style={styles.reportActionContent}>
-              <View style={styles.reportActionIcon}>
-                <MaterialIcons name="assessment" size={28} color={BRAND.primaryColor} />
-              </View>
-              <View style={styles.reportActionText}>
-                <Text style={styles.reportActionTitle}>View Test Reports</Text>
-                <Text style={styles.reportActionDescription}>
-                  Analyze student performance and generate detailed reports
-                </Text>
-              </View>
-              <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
+      {/* Reports Section */}
+      <View style={styles.reportsSection}>
+        <Text style={styles.sectionTitle}>Reports & Analytics</Text>
+        <TouchableOpacity 
+          style={styles.reportActionCard}
+          //onPress={() => navigation.navigate('TeacherHandleReportsScreen', { batchId })}
+        >
+          <View style={styles.reportActionContent}>
+            <View style={styles.reportActionIcon}>
+              <MaterialIcons name="assessment" size={28} color={BRAND.primaryColor} />
             </View>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </Animated.View>
-  );
+            <View style={styles.reportActionText}>
+              <Text style={styles.reportActionTitle}>View Test Reports</Text>
+              <Text style={styles.reportActionDescription}>
+                Analyze student performance and generate detailed reports
+              </Text>
+            </View>
+            <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Test Scores Section - Updated */}
+      <View style={styles.reportsSection}>
+        <Text style={styles.sectionTitle}>Test Scores</Text>
+        <TouchableOpacity 
+          style={styles.reportActionCard}
+          onPress={() => navigation.navigate('TeacherTestListScreen', { batchId })}
+        >
+          <View style={styles.reportActionContent}>
+            <View style={styles.reportActionIcon}>
+              <MaterialIcons name="quiz" size={28} color={BRAND.primaryColor} />
+            </View>
+            <View style={styles.reportActionText}>
+              <Text style={styles.reportActionTitle}>Score Students Tests</Text>
+              <Text style={styles.reportActionDescription}>
+                Grade students for the tests you have created and assigned 
+              </Text>
+            </View>
+            <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
+          </View>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  </Animated.View>
+);
 
   const renderBatchDetails = () => (
     <Animated.View 
