@@ -201,17 +201,23 @@ export default function TeacherTestListScreen() {
   };
 
   const getTestStats = (test: Test) => {
-    const totalStudents = test.assignedStudents.length;
-    const submittedCount = test.assignedStudents.filter(s => s.submittedAt).length;
-    const evaluatedCount = test.assignedStudents.filter(s => s.evaluatedAt).length;
-    
-    return {
-      totalStudents,
-      submittedCount,
-      evaluatedCount,
-      pendingCount: submittedCount - evaluatedCount,
-    };
+  const totalStudents = test.assignedStudents.length;
+  const submittedStudents = test.assignedStudents.filter(s => s.submittedAt);
+  const submittedCount = submittedStudents.length;
+  
+  // Only count evaluations for students who have actually submitted
+  const evaluatedCount = submittedStudents.filter(s => s.evaluatedAt).length;
+  
+  // Pending count should be submitted but not evaluated
+  const pendingCount = submittedCount - evaluatedCount;
+  
+  return {
+    totalStudents,
+    submittedCount,
+    evaluatedCount,
+    pendingCount: Math.max(0, pendingCount), // Ensure it's never negative
   };
+};
 
   const renderTestCard = ({ item }: { item: Test }) => {
     const stats = getTestStats(item);
