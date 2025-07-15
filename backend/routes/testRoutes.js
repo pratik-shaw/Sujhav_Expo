@@ -10,34 +10,60 @@ const {
   deleteTest,
   updateStudentMarks,
   getAvailableStudentsForTest,
-  assignStudentsToTest, // Add this import
-  downloadPdf
+  assignStudentsToTest,
+  downloadPdf,
+  // New student report functions
+  getStudentReports,
+  getStudentMonthlyAnalytics,
+  getStudentTestById,
+  getStudentBatchPerformance,
+  downloadQuestionPdfForStudent
 } = require('../controllers/testController');
 
 // Import authentication middleware
-const { verifyToken, verifyTeacher } = require('../middlewares/authMiddleware');
+const { verifyToken, verifyTeacher, verifyStudent } = require('../middlewares/authMiddleware');
 
-// All routes require teacher authentication
-router.use(verifyTeacher);
+// ====== TEACHER ROUTES ======
+// All teacher routes are prefixed with /teacher and require teacher authentication
 
-// Test CRUD operations
-router.post('/', upload, createTest);
-router.get('/my-tests', getTeacherTests);
-router.get('/batch/:batchId', getBatchTests);
-router.get('/:id', getTestById);
-router.put('/:id', upload, updateTest);
-router.delete('/:id', deleteTest);
+// Teacher Test CRUD operations
+router.post('/teacher/', verifyTeacher, upload, createTest);
+router.get('/teacher/my-tests', verifyTeacher, getTeacherTests);
+router.get('/teacher/batch/:batchId', verifyTeacher, getBatchTests);
+router.get('/teacher/:id', verifyTeacher, getTestById);
+router.put('/teacher/:id', verifyTeacher, upload, updateTest);
+router.delete('/teacher/:id', verifyTeacher, deleteTest);
 
-// Student assignment route (matches frontend API call)
-router.put('/:id/assign-students', assignStudentsToTest);
+// Teacher Student Management
+router.put('/teacher/:id/assign-students', verifyTeacher, assignStudentsToTest);
+router.put('/teacher/:id/marks', verifyTeacher, updateStudentMarks);
+router.get('/teacher/batch/:batchId/available-students', verifyTeacher, getAvailableStudentsForTest);
 
-// Student marks management
-router.put('/:id/marks', updateStudentMarks);
+// Teacher PDF Downloads
+router.get('/teacher/:id/pdf/:type', verifyTeacher, downloadPdf);
 
-// Helper routes
-router.get('/batch/:batchId/available-students', getAvailableStudentsForTest);
+// ====== STUDENT ROUTES ======
+// All student routes are prefixed with /student and require student authentication
 
-// PDF download routes
-router.get('/:id/pdf/:type', downloadPdf);
+router.get('/student/my-reports', verifyStudent, getStudentReports);
+router.get('/student/monthly-analytics', verifyStudent, getStudentMonthlyAnalytics);
+router.get('/student/batch-performance', verifyStudent, getStudentBatchPerformance);
+router.get('/student/test/:id', verifyStudent, getStudentTestById);
+router.get('/student/test/:id/question-pdf', verifyStudent, downloadQuestionPdfForStudent);
+
+// ====== LEGACY ROUTES (for backward compatibility) ======
+// These routes maintain compatibility with your existing frontend code
+// They all require teacher authentication
+
+router.post('/', verifyTeacher, upload, createTest);
+router.get('/my-tests', verifyTeacher, getTeacherTests);
+router.get('/batch/:batchId', verifyTeacher, getBatchTests);
+router.get('/:id', verifyTeacher, getTestById);
+router.put('/:id', verifyTeacher, upload, updateTest);
+router.delete('/:id', verifyTeacher, deleteTest);
+router.put('/:id/assign-students', verifyTeacher, assignStudentsToTest);
+router.put('/:id/marks', verifyTeacher, updateStudentMarks);
+router.get('/batch/:batchId/available-students', verifyTeacher, getAvailableStudentsForTest);
+router.get('/:id/pdf/:type', verifyTeacher, downloadPdf);
 
 module.exports = router;

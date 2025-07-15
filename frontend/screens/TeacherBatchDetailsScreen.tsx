@@ -261,7 +261,7 @@ export default function TeacherBatchDetailsScreen() {
         <Text style={styles.sectionTitle}>Reports & Analytics</Text>
         <TouchableOpacity 
           style={styles.reportActionCard}
-          //onPress={() => navigation.navigate('TeacherHandleReportsScreen', { batchId })}
+          onPress={() => navigation.navigate('TeacherHandleReportsScreen', { batchId })}
         >
           <View style={styles.reportActionContent}>
             <View style={styles.reportActionIcon}>

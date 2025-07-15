@@ -755,6 +755,381 @@ const assignStudentsToTest = async (req, res) => {
   }
 };
 
+// student reports controllers 
+
+
+
+const getStudentReports = async (req, res) => {
+  try {
+    const studentId = req.user.id; // Assuming middleware sets user from token
+    
+    // Find all tests where the student is assigned
+    const tests = await Test.find({
+      'assignedStudents.student': studentId,
+      isActive: true
+    })
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: -1 });
+
+    // Filter and format the data for the specific student
+    const studentReports = tests.map(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === studentId
+      );
+      
+      return {
+        testId: test._id,
+        testTitle: test.testTitle,
+        fullMarks: test.fullMarks,
+        marksScored: studentData.marksScored,
+        submittedAt: studentData.submittedAt,
+        evaluatedAt: studentData.evaluatedAt,
+        createdAt: test.createdAt,
+        dueDate: test.dueDate,
+        batch: test.batch,
+        createdBy: test.createdBy,
+        instructions: test.instructions,
+        percentage: studentData.marksScored ? 
+          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null
+      };
+    });
+
+    res.json({
+      success: true,
+      data: studentReports,
+      count: studentReports.length
+    });
+
+  } catch (error) {
+    console.error('Error fetching student reports:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch student reports',
+      error: error.message
+    });
+  }
+};
+
+// Get student's monthly test analytics
+const getStudentMonthlyAnalytics = async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    const { year } = req.query; // Optional year filter, defaults to current year
+    
+    const targetYear = year ? parseInt(year) : new Date().getFullYear();
+    
+    // Find all evaluated tests for the student in the target year
+    const tests = await Test.find({
+      'assignedStudents.student': studentId,
+      'assignedStudents.marksScored': { $ne: null },
+      isActive: true,
+      createdAt: {
+        $gte: new Date(targetYear, 0, 1), // Start of year
+        $lt: new Date(targetYear + 1, 0, 1) // Start of next year
+      }
+    })
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: 1 });
+
+    // Process monthly data
+    const monthlyData = {};
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    // Initialize all months
+    for (let i = 0; i < 12; i++) {
+      monthlyData[monthNames[i]] = {
+        month: monthNames[i],
+        monthNumber: i + 1,
+        tests: [],
+        totalTests: 0,
+        averagePercentage: 0,
+        totalMarksScored: 0,
+        totalFullMarks: 0
+      };
+    }
+
+    // Process each test
+    tests.forEach(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === studentId
+      );
+      
+      if (studentData && studentData.marksScored !== null) {
+        const testMonth = new Date(test.createdAt).getMonth();
+        const monthName = monthNames[testMonth];
+        
+        const percentage = (studentData.marksScored / test.fullMarks) * 100;
+        
+        monthlyData[monthName].tests.push({
+          testId: test._id,
+          testTitle: test.testTitle,
+          fullMarks: test.fullMarks,
+          marksScored: studentData.marksScored,
+          percentage: parseFloat(percentage.toFixed(2)),
+          createdAt: test.createdAt,
+          evaluatedAt: studentData.evaluatedAt,
+          batch: test.batch
+        });
+        
+        monthlyData[monthName].totalTests++;
+        monthlyData[monthName].totalMarksScored += studentData.marksScored;
+        monthlyData[monthName].totalFullMarks += test.fullMarks;
+      }
+    });
+
+    // Calculate averages for each month
+    Object.keys(monthlyData).forEach(month => {
+      const data = monthlyData[month];
+      if (data.totalTests > 0) {
+        // Calculate average percentage (normalized to 100)
+        data.averagePercentage = parseFloat(
+          ((data.totalMarksScored / data.totalFullMarks) * 100).toFixed(2)
+        );
+      }
+    });
+
+    // Calculate overall statistics
+    const allTests = Object.values(monthlyData).flatMap(month => month.tests);
+    const totalTests = allTests.length;
+    const overallAverage = totalTests > 0 ? 
+      parseFloat((allTests.reduce((sum, test) => sum + test.percentage, 0) / totalTests).toFixed(2)) : 0;
+    
+    // Get best and worst performance
+    const bestTest = allTests.length > 0 ? 
+      allTests.reduce((best, current) => current.percentage > best.percentage ? current : best) : null;
+    const worstTest = allTests.length > 0 ? 
+      allTests.reduce((worst, current) => current.percentage < worst.percentage ? current : worst) : null;
+
+    res.json({
+      success: true,
+      data: {
+        year: targetYear,
+        monthlyData: Object.values(monthlyData),
+        summary: {
+          totalTests,
+          overallAverage,
+          bestPerformance: bestTest,
+          worstPerformance: worstTest,
+          totalMarksScored: allTests.reduce((sum, test) => sum + test.marksScored, 0),
+          totalFullMarks: allTests.reduce((sum, test) => sum + test.fullMarks, 0)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching student monthly analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch monthly analytics',
+      error: error.message
+    });
+  }
+};
+
+// Get student's test details by ID (only if assigned to the student)
+const getStudentTestById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studentId = req.user.id;
+
+    const test = await Test.findById(id)
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData');
+
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        message: 'Test not found'
+      });
+    }
+
+    // Check if student is assigned to this test
+    const studentAssignment = test.assignedStudents.find(
+      s => s.student.toString() === studentId
+    );
+
+    if (!studentAssignment) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this test'
+      });
+    }
+
+    // Format response with student-specific data
+    const studentTestData = {
+      testId: test._id,
+      testTitle: test.testTitle,
+      fullMarks: test.fullMarks,
+      marksScored: studentAssignment.marksScored,
+      submittedAt: studentAssignment.submittedAt,
+      evaluatedAt: studentAssignment.evaluatedAt,
+      createdAt: test.createdAt,
+      dueDate: test.dueDate,
+      batch: test.batch,
+      createdBy: test.createdBy,
+      instructions: test.instructions,
+      percentage: studentAssignment.marksScored ? 
+        ((studentAssignment.marksScored / test.fullMarks) * 100).toFixed(2) : null,
+      hasQuestionPdf: !!test.questionPdf,
+      hasAnswerPdf: !!test.answerPdf
+    };
+
+    res.json({
+      success: true,
+      data: studentTestData
+    });
+
+  } catch (error) {
+    console.error('Error fetching student test:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch test details',
+      error: error.message
+    });
+  }
+};
+
+// Get student's batch-wise test performance
+const getStudentBatchPerformance = async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    
+    // Find all tests where the student is assigned
+    const tests = await Test.find({
+      'assignedStudents.student': studentId,
+      isActive: true
+    })
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: -1 });
+
+    // Group by batch
+    const batchPerformance = {};
+    
+    tests.forEach(test => {
+      const batchId = test.batch._id.toString();
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === studentId
+      );
+      
+      if (!batchPerformance[batchId]) {
+        batchPerformance[batchId] = {
+          batch: test.batch,
+          tests: [],
+          totalTests: 0,
+          evaluatedTests: 0,
+          totalMarksScored: 0,
+          totalFullMarks: 0,
+          averagePercentage: 0
+        };
+      }
+      
+      const testData = {
+        testId: test._id,
+        testTitle: test.testTitle,
+        fullMarks: test.fullMarks,
+        marksScored: studentData.marksScored,
+        createdAt: test.createdAt,
+        evaluatedAt: studentData.evaluatedAt,
+        percentage: studentData.marksScored ? 
+          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null
+      };
+      
+      batchPerformance[batchId].tests.push(testData);
+      batchPerformance[batchId].totalTests++;
+      
+      if (studentData.marksScored !== null) {
+        batchPerformance[batchId].evaluatedTests++;
+        batchPerformance[batchId].totalMarksScored += studentData.marksScored;
+        batchPerformance[batchId].totalFullMarks += test.fullMarks;
+      }
+    });
+
+    // Calculate averages for each batch
+    Object.keys(batchPerformance).forEach(batchId => {
+      const data = batchPerformance[batchId];
+      if (data.totalFullMarks > 0) {
+        data.averagePercentage = parseFloat(
+          ((data.totalMarksScored / data.totalFullMarks) * 100).toFixed(2)
+        );
+      }
+    });
+
+    res.json({
+      success: true,
+      data: Object.values(batchPerformance),
+      count: Object.keys(batchPerformance).length
+    });
+
+  } catch (error) {
+    console.error('Error fetching batch performance:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch batch performance',
+      error: error.message
+    });
+  }
+};
+
+// Download question PDF for student (only if assigned to the test)
+const downloadQuestionPdfForStudent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studentId = req.user.id;
+
+    const test = await Test.findById(id);
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        message: 'Test not found'
+      });
+    }
+
+    // Check if student is assigned to this test
+    const studentAssignment = test.assignedStudents.find(
+      s => s.student.toString() === studentId
+    );
+
+    if (!studentAssignment) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this test'
+      });
+    }
+
+    const pdf = test.questionPdf;
+    if (!pdf || !pdf.fileData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Question PDF not found'
+      });
+    }
+
+    res.set({
+      'Content-Type': pdf.mimeType,
+      'Content-Disposition': `attachment; filename="${pdf.fileName}"`,
+      'Content-Length': pdf.fileSize
+    });
+
+    res.send(pdf.fileData);
+
+  } catch (error) {
+    console.error('Error downloading question PDF:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to download question PDF',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   upload,
   createTest,
@@ -766,5 +1141,11 @@ module.exports = {
   updateStudentMarks,
   assignStudentsToTest,
   getAvailableStudentsForTest,
-  downloadPdf
+  downloadPdf,
+
+  getStudentReports,
+  getStudentMonthlyAnalytics,
+  getStudentTestById,
+  getStudentBatchPerformance,
+  downloadQuestionPdfForStudent
 };
