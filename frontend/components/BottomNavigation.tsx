@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 
 interface BottomNavigationProps {
@@ -32,7 +33,7 @@ const NAV_ITEMS = [
     key: 'reports',
     label: 'Reports',
     icon: 'chart-line',
-    route: 'StudentReports',
+    route: 'UserReportsScreen', // Updated to use UserReportsScreen
   },
   {
     key: 'tests',
@@ -63,6 +64,11 @@ const NAV_ITEMS = [
 const BottomNavigation: React.FC<BottomNavigationProps> = ({ navigation, activeTab }) => {
   const slideUpAnim = useRef(new Animated.Value(100)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [userInfo, setUserInfo] = useState({
+    userId: '',
+    userName: '',
+    userRole: '',
+  });
 
   useEffect(() => {
     // Simple entrance animation
@@ -79,11 +85,39 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ navigation, activeT
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Load user information from AsyncStorage
+    loadUserInfo();
   }, []);
+
+  const loadUserInfo = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      const userName = await AsyncStorage.getItem('userName');
+      const userRole = await AsyncStorage.getItem('userRole');
+      
+      setUserInfo({
+        userId: userId || '',
+        userName: userName || '',
+        userRole: userRole || 'user',
+      });
+    } catch (error) {
+      console.error('Error loading user info:', error);
+    }
+  };
 
   const handleTabPress = (item: typeof NAV_ITEMS[0]) => {
     if (item.key !== activeTab) {
-      navigation.navigate(item.route);
+      // Special handling for UserReportsScreen with required parameters
+      if (item.route === 'UserReportsScreen') {
+        navigation.navigate(item.route, {
+          userId: userInfo.userId,
+          userName: userInfo.userName,
+          userRole: userInfo.userRole,
+        });
+      } else {
+        navigation.navigate(item.route);
+      }
     }
   };
 

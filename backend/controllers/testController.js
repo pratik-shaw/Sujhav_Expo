@@ -1130,6 +1130,208 @@ const downloadQuestionPdfForStudent = async (req, res) => {
   }
 };
 
+
+// Add these new functions to your testController.js
+
+// Check if user is assigned to any batch
+const checkUserBatchAssignment = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Find all batches where the user is assigned as a student
+    const batches = await Batch.find({
+      students: userId
+    })
+      .populate('teachers', 'name email')
+      .select('batchName category teachers');
+
+    if (batches.length === 0) {
+      return res.json({
+        success: true,
+        isAssigned: false,
+        message: 'User is not assigned to any batch',
+        data: {
+          batches: [],
+          totalBatches: 0
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      isAssigned: true,
+      message: 'User is assigned to batches',
+      data: {
+        batches: batches,
+        totalBatches: batches.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error checking user batch assignment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check batch assignment',
+      error: error.message
+    });
+  }
+};
+
+// Get comprehensive user reports with batch information
+
+// Updated getComprehensiveUserReports function with PDF download access
+const getComprehensiveUserReports = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // First check if user is assigned to any batch
+    const batches = await Batch.find({
+      students: userId
+    })
+      .populate('teachers', 'name email')
+      .select('batchName category teachers');
+
+    if (batches.length === 0) {
+      return res.json({
+        success: true,
+        isAssigned: false,
+        message: 'User is not assigned to any batch',
+        data: {
+          batches: [],
+          tests: [],
+          totalTests: 0,
+          totalBatches: 0
+        }
+      });
+    }
+
+    // Find all tests where the user is assigned
+    const tests = await Test.find({
+      'assignedStudents.student': userId,
+      isActive: true
+    })
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: -1 });
+
+    // Format the test data for the specific student
+    const studentReports = tests.map(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === userId
+      );
+      
+      return {
+        testId: test._id,
+        testTitle: test.testTitle,
+        fullMarks: test.fullMarks,
+        marksScored: studentData.marksScored,
+        submittedAt: studentData.submittedAt,
+        evaluatedAt: studentData.evaluatedAt,
+        createdAt: test.createdAt,
+        dueDate: test.dueDate,
+        batch: test.batch,
+        createdBy: test.createdBy,
+        instructions: test.instructions,
+        percentage: studentData.marksScored ? 
+          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null,
+        status: studentData.marksScored !== null ? 'evaluated' : 
+                studentData.submittedAt ? 'submitted' : 'pending',
+        // PDF availability flags
+        hasQuestionPdf: !!test.questionPdf,
+        hasAnswerPdf: !!test.answerPdf,
+        // PDF download URLs (for frontend reference)
+        questionPdfUrl: test.questionPdf ? `/api/tests/student/test/${test._id}/question-pdf` : null,
+        answerPdfUrl: test.answerPdf ? `/api/tests/student/test/${test._id}/answer-pdf` : null
+      };
+    });
+
+    // Calculate statistics
+    const evaluatedTests = studentReports.filter(test => test.marksScored !== null);
+    const totalPercentage = evaluatedTests.reduce((sum, test) => sum + parseFloat(test.percentage || '0'), 0);
+    const averagePercentage = evaluatedTests.length > 0 ? (totalPercentage / evaluatedTests.length).toFixed(2) : '0';
+
+    res.json({
+      success: true,
+      isAssigned: true,
+      data: {
+        batches: batches,
+        tests: studentReports,
+        totalTests: studentReports.length,
+        totalBatches: batches.length,
+        statistics: {
+          totalTests: studentReports.length,
+          evaluatedTests: evaluatedTests.length,
+          pendingTests: studentReports.length - evaluatedTests.length,
+          averagePercentage: parseFloat(averagePercentage),
+          totalMarksScored: evaluatedTests.reduce((sum, test) => sum + (test.marksScored || 0), 0),
+          totalFullMarks: evaluatedTests.reduce((sum, test) => sum + test.fullMarks, 0)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching comprehensive user reports:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user reports',
+      error: error.message
+    });
+  }
+};
+
+// Download answer PDF for student (only if assigned to the test)
+const downloadAnswerPdfForStudent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studentId = req.user.id;
+
+    const test = await Test.findById(id);
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        message: 'Test not found'
+      });
+    }
+
+    // Check if student is assigned to this test
+    const studentAssignment = test.assignedStudents.find(
+      s => s.student.toString() === studentId
+    );
+
+    if (!studentAssignment) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this test'
+      });
+    }
+
+    const pdf = test.answerPdf;
+    if (!pdf || !pdf.fileData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Answer PDF not found'
+      });
+    }
+
+    res.set({
+      'Content-Type': pdf.mimeType,
+      'Content-Disposition': `attachment; filename="${pdf.fileName}"`,
+      'Content-Length': pdf.fileSize
+    });
+
+    res.send(pdf.fileData);
+
+  } catch (error) {
+    console.error('Error downloading answer PDF:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to download answer PDF',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   upload,
   createTest,
@@ -1147,5 +1349,9 @@ module.exports = {
   getStudentMonthlyAnalytics,
   getStudentTestById,
   getStudentBatchPerformance,
-  downloadQuestionPdfForStudent
+  downloadQuestionPdfForStudent,
+  downloadAnswerPdfForStudent,
+
+  checkUserBatchAssignment,
+  getComprehensiveUserReports,
 };

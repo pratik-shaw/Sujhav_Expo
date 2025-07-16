@@ -12,12 +12,16 @@ const {
   getAvailableStudentsForTest,
   assignStudentsToTest,
   downloadPdf,
-  // New student report functions
+  // Student report functions
   getStudentReports,
   getStudentMonthlyAnalytics,
   getStudentTestById,
   getStudentBatchPerformance,
-  downloadQuestionPdfForStudent
+  downloadQuestionPdfForStudent,
+  downloadAnswerPdfForStudent, // New function added
+  // New functions
+  checkUserBatchAssignment,
+  getComprehensiveUserReports
 } = require('../controllers/testController');
 
 // Import authentication middleware
@@ -49,7 +53,16 @@ router.get('/student/my-reports', verifyStudent, getStudentReports);
 router.get('/student/monthly-analytics', verifyStudent, getStudentMonthlyAnalytics);
 router.get('/student/batch-performance', verifyStudent, getStudentBatchPerformance);
 router.get('/student/test/:id', verifyStudent, getStudentTestById);
+
+// Student PDF Downloads
 router.get('/student/test/:id/question-pdf', verifyStudent, downloadQuestionPdfForStudent);
+router.get('/student/test/:id/answer-pdf', verifyStudent, downloadAnswerPdfForStudent); // New route added
+
+// ====== USER ROUTES ======
+// These routes check user authentication and batch assignment
+
+router.get('/user/check-batch-assignment', verifyToken, checkUserBatchAssignment);
+router.get('/user/comprehensive-reports', verifyToken, getComprehensiveUserReports);
 
 // ====== LEGACY ROUTES (for backward compatibility) ======
 // These routes maintain compatibility with your existing frontend code

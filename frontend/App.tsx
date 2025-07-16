@@ -31,6 +31,7 @@ import TeacherHandleTestScreen from './screens/TeacherHandleTestScreen';
 import TeacherHandleScoresScreen from './screens/TeacherHandleScoresScreen';
 import TeacherTestListScreen from './screens/TeacherTestListScreen';
 import TeacherHandleReportsScreen from './screens/TeacherHandleReportsScreen';
+import UserReportsScreen from './screens/UserReportsScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -80,6 +81,9 @@ export type RootStackParamList = {
   };
   TeacherTestListScreen: { batchId: string };
   TeacherHandleReportsScreen: { batchId: string };
+  UserReportsScreen: { userId: string; userName: string; userRole: string };
+
+  
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -199,6 +203,8 @@ export default function App() {
         <Stack.Screen name="AllDPPScreen" component={AllDPPScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="OfflineCenterScreen" component={OfflineCenterScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
         <Stack.Screen name="AdminCreateBatchesScreen" component={AdminCreateBatchesScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="UserReportsScreen" component={UserReportsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
+
         
 
         {/* Teacher Screens */}
