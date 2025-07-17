@@ -24,6 +24,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { RootStackParamList } from '../App';
+import { API_BASE } from '../config/api';
 
 type TeacherHandleTestNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type TeacherHandleTestRouteProp = {
@@ -44,6 +45,9 @@ const BRAND = {
   backgroundColor: '#0a1a0a',
   accentColor: '#1a2e1a',
 };
+
+const API_BASE_URL = API_BASE;
+
 
 // Test interface
 interface Test {
@@ -154,7 +158,7 @@ export default function TeacherHandleTestScreen() {
         return;
       }
 
-      const response = await fetch(`http://192.168.29.148:5000/api/tests/batch/${batchId}`, {
+      const response = await fetch(`${API_BASE_URL}/tests/batch/${batchId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -181,7 +185,7 @@ export default function TeacherHandleTestScreen() {
       
       if (!token) return;
 
-      const response = await fetch(`http://192.168.29.148:5000/api/tests/batch/${batchId}/available-students`, {
+      const response = await fetch(`${API_BASE_URL}/tests/batch/${batchId}/available-students`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -422,7 +426,7 @@ export default function TeacherHandleTestScreen() {
         } as any);
       }
 
-      const response = await fetch('http://192.168.29.148:5000/api/tests/', {
+      const response = await fetch(`${API_BASE_URL}/tests`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -497,7 +501,7 @@ export default function TeacherHandleTestScreen() {
         } as any);
       }
 
-      const response = await fetch(`http://192.168.29.148:5000/api/tests/${selectedTestForEdit._id}`, {
+      const response = await fetch(`${API_BASE_URL}/tests/${selectedTestForEdit._id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -543,7 +547,7 @@ export default function TeacherHandleTestScreen() {
         return;
       }
 
-      const response = await fetch(`http://192.168.29.148:5000/api/tests/${selectedTestForAssignment._id}/assign-students`, {
+      const response = await fetch(`${API_BASE_URL}/tests/${selectedTestForAssignment._id}/assign-students`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -590,7 +594,7 @@ export default function TeacherHandleTestScreen() {
             try {
               const token = await AsyncStorage.getItem('userToken');
               
-              const response = await fetch(`http://192.168.29.148:5000/api/tests/${testId}`, {
+              const response = await fetch(`${API_BASE_URL}/tests/${testId}`, {
                 method: 'DELETE',
                 headers: {
                   'Authorization': `Bearer ${token}`,

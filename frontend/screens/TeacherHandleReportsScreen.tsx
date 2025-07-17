@@ -21,6 +21,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { RootStackParamList } from '../App';
+import { API_BASE } from '../config/api';
 
 type TeacherHandleReportsNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type TeacherHandleReportsRouteProp = {
@@ -41,6 +42,9 @@ const BRAND = {
   backgroundColor: '#0a1a0a',
   accentColor: '#1a2e1a',
 };
+
+const API_BASE_URL = API_BASE;
+
 
 // Interfaces
 interface Student {
@@ -163,7 +167,7 @@ export default function TeacherHandleReportsScreen() {
         return;
       }
 
-      const response = await fetch(`http://192.168.29.148:5000/api/tests/teacher/batch/${batchId}`, {
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/batch/${batchId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

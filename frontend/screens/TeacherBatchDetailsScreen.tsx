@@ -19,6 +19,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { RootStackParamList } from '../App';
+import { API_BASE } from '../config/api';
 
 type TeacherBatchDetailsNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type TeacherBatchDetailsRouteProp = {
@@ -39,6 +40,9 @@ const BRAND = {
   backgroundColor: '#0a1a0a',
   accentColor: '#1a2e1a',
 };
+
+const API_BASE_URL = API_BASE;
+
 
 // Student interface
 interface Student {
@@ -115,7 +119,7 @@ export default function TeacherBatchDetailsScreen() {
         return;
       }
 
-      const response = await fetch(`http://192.168.29.148:5000/api/batches/teacher/batch/${batchId}`, {
+      const response = await fetch(`${API_BASE_URL}/batches/teacher/batch/${batchId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
