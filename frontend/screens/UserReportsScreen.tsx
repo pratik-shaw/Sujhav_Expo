@@ -13,8 +13,9 @@ import {
   ActivityIndicator,
   Modal,
   StatusBar,
-  Linking,
   Platform,
+  Image,
+  FlatList,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationProp } from '@react-navigation/native';
@@ -22,10 +23,14 @@ import { API_BASE } from '../config/api';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
+import { MaterialIcons, Feather } from '@expo/vector-icons';
+import BottomNavigation from '../components/BottomNavigation';
+import SignupLoginBanner from '../components/SignupLoginBanner';
 
 // Brand configuration
 const BRAND = {
   name: "SUJHAV",
+  subtitle: "Synchronize your Understanding, do Justice to your Hardwork and let others Admire your Victory!",
   primaryColor: '#00ff88',
   secondaryColor: '#000000',
   backgroundColor: '#0a1a0a',
@@ -105,19 +110,25 @@ interface UserReportsData {
 }
 
 const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isAssignedToBatch, setIsAssignedToBatch] = useState<boolean>(false);
   const [reportsData, setReportsData] = useState<UserReportsData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [showBanner, setShowBanner] = useState<boolean>(false);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'pending' | 'evaluated'>('all');
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
+  const headerOpacity = useRef(new Animated.Value(0)).current;
+  const headerTranslateY = useRef(new Animated.Value(-20)).current;
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const contentScale = useRef(new Animated.Value(0.8)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const pulseScale = useRef(new Animated.Value(1)).current;
+  const buttonScale = useRef(new Animated.Value(0.8)).current;
 
   // Check authentication status
   const checkAuthStatus = async (): Promise<UserData | null> => {
@@ -153,178 +164,159 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
       } else {
         setIsLoggedIn(false);
         setUserData(null);
-        setShowLoginModal(true);
+        setShowBanner(true);
         return null;
       }
     } catch (error) {
       console.error('Auth check error:', error);
       setIsLoggedIn(false);
       setUserData(null);
-      setShowLoginModal(true);
+      setShowBanner(true);
       return null;
     }
   };
 
   const handleDownloadError = (statusCode: number | null, type: 'question' | 'answer') => {
-  const isQuestion = type === 'question';
-  const pdfType = isQuestion ? 'Question PDF' : 'Answer PDF';
-  
-  if (statusCode === 403) {
-    Alert.alert(
-      'Access Denied', 
-      isQuestion 
-        ? 'You are not authorized to download this PDF' 
-        : 'Answer sheet is only available after test evaluation'
-    );
-  } else if (statusCode === 404 || statusCode === 400) {
-    Alert.alert('No PDF Available', `No ${pdfType.toLowerCase()} is attached to this test`);
-  } else if (statusCode === 500) {
-    Alert.alert('Server Error', 'Server error occurred. Please try again later.');
-  } else {
-    // Generic message for any other error (including network errors)
-    Alert.alert('No PDF Available', `No ${pdfType.toLowerCase()} is attached to this test`);
-  }
-};
+    const isQuestion = type === 'question';
+    const pdfType = isQuestion ? 'Question PDF' : 'Answer PDF';
+    
+    if (statusCode === 403) {
+      Alert.alert(
+        'Access Denied', 
+        isQuestion 
+          ? 'You are not authorized to download this PDF' 
+          : 'Answer sheet is only available after test evaluation'
+      );
+    } else if (statusCode === 404 || statusCode === 400) {
+      Alert.alert('No PDF Available', `No ${pdfType.toLowerCase()} is attached to this test`);
+    } else if (statusCode === 500) {
+      Alert.alert('Server Error', 'Server error occurred. Please try again later.');
+    } else {
+      Alert.alert('No PDF Available', `No ${pdfType.toLowerCase()} is attached to this test`);
+    }
+  };
 
   // Download question PDF using Expo FileSystem
   const downloadQuestionPdf = async (testId: string, testTitle: string) => {
-  try {
-    if (!userData) {
-      Alert.alert('Error', 'Please log in to download files');
-      return;
-    }
-
-    setDownloadingPdf(testId);
-
-    // Create sanitized filename
-    const sanitizedTitle = testTitle.replace(/[^a-zA-Z0-9]/g, '_');
-    const fileName = `${sanitizedTitle}_Questions.pdf`;
-    const fileUri = FileSystem.documentDirectory + fileName;
-
-    // Download the file
-    const downloadResult = await FileSystem.downloadAsync(
-      `${API_BASE}/tests/student/test/${testId}/question-pdf`,
-      fileUri,
-      {
-        headers: {
-          'Authorization': `Bearer ${userData.token}`,
-        },
+    try {
+      if (!userData) {
+        Alert.alert('Error', 'Please log in to download files');
+        return;
       }
-    );
 
-    if (downloadResult.status === 200) {
-      // Check if sharing is available
-      const isAvailable = await Sharing.isAvailableAsync();
-      
-      if (isAvailable) {
-        // Share the file (this will allow users to save it or open with other apps)
-        await Sharing.shareAsync(downloadResult.uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Save or Open PDF',
-          UTI: 'com.adobe.pdf',
-        });
-      } else {
-        // Fallback: try to save to media library (Android)
-        if (Platform.OS === 'android') {
-          try {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status === 'granted') {
-              const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
-              await MediaLibrary.createAlbumAsync('SUJHAV', asset, false);
-              Alert.alert('Success', 'PDF saved to your device');
-            } else {
-              Alert.alert('Permission Required', 'Please grant permission to save files');
-            }
-          } catch (mediaError) {
-            // Silent handling - don't log to console
-            Alert.alert('Error', 'Failed to save PDF to device');
-          }
-        } else {
-          Alert.alert('Success', 'PDF downloaded successfully');
+      setDownloadingPdf(testId);
+
+      const sanitizedTitle = testTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `${sanitizedTitle}_Questions.pdf`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+
+      const downloadResult = await FileSystem.downloadAsync(
+        `${API_BASE}/tests/student/test/${testId}/question-pdf`,
+        fileUri,
+        {
+          headers: {
+            'Authorization': `Bearer ${userData.token}`,
+          },
         }
-      }
-    } else {
-      // Handle non-200 responses without throwing errors
-      handleDownloadError(downloadResult.status, 'question');
-    }
+      );
 
-  } catch (error) {
-    // Handle network errors and other exceptions silently
-    handleDownloadError(null, 'question');
-  } finally {
-    setDownloadingPdf(null);
-  }
-};
+      if (downloadResult.status === 200) {
+        const isAvailable = await Sharing.isAvailableAsync();
+        
+        if (isAvailable) {
+          await Sharing.shareAsync(downloadResult.uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Save or Open PDF',
+            UTI: 'com.adobe.pdf',
+          });
+        } else {
+          if (Platform.OS === 'android') {
+            try {
+              const { status } = await MediaLibrary.requestPermissionsAsync();
+              if (status === 'granted') {
+                const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
+                await MediaLibrary.createAlbumAsync('SUJHAV', asset, false);
+                Alert.alert('Success', 'PDF saved to your device');
+              } else {
+                Alert.alert('Permission Required', 'Please grant permission to save files');
+              }
+            } catch (mediaError) {
+              Alert.alert('Error', 'Failed to save PDF to device');
+            }
+          } else {
+            Alert.alert('Success', 'PDF downloaded successfully');
+          }
+        }
+      } else {
+        handleDownloadError(downloadResult.status, 'question');
+      }
+    } catch (error) {
+      handleDownloadError(null, 'question');
+    } finally {
+      setDownloadingPdf(null);
+    }
+  };
 
   // Download answer PDF (only for evaluated tests)
   const downloadAnswerPdf = async (testId: string, testTitle: string) => {
-  try {
-    if (!userData) {
-      Alert.alert('Error', 'Please log in to download files');
-      return;
-    }
-
-    setDownloadingPdf(testId + '_answer');
-
-    // Create sanitized filename
-    const sanitizedTitle = testTitle.replace(/[^a-zA-Z0-9]/g, '_');
-    const fileName = `${sanitizedTitle}_Answers.pdf`;
-    const fileUri = FileSystem.documentDirectory + fileName;
-
-    // Download the file
-    const downloadResult = await FileSystem.downloadAsync(
-      `${API_BASE}/tests/student/test/${testId}/answer-pdf`,
-      fileUri,
-      {
-        headers: {
-          'Authorization': `Bearer ${userData.token}`,
-        },
+    try {
+      if (!userData) {
+        Alert.alert('Error', 'Please log in to download files');
+        return;
       }
-    );
 
-    if (downloadResult.status === 200) {
-      // Check if sharing is available
-      const isAvailable = await Sharing.isAvailableAsync();
-      
-      if (isAvailable) {
-        // Share the file
-        await Sharing.shareAsync(downloadResult.uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Save or Open Answer PDF',
-          UTI: 'com.adobe.pdf',
-        });
-      } else {
-        // Fallback for Android
-        if (Platform.OS === 'android') {
-          try {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status === 'granted') {
-              const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
-              await MediaLibrary.createAlbumAsync('SUJHAV', asset, false);
-              Alert.alert('Success', 'Answer PDF saved to your device');
-            } else {
-              Alert.alert('Permission Required', 'Please grant permission to save files');
-            }
-          } catch (mediaError) {
-            // Silent handling - don't log to console
-            Alert.alert('Error', 'Failed to save PDF to device');
-          }
-        } else {
-          Alert.alert('Success', 'Answer PDF downloaded successfully');
+      setDownloadingPdf(testId + '_answer');
+
+      const sanitizedTitle = testTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `${sanitizedTitle}_Answers.pdf`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+
+      const downloadResult = await FileSystem.downloadAsync(
+        `${API_BASE}/tests/student/test/${testId}/answer-pdf`,
+        fileUri,
+        {
+          headers: {
+            'Authorization': `Bearer ${userData.token}`,
+          },
         }
-      }
-    } else {
-      // Handle non-200 responses without throwing errors
-      handleDownloadError(downloadResult.status, 'answer');
-    }
+      );
 
-  } catch (error) {
-    // Handle network errors and other exceptions silently
-    handleDownloadError(null, 'answer');
-  } finally {
-    setDownloadingPdf(null);
-  }
-};
+      if (downloadResult.status === 200) {
+        const isAvailable = await Sharing.isAvailableAsync();
+        
+        if (isAvailable) {
+          await Sharing.shareAsync(downloadResult.uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Save or Open Answer PDF',
+            UTI: 'com.adobe.pdf',
+          });
+        } else {
+          if (Platform.OS === 'android') {
+            try {
+              const { status } = await MediaLibrary.requestPermissionsAsync();
+              if (status === 'granted') {
+                const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
+                await MediaLibrary.createAlbumAsync('SUJHAV', asset, false);
+                Alert.alert('Success', 'Answer PDF saved to your device');
+              } else {
+                Alert.alert('Permission Required', 'Please grant permission to save files');
+              }
+            } catch (mediaError) {
+              Alert.alert('Error', 'Failed to save PDF to device');
+            }
+          } else {
+            Alert.alert('Success', 'Answer PDF downloaded successfully');
+          }
+        }
+      } else {
+        handleDownloadError(downloadResult.status, 'answer');
+      }
+    } catch (error) {
+      handleDownloadError(null, 'answer');
+    } finally {
+      setDownloadingPdf(null);
+    }
+  };
 
   // Fetch user reports
   const fetchUserReports = async () => {
@@ -380,30 +372,92 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
   };
 
   // Start animations
-  const startAnimations = () => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-    ]).start();
+  const startEntranceAnimation = () => {
+    // Background glow
+    Animated.timing(glowOpacity, {
+      toValue: 1,
+      duration: 1000,
+      useNativeDriver: true,
+    }).start();
+
+    // Header animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(headerOpacity, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 200);
+
+    // Content animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentScale, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 600);
+
+    // Fade in animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(buttonScale, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 1000);
   };
 
-  // Navigate to login
-  const handleLogin = () => {
-    setShowLoginModal(false);
-    navigation.navigate('Login');
+  const startPulseAnimation = () => {
+    const pulse = () => {
+      Animated.sequence([
+        Animated.timing(pulseScale, {
+          toValue: 1.02,
+          duration: 3000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseScale, {
+          toValue: 1,
+          duration: 3000,
+          useNativeDriver: true,
+        }),
+      ]).start(() => pulse());
+    };
+    pulse();
   };
 
-  // Navigate to course details
+  // Navigation handlers
   const handleJoinOnline = () => {
     navigation.navigate('Home');
+  };
+
+  const handleBannerClose = () => {
+    setShowBanner(false);
+  };
+
+  const handleSignInPress = () => {
+    navigation.navigate('SignIn');
   };
 
   // Filter tests based on selected filter
@@ -448,70 +502,94 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
   // Initialize screen
   useEffect(() => {
     fetchUserReports();
-    startAnimations();
   }, []);
 
-  // Login Modal Component
-  const LoginModal = () => (
-    <Modal
-      visible={showLoginModal}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => setShowLoginModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Login Required</Text>
-          <Text style={styles.modalText}>
-            Please log in to view your test reports and academic performance.
-          </Text>
-          <View style={styles.modalButtons}>
-            <TouchableOpacity style={styles.modalButton} onPress={handleLogin}>
-              <Text style={styles.modalButtonText}>Login</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.modalButton, styles.modalButtonSecondary]} 
-              onPress={() => setShowLoginModal(false)}
-            >
-              <Text style={[styles.modalButtonText, styles.modalButtonTextSecondary]}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
+  // Handle entrance animations
+  useEffect(() => {
+    if (isLoggedIn !== null) {
+      startEntranceAnimation();
+      startPulseAnimation();
+    }
+  }, [isLoggedIn]);
 
-  // Empty State Component
+  // Empty State Component (Not registered student)
   const EmptyState = () => (
-    <Animated.View 
-      style={[
-        styles.emptyStateContainer,
-        {
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        }
-      ]}
-    >
-      <Text style={styles.emptyStateTitle}>
-        Not a Registered Student
-      </Text>
-      <Text style={styles.emptyStateText}>
-        You are not registered as a student in any offline center batch.
-      </Text>
-      <Text style={styles.emptyStateSubtext}>
-        Join SUJHAV Online Center to continue your learning journey!
-      </Text>
-      <TouchableOpacity style={styles.joinButton} onPress={handleJoinOnline}>
-        <Text style={styles.joinButtonText}>Join Online Center</Text>
-      </TouchableOpacity>
-    </Animated.View>
+    <View style={styles.unauthenticatedContainer}>
+      <Animated.View
+        style={[
+          styles.welcomeSection,
+          {
+            opacity: contentOpacity,
+            transform: [{ translateY: Animated.multiply(contentScale, 20) }],
+          },
+        ]}
+      >
+        {/* Logo */}
+        <Animated.View
+          style={[
+            styles.logoContainer,
+            {
+              transform: [
+                { scale: Animated.multiply(contentScale, pulseScale) }
+              ],
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.logoGlow,
+              { opacity: Animated.multiply(glowOpacity, 0.5) }
+            ]}
+          />
+          <Image
+            source={require('../assets/images/logo-sujhav.png')}
+            style={styles.headerLogoImage}
+            resizeMode="contain"
+          />
+        </Animated.View>
+
+        <Text style={styles.welcomeTitle}>Not a Registered Student</Text>
+        <Text style={styles.welcomeSubtitle}>
+          You are not registered as a student in any offline center batch.
+        </Text>
+        <Text style={styles.welcomeSubtext}>
+          Join SUJHAV Online Center to continue your learning journey!
+        </Text>
+      </Animated.View>
+
+      {/* Join Online Button */}
+      <Animated.View
+        style={[
+          styles.signInButtonContainer,
+          { 
+            opacity: fadeAnim,
+            transform: [{ scale: buttonScale }]
+          }
+        ]}
+      >
+        <TouchableOpacity 
+          style={styles.signInButton}
+          onPress={handleJoinOnline}
+          activeOpacity={0.8}
+        >
+          <Animated.View
+            style={[
+              styles.buttonGlow,
+              { opacity: Animated.multiply(glowOpacity, 0.6) }
+            ]}
+          />
+          <Text style={styles.signInButtonText}>Join Online Center</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
   );
 
   // Statistics Card Component
   const StatisticsCard = ({ statistics }: { statistics: any }) => (
-    <View style={styles.statisticsCard}>
+    <Animated.View style={[styles.statisticsCard, { 
+      opacity: fadeAnim,
+      transform: [{ scale: Animated.multiply(contentScale, pulseScale) }],
+    }]}>
       <Text style={styles.cardTitle}>Performance Overview</Text>
       <View style={styles.statsGrid}>
         <View style={styles.statItem}>
@@ -533,274 +611,369 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
           <Text style={styles.statLabel}>Average</Text>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 
   // Test Card Component
-  const TestCard = ({ test }: { test: TestReport }) => (
-    <View style={styles.testCard}>
-      <View style={styles.testHeader}>
-        <Text style={styles.testTitle}>{test.testTitle}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(test.status) + '20' }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(test.status) }]}>
-            {test.status.toUpperCase()}
-          </Text>
-        </View>
-      </View>
-      
-      <View style={styles.testDetails}>
-        <Text style={styles.testBatch}>Batch: {test.batch.batchName}</Text>
-        <Text style={styles.testTeacher}>Teacher: {test.createdBy.name}</Text>
-        <Text style={styles.testDate}>
-          Created: {new Date(test.createdAt).toLocaleDateString()}
-        </Text>
-        
-        {test.dueDate && (
-          <Text style={styles.testDueDate}>
-            Due: {new Date(test.dueDate).toLocaleDateString()}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.marksContainer}>
-        <Text style={styles.marksLabel}>Marks:</Text>
-        {test.marksScored !== null ? (
-          <View style={styles.marksInfo}>
-            <Text style={styles.marksValue}>
-              {test.marksScored}/{test.fullMarks}
-            </Text>
-            <Text style={[styles.percentage, { color: BRAND.successColor }]}>
-              {test.percentage}%
-            </Text>
-            <Text style={[styles.grade, { color: BRAND.successColor }]}>
-              ({getGrade(parseFloat(test.percentage || '0'))})
+  const TestCard = ({ item }: { item: TestReport }) => (
+    <Animated.View
+      style={[
+        styles.testCard,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: Animated.multiply(contentScale, pulseScale) }],
+        },
+      ]}
+    >
+      <View style={styles.testCardContent}>
+        <View style={styles.testHeader}>
+          <Text style={styles.testTitle}>{item.testTitle}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
+            <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
+              {item.status.toUpperCase()}
             </Text>
           </View>
-        ) : (
-          <Text style={[styles.marksValue, { color: BRAND.textSecondary }]}>
-            Not Evaluated
-          </Text>
-        )}
-      </View>
-
-      {/* Download Buttons */}
-      <View style={styles.actionButtons}>
-        <TouchableOpacity
-          style={[
-            styles.downloadButton,
-            downloadingPdf === test.testId && styles.downloadButtonDisabled
-          ]}
-          onPress={() => downloadQuestionPdf(test.testId, test.testTitle)}
-          disabled={downloadingPdf === test.testId}
-        >
-          {downloadingPdf === test.testId ? (
-            <ActivityIndicator size="small" color={BRAND.textPrimary} />
-          ) : (
-            <Text style={styles.downloadButtonText}>📄 Questions</Text>
+        </View>
+        
+        <View style={styles.testDetails}>
+          <View style={styles.testInfoRow}>
+            <MaterialIcons name="group" size={14} color={BRAND.textSecondary} />
+            <Text style={styles.testInfoText}>Batch: {item.batch.batchName}</Text>
+          </View>
+          <View style={styles.testInfoRow}>
+            <MaterialIcons name="person" size={14} color={BRAND.textSecondary} />
+            <Text style={styles.testInfoText}>Teacher: {item.createdBy.name}</Text>
+          </View>
+          <View style={styles.testInfoRow}>
+            <MaterialIcons name="calendar-today" size={14} color={BRAND.textSecondary} />
+            <Text style={styles.testInfoText}>
+              Created: {new Date(item.createdAt).toLocaleDateString()}
+            </Text>
+          </View>
+          
+          {item.dueDate && (
+            <View style={styles.testInfoRow}>
+              <MaterialIcons name="schedule" size={14} color={BRAND.warningColor} />
+              <Text style={[styles.testInfoText, { color: BRAND.warningColor }]}>
+                Due: {new Date(item.dueDate).toLocaleDateString()}
+              </Text>
+            </View>
           )}
-        </TouchableOpacity>
+        </View>
 
-        {/* Answer PDF button - only show for evaluated tests */}
-        {test.status === 'evaluated' && (
+        <View style={styles.marksContainer}>
+          <Text style={styles.marksLabel}>Marks:</Text>
+          {item.marksScored !== null ? (
+            <View style={styles.marksInfo}>
+              <Text style={styles.marksValue}>
+                {item.marksScored}/{item.fullMarks}
+              </Text>
+              <Text style={[styles.percentage, { color: BRAND.successColor }]}>
+                {item.percentage}%
+              </Text>
+              <Text style={[styles.grade, { color: BRAND.successColor }]}>
+                ({getGrade(parseFloat(item.percentage || '0'))})
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.marksValue, { color: BRAND.textSecondary }]}>
+              Not Evaluated
+            </Text>
+          )}
+        </View>
+
+        {/* Download Buttons */}
+        <View style={styles.actionButtons}>
           <TouchableOpacity
             style={[
               styles.downloadButton,
-              styles.answerButton,
-              downloadingPdf === test.testId + '_answer' && styles.downloadButtonDisabled
+              downloadingPdf === item.testId && styles.downloadButtonDisabled
             ]}
-            onPress={() => downloadAnswerPdf(test.testId, test.testTitle)}
-            disabled={downloadingPdf === test.testId + '_answer'}
+            onPress={() => downloadQuestionPdf(item.testId, item.testTitle)}
+            disabled={downloadingPdf === item.testId}
           >
-            {downloadingPdf === test.testId + '_answer' ? (
+            {downloadingPdf === item.testId ? (
               <ActivityIndicator size="small" color={BRAND.textPrimary} />
             ) : (
-              <Text style={styles.downloadButtonText}>📋 Answers</Text>
+              <>
+                <MaterialIcons name="description" size={16} color={BRAND.textPrimary} />
+                <Text style={styles.downloadButtonText}>Questions</Text>
+              </>
             )}
           </TouchableOpacity>
-        )}
+
+          {/* Answer PDF button - only show for evaluated tests */}
+          {item.status === 'evaluated' && (
+            <TouchableOpacity
+              style={[
+                styles.downloadButton,
+                styles.answerButton,
+                downloadingPdf === item.testId + '_answer' && styles.downloadButtonDisabled
+              ]}
+              onPress={() => downloadAnswerPdf(item.testId, item.testTitle)}
+              disabled={downloadingPdf === item.testId + '_answer'}
+            >
+              {downloadingPdf === item.testId + '_answer' ? (
+                <ActivityIndicator size="small" color={BRAND.textPrimary} />
+              ) : (
+                <>
+                  <MaterialIcons name="assignment" size={16} color={BRAND.textPrimary} />
+                  <Text style={styles.downloadButtonText}>Answers</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-    </View>
+    </Animated.View>
   );
 
   // Filter Buttons Component
   const FilterButtons = () => (
-    <View style={styles.filterContainer}>
+    <Animated.View style={[styles.filterContainer, { opacity: fadeAnim }]}>
       {['all', 'pending', 'evaluated'].map((filter) => (
         <TouchableOpacity
           key={filter}
           style={[
-            styles.filterButton,
-            selectedFilter === filter && styles.filterButtonActive
+            styles.filterTab,
+            selectedFilter === filter && styles.activeFilterTab,
           ]}
           onPress={() => setSelectedFilter(filter as any)}
         >
           <Text style={[
-            styles.filterButtonText,
-            selectedFilter === filter && styles.filterButtonTextActive
+            styles.filterTabText,
+            selectedFilter === filter && styles.activeFilterTabText,
           ]}>
             {filter.toUpperCase()}
           </Text>
         </TouchableOpacity>
       ))}
+    </Animated.View>
+  );
+
+  // Render unauthenticated content
+  const renderUnauthenticatedContent = () => (
+    <View style={styles.unauthenticatedContainer}>
+      <Animated.View
+        style={[
+          styles.welcomeSection,
+          {
+            opacity: contentOpacity,
+            transform: [{ translateY: Animated.multiply(contentScale, 20) }],
+          },
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.logoContainer,
+            {
+              transform: [
+                { scale: Animated.multiply(contentScale, pulseScale) }
+              ],
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.logoGlow,
+              { opacity: Animated.multiply(glowOpacity, 0.5) }
+            ]}
+          />
+          <Image
+            source={require('../assets/images/logo-sujhav.png')}
+            style={styles.headerLogoImage}
+            resizeMode="contain"
+          />
+        </Animated.View>
+
+        <Text style={styles.welcomeTitle}>My Reports Dashboard</Text>
+        <Text style={styles.welcomeSubtitle}>
+          Sign in to view your test reports and academic performance
+        </Text>
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.signInButtonContainer,
+          { 
+            opacity: fadeAnim,
+            transform: [{ scale: buttonScale }]
+          }
+        ]}
+      >
+        <TouchableOpacity 
+          style={styles.signInButton}
+          onPress={handleSignInPress}
+          activeOpacity={0.8}
+        >
+          <Animated.View
+            style={[
+              styles.buttonGlow,
+              { opacity: Animated.multiply(glowOpacity, 0.6) }
+            ]}
+          />
+          <Text style={styles.signInButtonText}>Sign in to continue</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 
-  // Loading component
-  if (loading) {
+  // Render empty state for no tests
+  const renderEmptyTestsState = () => (
+    <Animated.View style={[styles.emptyState, { opacity: fadeAnim }]}>
+      <MaterialIcons name="assignment" size={60} color="#444" />
+      <Text style={styles.emptyStateTitle}>No Tests Found</Text>
+      <Text style={styles.emptyStateSubtitle}>
+        {selectedFilter === 'all' 
+          ? "You haven't taken any tests yet."
+          : `No ${selectedFilter} tests found.`}
+      </Text>
+    </Animated.View>
+  );
+
+  // Loading state
+  if (isLoggedIn === null || loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={BRAND.primaryColor} />
-        <Text style={styles.loadingText}>Loading your reports...</Text>
-      </View>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={BRAND.primaryColor} />
+          <Text style={styles.loadingText}>Loading your reports...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  // Main render
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
       
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Reports</Text>
-        <View style={styles.headerRight} />
+      {/* Animated Background Elements */}
+      <View style={styles.backgroundElements}>
+        <Animated.View 
+          style={[
+            styles.glowCircle,
+            styles.glowCircle1,
+            { opacity: Animated.multiply(glowOpacity, 0.08) }
+          ]} 
+        />
+        <Animated.View 
+          style={[
+            styles.glowCircle,
+            styles.glowCircle2,
+            { opacity: Animated.multiply(glowOpacity, 0.06) }
+          ]} 
+        />
+        <Animated.View 
+          style={[
+            styles.glowCircle,
+            styles.glowCircle3,
+            { opacity: Animated.multiply(glowOpacity, 0.04) }
+          ]} 
+        />
       </View>
 
-      {/* Login Modal */}
-      <LoginModal />
-
-      {/* Main Content */}
-      {!isLoggedIn ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={BRAND.primaryColor} />
+      {/* Header */}
+      <Animated.View 
+        style={[
+          styles.headerSection,
+          {
+            opacity: headerOpacity,
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
+        <View style={styles.headerContent}>
+          <Image
+            source={require('../assets/images/logo-sujhav.png')}
+            style={styles.headerLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.brandTitle}>My Reports</Text>
         </View>
-      ) : !isAssignedToBatch ? (
-        <EmptyState />
-      ) : (
-        <ScrollView
-          style={styles.scrollView}
-          refreshControl={
-            <RefreshControl
+      </Animated.View>
+
+      {/* Content Container */}
+      <View style={styles.contentContainer}>
+        {!isLoggedIn ? (
+          renderUnauthenticatedContent()
+        ) : !isAssignedToBatch ? (
+          <EmptyState />
+        ) : (
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
               colors={[BRAND.primaryColor]}
               tintColor={BRAND.primaryColor}
+              progressBackgroundColor={BRAND.cardBackground}
             />
-          }
-        >
-          {reportsData && (
-            <Animated.View 
-              style={[
-                styles.contentContainer,
-                {
-                  opacity: fadeAnim,
-                  transform: [{ translateY: slideAnim }],
-                }
-              ]}
-            >
-              {/* Statistics Card */}
+            }
+          >
+            {/* Statistics Section */}
+            {reportsData?.statistics && (
               <StatisticsCard statistics={reportsData.statistics} />
+            )}
 
-              {/* Batch Information */}
-              <View style={styles.batchCard}>
-                <Text style={styles.cardTitle}>Your Batches</Text>
-                {reportsData.batches.map((batch) => (
-                  <View key={batch._id} style={styles.batchItem}>
-                    <Text style={styles.batchName}>{batch.batchName}</Text>
-                    <Text style={styles.batchCategory}>{batch.category.toUpperCase()}</Text>
-                  </View>
-                ))}
-              </View>
+            {/* Batches Section */}
+            {reportsData?.batches && reportsData.batches.length > 0 && (
+              <Animated.View style={[styles.batchesSection, { opacity: fadeAnim }]}>
+                <Text style={styles.sectionTitle}>Your Batches</Text>
+                <View style={styles.batchesContainer}>
+                  {reportsData.batches.map((batch) => (
+                    <View key={batch._id} style={styles.batchCard}>
+                      <Text style={styles.batchName}>{batch.batchName}</Text>
+                      <Text style={styles.batchCategory}>{batch.category}</Text>
+                      <Text style={styles.batchTeachers}>
+                        Teachers: {batch.teachers.map(t => t.name).join(', ')}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </Animated.View>
+            )}
 
-              {/* Filter Buttons */}
-              <FilterButtons />
+            {/* Filter Buttons */}
+            <FilterButtons />
 
-              {/* Tests List */}
-              <View style={styles.testsContainer}>
-                <Text style={styles.sectionTitle}>
-                  Test Reports ({getFilteredTests().length})
-                </Text>
-                {getFilteredTests().length === 0 ? (
-                  <Text style={styles.noTestsText}>No tests found for the selected filter.</Text>
-                ) : (
-                  getFilteredTests().map((test) => (
-                    <TestCard key={test.testId} test={test} />
-                  ))
-                )}
-              </View>
+            {/* Tests Section */}
+            <Animated.View style={[styles.testsSection, { opacity: fadeAnim }]}>
+              <Text style={styles.sectionTitle}>
+                Test Reports ({getFilteredTests().length})
+              </Text>
+              
+              {getFilteredTests().length === 0 ? (
+                renderEmptyTestsState()
+              ) : (
+                <FlatList
+                  data={getFilteredTests()}
+                  keyExtractor={(item) => item.testId}
+                  renderItem={({ item }) => <TestCard item={item} />}
+                  showsVerticalScrollIndicator={false}
+                  scrollEnabled={false}
+                  ItemSeparatorComponent={() => <View style={styles.separator} />}
+                />
+              )}
             </Animated.View>
-          )}
-        </ScrollView>
-      )}
+          </ScrollView>
+        )}
+      </View>
+
+      {/* Bottom Navigation */}
+      <BottomNavigation navigation={navigation} activeTab="reports" />
+
+      
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-    actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: BRAND.borderColor,
-  },
-  downloadButton: {
-    backgroundColor: BRAND.primaryColor + '20',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor,
-    flex: 1,
-    marginHorizontal: 4,
-  },
-  downloadButtonDisabled: {
-    backgroundColor: BRAND.textSecondary + '20',
-    borderColor: BRAND.textSecondary,
-  },
-  downloadButtonText: {
-    color: BRAND.primaryColor,
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
   container: {
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.borderColor,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: BRAND.accentColor,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  backButtonText: {
-    color: BRAND.primaryColor,
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: BRAND.textPrimary,
-  },
-  headerRight: {
-    width: 40,
   },
   loadingContainer: {
     flex: 1,
@@ -809,64 +982,153 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.backgroundColor,
   },
   loadingText: {
-    color: BRAND.textSecondary,
-    marginTop: 10,
+    color: BRAND.textPrimary,
     fontSize: 16,
+    marginTop: 20,
+    fontWeight: '500',
   },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  backgroundElements: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    pointerEvents: 'none',
+  },
+  glowCircle: {
+    position: 'absolute',
+    borderRadius: 1000,
+    backgroundColor: BRAND.primaryColor,
+  },
+  glowCircle1: {
+    width: 200,
+    height: 200,
+    top: -100,
+    right: -100,
+  },
+  glowCircle2: {
+    width: 150,
+    height: 150,
+    top: height * 0.3,
+    left: -75,
+  },
+  glowCircle3: {
+    width: 100,
+    height: 100,
+    bottom: 100,
+    right: 50,
+  },
+  headerSection: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.borderColor,
+  },
+  headerContent: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerLogo: {
+     width: 30,
+    height: 30,
+    marginRight: 10,
+  },
+  brandTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: BRAND.primaryColor,
+  },
+  contentContainer: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
+    paddingHorizontal: 20,
   },
-  contentContainer: {
-    padding: 20,
-  },
-  emptyStateContainer: {
+  unauthenticatedContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    paddingHorizontal: 30,
   },
-  emptyStateTitle: {
-    fontSize: 24,
+  welcomeSection: {
+    alignItems: 'center',
+    marginBottom: 50,
+  },
+  logoContainer: {
+    position: 'relative',
+    marginBottom: 30,
+  },
+  logoGlow: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: BRAND.primaryColor,
+    top: -10,
+    left: -10,
+    zIndex: 0,
+  },
+  headerLogoImage: {
+    width: 100,
+    height: 100,
+    zIndex: 1,
+  },
+  welcomeTitle: {
+    fontSize: 28,
     fontWeight: 'bold',
     color: BRAND.textPrimary,
     textAlign: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
-  emptyStateText: {
+  welcomeSubtitle: {
     fontSize: 16,
     color: BRAND.textSecondary,
     textAlign: 'center',
-    marginBottom: 10,
-    lineHeight: 24,
+    lineHeight: 22,
+    marginBottom: 8,
   },
-  emptyStateSubtext: {
+  welcomeSubtext: {
     fontSize: 14,
     color: BRAND.textSecondary,
     textAlign: 'center',
-    marginBottom: 30,
     lineHeight: 20,
   },
-  joinButton: {
-    backgroundColor: BRAND.primaryColor,
-    paddingHorizontal: 30,
-    paddingVertical: 15,
-    borderRadius: 10,
+  signInButtonContainer: {
+    width: '100%',
+    alignItems: 'center',
   },
-  joinButtonText: {
+  signInButton: {
+    backgroundColor: BRAND.primaryColor,
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 25,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  buttonGlow: {
+    position: 'absolute',
+    top: -5,
+    left: -5,
+    right: -5,
+    bottom: -5,
+    backgroundColor: BRAND.primaryColor,
+    borderRadius: 30,
+    zIndex: 0,
+  },
+  signInButtonText: {
     color: BRAND.secondaryColor,
     fontSize: 16,
     fontWeight: 'bold',
+    zIndex: 1,
   },
   statisticsCard: {
     backgroundColor: BRAND.cardBackground,
+    marginTop: 20,
     borderRadius: 15,
     padding: 20,
-    marginBottom: 20,
     borderWidth: 1,
     borderColor: BRAND.borderColor,
   },
@@ -878,87 +1140,26 @@ const styles = StyleSheet.create({
   },
   statsGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   statItem: {
+    width: '48%',
     alignItems: 'center',
-    minWidth: '22%',
-    marginBottom: 10,
+    marginBottom: 15,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     color: BRAND.primaryColor,
-    marginBottom: 5,
   },
   statLabel: {
     fontSize: 12,
     color: BRAND.textSecondary,
-    textAlign: 'center',
+    marginTop: 5,
   },
-  batchCard: {
-    backgroundColor: BRAND.cardBackground,
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
-  },
-  batchItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.borderColor,
-  },
-  batchName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: BRAND.textPrimary,
-    flex: 1,
-  },
-  batchCategory: {
-    fontSize: 12,
-    color: BRAND.primaryColor,
-    backgroundColor: BRAND.primaryColor + '20',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    fontWeight: '600',
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-    backgroundColor: BRAND.cardBackground,
-    borderRadius: 15,
-    padding: 5,
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
-  },
-  filterButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginHorizontal: 2,
-  },
-  filterButtonActive: {
-    backgroundColor: BRAND.primaryColor,
-  },
-  filterButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: BRAND.textSecondary,
-  },
-  filterButtonTextActive: {
-    color: BRAND.secondaryColor,
-  },
-  testsContainer: {
-    marginBottom: 20,
+  batchesSection: {
+    marginTop: 25,
   },
   sectionTitle: {
     fontSize: 20,
@@ -966,28 +1167,75 @@ const styles = StyleSheet.create({
     color: BRAND.textPrimary,
     marginBottom: 15,
   },
-  noTestsText: {
+  batchesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  batchCard: {
+    backgroundColor: BRAND.cardBackground,
+    borderRadius: 10,
+    padding: 15,
+    width: '48%',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: BRAND.borderColor,
+  },
+  batchName: {
     fontSize: 16,
+    fontWeight: 'bold',
+    color: BRAND.textPrimary,
+    marginBottom: 5,
+  },
+  batchCategory: {
+    fontSize: 14,
+    color: BRAND.primaryColor,
+    marginBottom: 5,
+  },
+  batchTeachers: {
+    fontSize: 12,
     color: BRAND.textSecondary,
-    textAlign: 'center',
-    marginTop: 30,
-    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginVertical: 20,
+    backgroundColor: BRAND.cardBackground,
+    borderRadius: 25,
+    padding: 5,
+    marginHorizontal: 20,
+  },
+  filterTab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
+  activeFilterTab: {
+    backgroundColor: BRAND.primaryColor,
+  },
+  filterTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.textSecondary,
+  },
+  activeFilterTabText: {
+    color: BRAND.secondaryColor,
+  },
+  testsSection: {
+    marginBottom: 100,
   },
   testCard: {
     backgroundColor: BRAND.cardBackground,
     borderRadius: 15,
-    padding: 20,
-    marginBottom: 15,
     borderWidth: 1,
     borderColor: BRAND.borderColor,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    overflow: 'hidden',
+  },
+  testCardContent: {
+    padding: 20,
   },
   testHeader: {
     flexDirection: 'row',
@@ -1003,56 +1251,40 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    minWidth: 80,
-    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   statusText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: 'bold',
   },
   testDetails: {
     marginBottom: 15,
   },
-  testBatch: {
-    fontSize: 14,
-    color: BRAND.textSecondary,
-    marginBottom: 4,
+  testInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
   },
-  testTeacher: {
-    fontSize: 14,
+  testInfoText: {
+    fontSize: 12,
     color: BRAND.textSecondary,
-    marginBottom: 4,
-  },
-  testDate: {
-    fontSize: 14,
-    color: BRAND.textSecondary,
-    marginBottom: 4,
-  },
-  testDueDate: {
-    fontSize: 14,
-    color: BRAND.warningColor,
-    fontWeight: '600',
+    marginLeft: 8,
   },
   marksContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: BRAND.borderColor,
+    justifyContent: 'space-between',
+    marginBottom: 15,
   },
   marksLabel: {
     fontSize: 14,
     color: BRAND.textSecondary,
-    fontWeight: '600',
   },
   marksInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   marksValue: {
     fontSize: 16,
@@ -1060,79 +1292,62 @@ const styles = StyleSheet.create({
     color: BRAND.textPrimary,
   },
   percentage: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 10,
   },
   grade: {
     fontSize: 14,
-    fontWeight: '600',
-    backgroundColor: BRAND.successColor + '20',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContainer: {
-    backgroundColor: BRAND.cardBackground,
-    borderRadius: 20,
-    padding: 30,
-    width: width * 0.85,
-    maxWidth: 400,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
-  },
-  modalTitle: {
-    fontSize: 20,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
-    marginBottom: 15,
-    textAlign: 'center',
+    marginLeft: 5,
   },
-  modalText: {
-    fontSize: 16,
-    color: BRAND.textSecondary,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 25,
-  },
-  modalButtons: {
+  actionButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
-    gap: 15,
+    gap: 10,
   },
-  modalButton: {
+  downloadButton: {
     flex: 1,
-    backgroundColor: BRAND.primaryColor,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    borderRadius: 10,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: BRAND.primaryColor,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 8,
   },
-  modalButtonSecondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: BRAND.secondaryColor,
-  },
-  modalButtonTextSecondary: {
-    color: BRAND.textSecondary,
-  },
-  
-  // Add this missing style:
   answerButton: {
-    backgroundColor: BRAND.successColor + '20',
-    borderColor: BRAND.successColor,
+    backgroundColor: BRAND.warningColor,
+  },
+  downloadButtonDisabled: {
+    opacity: 0.6,
+  },
+  downloadButtonText: {
+    color: BRAND.textPrimary,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 5,
+  },
+  separator: {
+    height: 15,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: BRAND.textSecondary,
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  emptyStateSubtitle: {
+    fontSize: 14,
+    color: BRAND.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });
 

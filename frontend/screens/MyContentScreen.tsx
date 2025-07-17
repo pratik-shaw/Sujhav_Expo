@@ -23,7 +23,6 @@ import { Feather, FontAwesome5, Ionicons, MaterialIcons } from '@expo/vector-ico
 
 import { API_BASE_URL, API_TIMEOUT } from '../config/api';
 import BottomNavigation from '../components/BottomNavigation';
-import SignupLoginBanner from '../components/SignupLoginBanner';
 
 interface MyContentScreenProps {
   navigation: NavigationProp<any>;
@@ -731,14 +730,6 @@ const MyContentScreen: React.FC<MyContentScreenProps> = ({ navigation }) => {
           renderUnauthenticatedContent()
         )}
       </View>
-
-      {/* Signup/Login Banner */}
-      {showBanner && !isLoggedIn && (
-        <SignupLoginBanner 
-          navigation={navigation}
-          onClose={handleBannerClose}
-        />
-      )}
 
       {/* Bottom Navigation */}
       <BottomNavigation navigation={navigation} activeTab="content" />
