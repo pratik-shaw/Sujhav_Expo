@@ -33,6 +33,8 @@ import TeacherTestListScreen from './screens/TeacherTestListScreen';
 import TeacherHandleReportsScreen from './screens/TeacherHandleReportsScreen';
 import UserReportsScreen from './screens/UserReportsScreen';
 import PaymentScreen from './screens/PaymentScreen';
+import NotesPaymentScreen from './screens/NotesPaymentScreen';
+import NotesViewerScreen from './screens/NotesViewerScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -89,6 +91,18 @@ export type RootStackParamList = {
     coursePrice: number; 
     courseType: 'paid' | 'unpaid'; 
     enrollmentId?: string; 
+  };
+  NotesPaymentScreen: { 
+    notesId: string; 
+    notesName: string; 
+    notesPrice: number; 
+    notesType: 'paid' | 'unpaid'; 
+  };
+  NotesViewerScreen: { 
+    notesId: string; 
+    notesName: string; 
+    notesType: 'paid' | 'unpaid'; 
+    fromScreen?: string; 
   };
 
   
@@ -224,7 +238,10 @@ export default function App() {
 
         {/* Payment Screen */}
         <Stack.Screen name="PaymentScreen" component={PaymentScreen} options={{ gestureEnabled: true, animation: 'slide_from_bottom', presentation: 'card' }} />
+        <Stack.Screen name="NotesPaymentScreen" component={NotesPaymentScreen} options={{ gestureEnabled: true, animation: 'slide_from_bottom', presentation: 'card' }} />
+        <Stack.Screen name="NotesViewerScreen" component={NotesViewerScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         
+
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -14,10 +14,6 @@ const {
   deletePDFFromNotes,
   getNotesByCategory,
   incrementViewCount,
-  purchaseNotes,
-  verifyPayment,
-  getStudentPurchasedNotes,
-  checkNotesAccess,
   thumbnailUpload,
   pdfUpload
 } = require('../controllers/paidNotesController');
@@ -54,15 +50,11 @@ router.get('/:id', getNotesById);
 
 // File serving routes
 router.get('/:id/thumbnail', getThumbnail);
-router.get('/:id/pdfs/:pdfId', getPDF); // This route includes access control
+// PDF access route - authentication optional for free notes, required for paid notes
+// Access control is handled inside the getPDF controller function
+router.get('/:id/pdfs/:pdfId', authenticateUser, getPDF);
 
 // User interaction routes
 router.post('/:id/view', incrementViewCount);
-
-// Purchase-related routes (require authentication)
-router.post('/purchase', authenticateUser, purchaseNotes);
-router.post('/verify-payment', authenticateUser, verifyPayment);
-router.get('/my-purchases', authenticateUser, getStudentPurchasedNotes);
-router.get('/access/:notesId', authenticateUser, checkNotesAccess);
 
 module.exports = router;
