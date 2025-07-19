@@ -17,8 +17,9 @@ import {
 } from 'react-native';
 import { NavigationProp, RouteProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WebView } from 'react-native-webview'; // EXPO COMPATIBLE: Use WebView for Razorpay
+import * as Linking from 'expo-linking'; // EXPO COMPATIBLE: For handling deep links
 import { API_BASE } from '../config/api';
-import CryptoJS from 'crypto-js';
 
 // Interface for Razorpay payment response
 interface PaymentResponse {
@@ -73,78 +74,6 @@ const BRAND = {
   warningColor: '#ffaa00',
 };
 
-// FIXED: Mock payment utilities that generate signatures matching your backend
-const MockPaymentUtils = {
-  // FIXED: Use your actual Razorpay secret for production-style signatures
-  ACTUAL_RAZORPAY_SECRET: 'X10ziZ7kqTa2oBXF29IuHMV1',
-  
-  // Mock secret that matches backend's mock secret for mock signature patterns
-  MOCK_RAZORPAY_SECRET: 'mock_secret_for_development',
-
-  // Generate mock payment ID that looks like real Razorpay IDs
-  generateMockPaymentId: () => {
-    // Real Razorpay payment IDs look like: pay_XXXXXXXXXXXXXXXX (14 chars after pay_)
-    const randomStr = Math.random().toString(36).substring(2, 15) + 
-                     Math.random().toString(36).substring(2, 5);
-    return `pay_${randomStr.substring(0, 14)}`;
-  },
-
-  // FIXED: Generate signature using your actual Razorpay secret (for production verification)
-  generateProductionStyleSignature: (orderId: string, paymentId: string) => {
-    const body = `${orderId}|${paymentId}`;
-    
-    // Use your actual Razorpay secret key to match backend production verification
-    const signature = CryptoJS.HmacSHA256(body, MockPaymentUtils.ACTUAL_RAZORPAY_SECRET).toString();
-    
-    console.log('Generated production-style signature:', {
-      orderId,
-      paymentId,
-      body,
-      secret: MockPaymentUtils.ACTUAL_RAZORPAY_SECRET,
-      signature: signature.substring(0, 20) + '...',
-      fullSignature: signature
-    });
-    
-    return signature;
-  },
-
-  // ALTERNATIVE: Generate mock signature using mock secret (for mock pattern validation)
-  generateMockSignature: (orderId: string, paymentId: string) => {
-    // This generates a signature that follows the mock pattern but uses different secret
-    return `mock_signature_${CryptoJS.HmacSHA256(`${orderId}|${paymentId}`, MockPaymentUtils.MOCK_RAZORPAY_SECRET).toString().substring(0, 20)}`;
-  },
-
-  // Check if we're in development environment
-  isDevelopmentEnvironment: () => {
-    return __DEV__ || process.env.NODE_ENV === 'development';
-  },
-
-  // UPDATED: Validate mock payment response
-  validateMockPaymentResponse: (response: PaymentResponse) => {
-    if (!MockPaymentUtils.isDevelopmentEnvironment()) {
-      return false;
-    }
-
-    // Check that payment ID looks like real Razorpay format
-    const paymentIdPattern = /^pay_[a-zA-Z0-9]{10,20}$/;
-    const hasValidPaymentId = paymentIdPattern.test(response.razorpay_payment_id);
-    
-    // For production-style signatures, check if it's a valid 64-character hex string
-    const signaturePattern = /^[a-f0-9]{64}$/;
-    const hasValidSignature = signaturePattern.test(response.razorpay_signature);
-
-    console.log('Mock payment validation:', {
-      paymentId: response.razorpay_payment_id,
-      signatureLength: response.razorpay_signature.length,
-      hasValidPaymentId,
-      hasValidSignature,
-      isValid: hasValidPaymentId && hasValidSignature
-    });
-
-    return hasValidPaymentId && hasValidSignature;
-  }
-};
-
 const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   const { enrollment, razorpayOrder, course, onPaymentSuccess } = route.params as PaymentData;
 
@@ -155,19 +84,216 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   const [timeLeft, setTimeLeft] = useState(900); // 15 minutes in seconds
   const [paymentMethod, setPaymentMethod] = useState<'razorpay' | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
-  const [isDevelopment, setIsDevelopment] = useState(false);
+  const [showWebView, setShowWebView] = useState(false); // EXPO: Control WebView visibility
+  const [razorpayHtml, setRazorpayHtml] = useState<string>(''); // EXPO: HTML content for WebView
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
+  // EXPO COMPATIBLE: Generate Razorpay checkout HTML
+  const generateRazorpayHtml = (options: any) => {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Razorpay Payment</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #0a1a0a 0%, #1a2e1a 100%);
+            color: #00ff88;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            text-align: center;
+            max-width: 400px;
+            padding: 30px;
+            background: rgba(26, 46, 26, 0.8);
+            border-radius: 15px;
+            border: 1px solid #00ff88;
+            backdrop-filter: blur(10px);
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #00ff88;
+        }
+        .amount {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 20px 0;
+            color: #00ff88;
+        }
+        .course-name {
+            font-size: 18px;
+            margin-bottom: 30px;
+            color: #ccc;
+        }
+        .pay-button {
+            background: #00ff88;
+            color: #0a1a0a;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            width: 100%;
+            margin: 20px 0;
+            transition: all 0.3s ease;
+        }
+        .pay-button:hover {
+            background: #00cc6a;
+            transform: translateY(-2px);
+        }
+        .pay-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+        .loading.show {
+            display: block;
+        }
+        .spinner {
+            border: 3px solid #333;
+            border-top: 3px solid #00ff88;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error {
+            color: #ff4444;
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(255, 68, 68, 0.1);
+            border-radius: 5px;
+            border: 1px solid #ff4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">${options.name}</div>
+        <div class="course-name">${options.description}</div>
+        <div class="amount">₹${(options.amount / 100).toFixed(2)}</div>
+        
+        <button id="payButton" class="pay-button" onclick="startPayment()">
+            Pay Now
+        </button>
+        
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Processing payment...</p>
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        const options = ${JSON.stringify(options)};
+        
+        function showLoading() {
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('payButton').style.display = 'none';
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').classList.remove('show');
+            document.getElementById('payButton').style.display = 'block';
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function startPayment() {
+            if (!window.Razorpay) {
+                showError('Payment gateway not loaded. Please refresh and try again.');
+                return;
+            }
+            
+            showLoading();
+            
+            const rzp = new Razorpay({
+                ...options,
+                handler: function (response) {
+                    // Payment successful
+                    const result = {
+                        success: true,
+                        razorpay_payment_id: response.razorpay_payment_id,
+                        razorpay_order_id: response.razorpay_order_id,
+                        razorpay_signature: response.razorpay_signature
+                    };
+                    
+                    // Send success message to React Native
+                    window.ReactNativeWebView?.postMessage(JSON.stringify(result));
+                },
+                modal: {
+                    ondismiss: function() {
+                        hideLoading();
+                        // Payment cancelled
+                        const result = {
+                            success: false,
+                            error: 'cancelled',
+                            message: 'Payment was cancelled by user'
+                        };
+                        window.ReactNativeWebView?.postMessage(JSON.stringify(result));
+                    }
+                }
+            });
+            
+            rzp.on('payment.failed', function (response) {
+                hideLoading();
+                // Payment failed
+                const result = {
+                    success: false,
+                    error: 'failed',
+                    message: response.error.description,
+                    code: response.error.code,
+                    razorpay_payment_id: response.error.metadata?.payment_id
+                };
+                window.ReactNativeWebView?.postMessage(JSON.stringify(result));
+            });
+            
+            rzp.open();
+        }
+        
+        // Auto-start payment when page loads (optional)
+        // window.onload = startPayment;
+    </script>
+</body>
+</html>`;
+  };
+
   // FIXED: Proper API URL construction
   const getApiUrl = (endpoint: string) => {
-    const baseUrl = API_BASE?.replace(/\/+$/, ''); // Remove trailing slashes
+    const baseUrl = API_BASE?.replace(/\/+$/, '');
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     
-    // Check if API_BASE already contains /api
     if (baseUrl.endsWith('/api')) {
       return `${baseUrl}${cleanEndpoint}`;
     } else {
@@ -204,12 +330,8 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
     for (let i = 0; i < retries; i++) {
       try {
         console.log(`Attempting request ${i + 1}/${retries} to:`, url);
-        console.log('Request options:', JSON.stringify(options, null, 2));
         
         const response = await fetchWithTimeout(url, options, 30000);
-
-        console.log('Response status:', response.status);
-        console.log('Response headers:', response.headers);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -218,14 +340,12 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         }
 
         const data = await response.json();
-        console.log('Response data:', data);
         return { response, data };
 
       } catch (error) {
         console.error(`Request attempt ${i + 1} failed:`, error);
         
         if (i === retries - 1) {
-          // Last attempt failed
           throw error;
         }
         
@@ -261,18 +381,15 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   useEffect(() => {
     startEntranceAnimation();
     getUserData();
-    setIsDevelopment(MockPaymentUtils.isDevelopmentEnvironment());
   }, []);
 
   const startEntranceAnimation = () => {
-    // Fade in animation
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 800,
       useNativeDriver: true,
     }).start();
 
-    // Pulse animation for payment button
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -301,7 +418,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         setUserData({ token, userId, userName, userEmail, userPhone });
         console.log('User data loaded:', { userId, userName, hasToken: !!token });
       } else {
-        console.error('Missing user data:', { hasToken: !!token, hasUserId: !!userId, hasUserName: !!userName });
+        console.error('Missing user data');
         Alert.alert('Error', 'User authentication data not found. Please login again.');
         navigation.navigate('Login');
       }
@@ -312,6 +429,12 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   };
 
   const handleBackPress = () => {
+    if (showWebView) {
+      setShowWebView(false);
+      setPaymentProcessing(false);
+      return true;
+    }
+    
     Alert.alert(
       'Cancel Payment',
       'Are you sure you want to cancel this payment? Your enrollment will remain pending.',
@@ -358,39 +481,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
     return { uri: `${API_BASE?.replace(/\/+$/, '')}${thumbnailPath}` };
   };
 
-  // FIXED: Simple network connectivity check using a reliable endpoint
-  const checkNetworkConnectivity = async () => {
-    try {
-      // Use a simple GET request to your existing API endpoint
-      const testUrl = getApiUrl('/enrollment/my-enrollments');
-      const response = await fetchWithTimeout(testUrl, { 
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${userData?.token}`,
-          'Content-Type': 'application/json',
-        }
-      }, 10000);
-      
-      // Even if we get a 401 or other error, it means the network is working
-      return true;
-    } catch (error) {
-      console.error('Network connectivity check failed:', error);
-      
-      if (error instanceof Error) {
-        if (
-          error.message.includes('Network request failed') ||
-          error.message.includes('timeout') ||
-          error.message.includes('fetch')
-        ) {
-          return false;
-        }
-      }
-
-      return true; // If it's not a network error, assume network is fine
-    }
-  };
-
-  // UPDATED: Enhanced Razorpay initialization with proper signature generation
+  // EXPO COMPATIBLE: Initialize Razorpay via WebView
   const initializeRazorpay = async () => {
     try {
       if (!userData || !userData.token) {
@@ -402,19 +493,17 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       setPaymentProcessing(true);
       setNetworkError(null);
 
-      console.log('Initializing Razorpay payment...');
-      console.log('Development mode:', isDevelopment);
-      console.log('API_BASE:', API_BASE);
+      console.log('Initializing Razorpay payment via WebView...');
       console.log('Enrollment ID:', enrollment._id);
       console.log('Razorpay Order ID:', razorpayOrder.id);
       
-      // Simulate Razorpay initialization
+      // EXPO: Create Razorpay options
       const options = {
         description: course.courseTitle,
         image: getImageSource(course.courseThumbnail).uri,
         currency: razorpayOrder.currency,
-        key: 'rzp_test_za8EBHBiDeO6E4', // Your actual Razorpay key
-        amount: razorpayOrder.amount,
+        key: 'rzp_test_za8EBHBiDeO6E4', // Your Razorpay test key
+        amount: razorpayOrder.amount, // Amount in paise
         order_id: razorpayOrder.id,
         name: BRAND.name,
         prefill: {
@@ -427,59 +516,12 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         }
       };
 
-      console.log('Razorpay options:', options);
+      console.log('Opening Razorpay checkout via WebView...');
 
-      // FIXED: Generate production-style mock payment response that matches backend
-      if (isDevelopment) {
-        console.log('🧪 Development mode: Generating production-style mock payment response...');
-        console.log('Using Razorpay secret:', MockPaymentUtils.ACTUAL_RAZORPAY_SECRET);
-        
-        setTimeout(() => {
-          const mockPaymentId = MockPaymentUtils.generateMockPaymentId();
-          
-          // FIXED: Generate signature using your actual Razorpay secret
-          const mockSignature = MockPaymentUtils.generateProductionStyleSignature(
-            razorpayOrder.id, 
-            mockPaymentId
-          );
-          
-          const mockPaymentResponse: PaymentResponse = {
-            razorpay_payment_id: mockPaymentId,
-            razorpay_order_id: razorpayOrder.id,
-            razorpay_signature: mockSignature
-          };
-          
-          console.log('✅ Production-style mock payment response generated:', {
-            paymentId: mockPaymentResponse.razorpay_payment_id,
-            orderId: mockPaymentResponse.razorpay_order_id,
-            signatureLength: mockPaymentResponse.razorpay_signature.length,
-            signature: mockPaymentResponse.razorpay_signature.substring(0, 20) + '...'
-          });
-
-          // Validate the mock response before proceeding
-          const isValid = MockPaymentUtils.validateMockPaymentResponse(mockPaymentResponse);
-          
-          if (isValid) {
-            console.log('✅ Production-style mock payment response validation passed');
-            handlePaymentSuccess(mockPaymentResponse);
-          } else {
-            console.error('❌ Production-style mock payment response validation failed');
-            handlePaymentFailure(new Error('Invalid production-style mock payment response generated'));
-          }
-        }, 3000);
-      } else {
-        // Production Razorpay integration would go here
-        console.log('🏭 Production mode: Would initialize actual Razorpay...');
-        
-        // For now, show an alert that this is production mode
-        Alert.alert(
-          'Production Mode',
-          'This would initialize the actual Razorpay payment gateway in production.',
-          [
-            { text: 'OK', onPress: () => setPaymentProcessing(false) }
-          ]
-        );
-      }
+      // Generate HTML content for WebView
+      const html = generateRazorpayHtml(options);
+      setRazorpayHtml(html);
+      setShowWebView(true);
 
     } catch (error) {
       console.error('Razorpay initialization error:', error);
@@ -498,7 +540,57 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
     }
   };
 
-  // UPDATED: Enhanced payment success handler
+  // EXPO: Handle WebView messages
+  const handleWebViewMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      console.log('WebView message received:', data);
+
+      setShowWebView(false);
+
+      if (data.success) {
+        // Payment successful
+        const paymentResponse: PaymentResponse = {
+          razorpay_order_id: data.razorpay_order_id,
+          razorpay_payment_id: data.razorpay_payment_id,
+          razorpay_signature: data.razorpay_signature,
+        };
+        handlePaymentSuccess(paymentResponse);
+      } else {
+        // Payment failed or cancelled
+        setPaymentProcessing(false);
+        
+        if (data.error === 'cancelled') {
+          Alert.alert(
+            'Payment Cancelled',
+            'You cancelled the payment. Your enrollment is still pending.',
+            [
+              { text: 'Try Again', onPress: () => initializeRazorpay() },
+              { text: 'Cancel', style: 'cancel' }
+            ]
+          );
+        } else if (data.error === 'failed') {
+          Alert.alert(
+            'Payment Failed',
+            data.message || 'Payment failed. Please try again.',
+            [
+              { text: 'Try Again', onPress: () => initializeRazorpay() },
+              { text: 'Cancel', style: 'cancel' }
+            ]
+          );
+        } else {
+          handlePaymentFailure(new Error(data.message || 'Payment failed'));
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing WebView message:', error);
+      setShowWebView(false);
+      setPaymentProcessing(false);
+      handlePaymentFailure(new Error('Payment processing failed'));
+    }
+  };
+
+  // Handle real payment success
   const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
     try {
       if (!userData || !userData.token) {
@@ -509,21 +601,9 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       console.log('Payment response:', {
         paymentId: paymentResponse.razorpay_payment_id,
         orderId: paymentResponse.razorpay_order_id,
-        signatureLength: paymentResponse.razorpay_signature.length,
-        signature: paymentResponse.razorpay_signature.substring(0, 20) + '...'
+        signature: paymentResponse.razorpay_signature ? 'Present' : 'Missing'
       });
 
-      // UPDATED: Validate production-style mock payment response
-      if (isDevelopment) {
-        const isValidMockResponse = MockPaymentUtils.validateMockPaymentResponse(paymentResponse);
-        
-        if (!isValidMockResponse) {
-          throw new Error('Invalid production-style mock payment response format');
-        }
-        
-        console.log('✅ Production-style mock payment response validation passed');
-      }
-      
       // Verify payment with backend
       const verificationPayload = {
         enrollmentId: enrollment._id,
@@ -532,18 +612,9 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         razorpay_signature: paymentResponse.razorpay_signature,
       };
 
-      console.log('Verification payload:', {
-        enrollmentId: verificationPayload.enrollmentId,
-        razorpay_order_id: verificationPayload.razorpay_order_id,
-        razorpay_payment_id: verificationPayload.razorpay_payment_id,
-        signatureLength: verificationPayload.razorpay_signature.length,
-        signature: verificationPayload.razorpay_signature.substring(0, 20) + '...'
-      });
-
-      // FIXED: Use the proper API URL construction
+      console.log('Sending verification request...');
       const verificationUrl = getApiUrl('/enrollment/verify-payment');
-      console.log('Verification URL:', verificationUrl);
-
+      
       const result = await makeNetworkRequest(verificationUrl, {
         method: 'POST',
         headers: {
@@ -565,13 +636,9 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         }).start();
 
         setTimeout(() => {
-          const successMessage = isDevelopment 
-            ? 'Payment verified successfully! (Development Mode)\nYou are now enrolled in the course.'
-            : 'Payment verified successfully!\nYou are now enrolled in the course.';
-            
           Alert.alert(
             'Payment Successful! 🎉',
-            successMessage,
+            'Payment verified successfully!\nYou are now enrolled in the course.',
             [
               {
                 text: 'Start Learning',
@@ -598,13 +665,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       let displayMessage = 'Payment verification failed.';
       let actions: AlertButton[] = [{ text: 'OK', style: 'cancel' }];
       
-      if (errorMessage.includes('Invalid production-style mock payment response')) {
-        displayMessage = 'Mock payment format error. This is a development issue.';
-        actions = [
-          { text: 'Retry', onPress: () => initializeRazorpay() },
-          { text: 'Cancel', style: 'cancel' }
-        ];
-      } else if (errorMessage.includes('Network request failed') || 
+      if (errorMessage.includes('Network request failed') || 
           errorMessage.includes('timeout') || 
           errorMessage.includes('fetch')) {
         displayMessage = 'Network connection error. Please check your internet connection and try again.';
@@ -617,18 +678,6 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         displayMessage = 'Session expired. Please login again.';
         actions = [
           { text: 'Login', onPress: () => navigation.navigate('Login') },
-          { text: 'Cancel', style: 'cancel' }
-        ];
-      } else if (errorMessage.includes('500')) {
-        displayMessage = 'Server error. Please try again later or contact support.';
-        actions = [
-          { text: 'Retry', onPress: () => handlePaymentSuccess(paymentResponse) },
-          { text: 'Cancel', style: 'cancel' }
-        ];
-      } else if (errorMessage.includes('Payment verification failed')) {
-        displayMessage = 'Payment verification failed. This may be a temporary issue. Please try again.';
-        actions = [
-          { text: 'Retry', onPress: () => handlePaymentSuccess(paymentResponse) },
           { text: 'Cancel', style: 'cancel' }
         ];
       }
@@ -699,6 +748,55 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       </View>
     );
   };
+
+  // EXPO: WebView Payment Screen
+  if (showWebView) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
+        
+        {/* WebView Header */}
+        <View style={styles.webViewHeader}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => {
+              setShowWebView(false);
+              setPaymentProcessing(false);
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.backButtonText}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Complete Payment</Text>
+          <View style={styles.timerContainer}>
+            <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
+          </View>
+        </View>
+
+        <WebView
+          source={{ html: razorpayHtml }}
+          style={styles.webView}
+          onMessage={handleWebViewMessage}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+          renderLoading={() => (
+            <View style={styles.webViewLoading}>
+              <ActivityIndicator size="large" color={BRAND.primaryColor} />
+              <Text style={styles.webViewLoadingText}>Loading payment gateway...</Text>
+            </View>
+          )}
+          onError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            console.error('WebView error:', nativeEvent);
+            setShowWebView(false);
+            setPaymentProcessing(false);
+            Alert.alert('Error', 'Failed to load payment gateway. Please try again.');
+          }}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -773,65 +871,68 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
             )}
           </View>
 
-          {/* Debug Information (Development Only) */}
-          {__DEV__ && (
-            <View style={styles.debugCard}>
-              <Text style={styles.debugTitle}>Debug Info</Text>
-              <Text style={styles.debugText}>API Base: {API_BASE}</Text>
-              <Text style={styles.debugText}>Verification URL: {getApiUrl('/enrollment/verify-payment')}</Text>
-              <Text style={styles.debugText}>Enrollment ID: {enrollment._id}</Text>
-              <Text style={styles.debugText}>Order ID: {razorpayOrder.id}</Text>
-              <Text style={styles.debugText}>User Token: {userData?.token ? 'Present' : 'Missing'}</Text>
-              <Text style={styles.debugText}>Mock Secret: {MockPaymentUtils.MOCK_RAZORPAY_SECRET}</Text>
-            </View>
-          )}
-
           {/* Security Notice */}
           <View style={styles.securityCard}>
             <Text style={styles.securityTitle}>🔒 Secure Payment</Text>
             <Text style={styles.securityText}>
-              Your payment information is encrypted and secure. We never store your card details.
+Your payment information is encrypted and secure. We never store your card details on our servers.
             </Text>
           </View>
-        </ScrollView>
 
-        {/* Payment Button */}
-        <View style={styles.paymentButtonContainer}>
+          {/* Payment Button */}
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
             <TouchableOpacity
               style={[
-                styles.paymentButton,
-                (!paymentMethod || paymentProcessing) && styles.paymentButtonDisabled
+                styles.payButton,
+                (!paymentMethod || paymentProcessing || timeLeft <= 0) && styles.payButtonDisabled
               ]}
               onPress={initializeRazorpay}
-              disabled={!paymentMethod || paymentProcessing}
-              activeOpacity={0.7}
+              disabled={!paymentMethod || paymentProcessing || timeLeft <= 0}
+              activeOpacity={0.8}
             >
               {paymentProcessing ? (
-                <View style={styles.paymentButtonContent}>
-                  <ActivityIndicator color={BRAND.backgroundColor} size="small" />
-                  <Text style={styles.paymentButtonText}>Processing...</Text>
+                <View style={styles.payButtonLoading}>
+                  <ActivityIndicator size="small" color={BRAND.backgroundColor} />
+                  <Text style={styles.payButtonText}>Processing...</Text>
                 </View>
               ) : (
-                <Text style={styles.paymentButtonText}>
+                <Text style={styles.payButtonText}>
                   Pay ₹{Math.round(course.price * 1.18)}
                 </Text>
               )}
             </TouchableOpacity>
           </Animated.View>
-        </View>
-      </Animated.View>
 
-      {/* Processing Overlay */}
-      {paymentProcessing && (
-        <View style={styles.processingOverlay}>
-          <View style={styles.processingContent}>
-            <ActivityIndicator size="large" color={BRAND.primaryColor} />
-            <Text style={styles.processingText}>Processing Payment...</Text>
-            <Text style={styles.processingSubtext}>Please don't close this screen</Text>
+          {/* Terms and Conditions */}
+          <View style={styles.termsContainer}>
+            <Text style={styles.termsText}>
+              By proceeding with this payment, you agree to our{' '}
+              <Text style={styles.termsLink}>Terms of Service</Text> and{' '}
+              <Text style={styles.termsLink}>Refund Policy</Text>.
+            </Text>
           </View>
-        </View>
-      )}
+
+          {/* Progress Indicator */}
+          {paymentProcessing && (
+            <Animated.View style={[styles.progressContainer, { opacity: progressAnim }]}>
+              <View style={styles.progressBar}>
+                <Animated.View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: progressAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0%', '100%'],
+                      }),
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.progressText}>Verifying payment...</Text>
+            </Animated.View>
+          )}
+        </ScrollView>
+      </Animated.View>
     </SafeAreaView>
   );
 };
@@ -844,38 +945,43 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.accentColor,
   },
   backButton: {
-    padding: 10,
-    marginRight: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: BRAND.accentColor,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   backButtonText: {
-    color: BRAND.primaryColor,
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  headerTitle: {
-    flex: 1,
     color: BRAND.primaryColor,
     fontSize: 20,
     fontWeight: 'bold',
   },
+  headerTitle: {
+    color: BRAND.primaryColor,
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 10,
+  },
   timerContainer: {
-    backgroundColor: BRAND.accentColor,
+    backgroundColor: BRAND.errorColor,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 15,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor,
   },
   timerText: {
-    color: BRAND.primaryColor,
+    color: 'white',
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
   content: {
     flex: 1,
@@ -886,43 +992,42 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     padding: 20,
     marginBottom: 20,
-    flexDirection: 'row',
     borderWidth: 1,
     borderColor: BRAND.primaryColor + '30',
   },
   courseImage: {
-    width: 80,
-    height: 80,
+    width: '100%',
+    height: 180,
     borderRadius: 10,
-    marginRight: 15,
+    marginBottom: 15,
   },
   courseInfo: {
-    flex: 1,
+    alignItems: 'center',
   },
   courseTitle: {
     color: BRAND.primaryColor,
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 5,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
   },
   courseTutor: {
-    color: '#aaa',
-    fontSize: 14,
-    marginBottom: 10,
+    color: '#ccc',
+    fontSize: 16,
+    marginBottom: 15,
   },
   priceContainer: {
-    flexDirection: 'row',
     alignItems: 'center',
   },
   priceText: {
     color: BRAND.primaryColor,
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: 'bold',
-    marginRight: 10,
   },
   priceLabel: {
     color: '#aaa',
-    fontSize: 12,
+    fontSize: 14,
+    marginTop: 4,
   },
   summaryCard: {
     backgroundColor: BRAND.accentColor,
@@ -935,36 +1040,37 @@ const styles = StyleSheet.create({
   summaryTitle: {
     color: BRAND.primaryColor,
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     marginBottom: 15,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    alignItems: 'center',
+    paddingVertical: 8,
   },
   summaryLabel: {
     color: '#ccc',
-    fontSize: 14,
+    fontSize: 16,
   },
   summaryValue: {
-    color: '#fff',
-    fontSize: 14,
+    color: 'white',
+    fontSize: 16,
   },
   summaryTotal: {
     borderTopWidth: 1,
     borderTopColor: BRAND.primaryColor + '30',
-    paddingTop: 15,
     marginTop: 10,
+    paddingTop: 15,
   },
   summaryTotalLabel: {
     color: BRAND.primaryColor,
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
   },
   summaryTotalValue: {
     color: BRAND.primaryColor,
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
   },
   paymentMethodsCard: {
@@ -978,49 +1084,50 @@ const styles = StyleSheet.create({
   paymentMethodsTitle: {
     color: BRAND.primaryColor,
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     marginBottom: 15,
   },
   paymentMethodCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 15,
-    borderRadius: 10,
+    backgroundColor: BRAND.backgroundColor,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#333',
-    marginBottom: 10,
   },
   paymentMethodCardSelected: {
     borderColor: BRAND.primaryColor,
     backgroundColor: BRAND.primaryColor + '10',
   },
   paymentMethodIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: BRAND.primaryColor + '20',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: BRAND.accentColor,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 15,
   },
   paymentMethodIconText: {
-    fontSize: 20,
+    fontSize: 24,
   },
   paymentMethodInfo: {
     flex: 1,
   },
   paymentMethodTitle: {
-    color: '#fff',
+    color: 'white',
     fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 5,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   paymentMethodDescription: {
     color: '#aaa',
     fontSize: 12,
   },
   paymentMethodRadio: {
-    marginLeft: 10,
+    padding: 4,
   },
   radioButton: {
     width: 20,
@@ -1041,9 +1148,9 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.primaryColor,
   },
   securityCard: {
-    backgroundColor: BRAND.accentColor,
-    borderRadius: 15,
-    padding: 20,
+    backgroundColor: BRAND.primaryColor + '15',
+    borderRadius: 10,
+    padding: 15,
     marginBottom: 20,
     borderWidth: 1,
     borderColor: BRAND.primaryColor + '30',
@@ -1051,73 +1158,75 @@ const styles = StyleSheet.create({
   securityTitle: {
     color: BRAND.primaryColor,
     fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    fontWeight: '600',
+    marginBottom: 8,
   },
   securityText: {
-    color: '#aaa',
+    color: '#ccc',
     fontSize: 14,
     lineHeight: 20,
   },
-  paymentButtonContainer: {
-    padding: 20,
-    paddingBottom: 30,
-  },
-  paymentButton: {
+  payButton: {
     backgroundColor: BRAND.primaryColor,
+    borderRadius: 12,
     paddingVertical: 18,
-    borderRadius: 15,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    elevation: 5,
     shadowColor: BRAND.primaryColor,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 8,
   },
-  paymentButtonDisabled: {
+  payButtonDisabled: {
     backgroundColor: '#666',
-    shadowOpacity: 0,
     elevation: 0,
+    shadowOpacity: 0,
   },
-  paymentButtonContent: {
+  payButtonLoading: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  paymentButtonText: {
+  payButtonText: {
     color: BRAND.backgroundColor,
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: 10,
   },
-  processingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    alignItems: 'center',
-    justifyContent: 'center',
+  termsContainer: {
+    marginBottom: 30,
   },
-  processingContent: {
-    backgroundColor: BRAND.accentColor,
-    padding: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor,
+  termsText: {
+    color: '#aaa',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
   },
-  processingText: {
+  termsLink: {
     color: BRAND.primaryColor,
-    fontSize: 18,
-    fontWeight: 'bold',
+    textDecorationLine: 'underline',
+  },
+  progressContainer: {
+    alignItems: 'center',
     marginTop: 20,
   },
-  processingSubtext: {
-    color: '#aaa',
+  progressBar: {
+    width: width - 80,
+    height: 4,
+    backgroundColor: '#333',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: BRAND.primaryColor,
+  },
+  progressText: {
+    color: BRAND.primaryColor,
     fontSize: 14,
-    marginTop: 10,
-    textAlign: 'center',
+    fontWeight: '500',
   },
   errorContainer: {
     backgroundColor: BRAND.errorColor + '20',
@@ -1130,50 +1239,56 @@ const styles = StyleSheet.create({
   errorTitle: {
     color: BRAND.errorColor,
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     marginBottom: 8,
   },
   errorText: {
-    color: BRAND.errorColor,
+    color: '#ff9999',
     fontSize: 14,
     lineHeight: 20,
-    marginBottom: 15,
+    marginBottom: 10,
   },
   retryButton: {
     backgroundColor: BRAND.errorColor,
+    borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 8,
     alignSelf: 'flex-start',
   },
   retryButtonText: {
-    color: '#fff',
+    color: 'white',
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
-
-  // Missing styles for debug information (development only)
-  debugCard: {
-    backgroundColor: BRAND.accentColor,
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: BRAND.warningColor + '50',
+  webViewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: BRAND.backgroundColor,
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.accentColor,
   },
-  debugTitle: {
-    color: BRAND.warningColor,
+  webView: {
+    flex: 1,
+    backgroundColor: BRAND.backgroundColor,
+  },
+  webViewLoading: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: BRAND.backgroundColor,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  webViewLoadingText: {
+    color: BRAND.primaryColor,
     fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    marginTop: 15,
   },
-  debugText: {
-    color: '#aaa',
-    fontSize: 12,
-    marginBottom: 5,
-    fontFamily: 'monospace',
-  },
-
 });
 
 export default PaymentScreen;
