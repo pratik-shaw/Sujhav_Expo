@@ -35,6 +35,7 @@ import UserReportsScreen from './screens/UserReportsScreen';
 import PaymentScreen from './screens/PaymentScreen';
 import NotesPaymentScreen from './screens/NotesPaymentScreen';
 import NotesViewerScreen from './screens/NotesViewerScreen';
+import UpcomingTestsScreen from './screens/UpcomingTestsScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -104,6 +105,7 @@ export type RootStackParamList = {
     notesType: 'paid' | 'unpaid'; 
     fromScreen?: string; 
   };
+  UpcomingTests: undefined; // Add this line
 
   
 };
@@ -226,6 +228,7 @@ export default function App() {
         <Stack.Screen name="OfflineCenterScreen" component={OfflineCenterScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
         <Stack.Screen name="AdminCreateBatchesScreen" component={AdminCreateBatchesScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="UserReportsScreen" component={UserReportsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
+        <Stack.Screen name="UpcomingTests" component={UpcomingTestsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
 
         
 
