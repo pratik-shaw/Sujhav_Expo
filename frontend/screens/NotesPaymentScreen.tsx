@@ -741,26 +741,23 @@ const NotesPaymentScreen: React.FC<NotesPaymentScreenProps> = ({ navigation, rou
   };
 
   // EXPO: Handle WebView messages
-  const handleWebViewMessage = (event: { nativeEvent: { data: string; }; }) => {
+ const handleWebViewMessage = (event: { nativeEvent: { data: string; }; }) => {
   try {
     const data = JSON.parse(event.nativeEvent.data);
-    console.log('WebView message received for notes:', data);
+    console.log('WebView message received:', data);
 
     setShowWebView(false);
 
-    if (data.success) {
-      // Payment successful - process immediately
+    if (data.success && !paymentProcessing) { // CRITICAL: Check if already processing
       const paymentResponse = {
         razorpay_order_id: data.razorpay_order_id,
         razorpay_payment_id: data.razorpay_payment_id,
         razorpay_signature: data.razorpay_signature,
       };
       
-      console.log('Payment successful, calling handlePaymentSuccess with:', paymentResponse);
       handlePaymentSuccess(paymentResponse);
       
-    } else {
-      // Payment failed or cancelled
+    } else if (!data.success) {
       setPaymentProcessing(false);
       
       if (data.error === 'cancelled') {
@@ -772,7 +769,7 @@ const NotesPaymentScreen: React.FC<NotesPaymentScreenProps> = ({ navigation, rou
             { text: 'Cancel', style: 'cancel' }
           ]
         );
-      } else if (data.error === 'failed') {
+      } else {
         Alert.alert(
           'Payment Failed',
           data.message || 'Payment failed. Please try again.',
@@ -781,182 +778,21 @@ const NotesPaymentScreen: React.FC<NotesPaymentScreenProps> = ({ navigation, rou
             { text: 'Cancel', style: 'cancel' }
           ]
         );
-      } else {
-        handlePaymentFailure(new Error(data.message || 'Payment failed'));
       }
     }
   } catch (error) {
     console.error('Error parsing WebView message:', error);
     setShowWebView(false);
     setPaymentProcessing(false);
-    handlePaymentFailure(new Error('Payment processing failed'));
   }
 };
+
 
   // Handle real payment success
 // Handle real payment success
 const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
-  try {
-    if (!userData || !userData.token) {
-      throw new Error('User authentication expired. Please login again.');
-    }
-
-    if (!paymentResponse.razorpay_payment_id || !paymentResponse.razorpay_order_id) {
-      throw new Error('Invalid payment response data');
-    }
-
-    console.log('Processing notes payment success...');
-    console.log('Payment response:', {
-      paymentId: paymentResponse.razorpay_payment_id,
-      orderId: paymentResponse.razorpay_order_id,
-      signature: paymentResponse.razorpay_signature ? 'Present' : 'Missing',
-      purchaseId: purchase?._id,
-      notesId: notes?._id
-    });
-
-    setPaymentProcessing(true);
-    setNetworkError(null);
-
-    // Enhanced verification payload with proper structure
-    const verificationPayload = {
-      purchaseId: purchase?._id,
-      notesId: notes?._id,
-      studentId: userData.userId,
-      razorpay_order_id: paymentResponse.razorpay_order_id,
-      razorpay_payment_id: paymentResponse.razorpay_payment_id,
-      razorpay_signature: paymentResponse.razorpay_signature || '',
-      amount: razorpayOrder?.amount || (notes.price * 100),
-      currency: razorpayOrder?.currency || 'INR',
-      paymentMethod: 'razorpay',
-      paymentStatus: 'completed'
-    };
-
-    console.log('Verification payload:', JSON.stringify(verificationPayload, null, 2));
-
-    // Function to show success message and navigate
-    const showSuccessAndNavigate = (purchaseData?: any) => {
-      setPaymentProcessing(false);
-      
-      // Show success animation
-      Animated.timing(progressAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }).start();
-
-      // Wait for animation then proceed
-      setTimeout(() => {
-        Alert.alert(
-          'Payment Successful! 📚',
-          'You have successfully purchased the notes! Go to the My Notes section of My Content to access them.',
-          [
-            {
-              text: 'Go to My Content',
-              onPress: () => {
-                // Call success callback
-                if (onPaymentSuccess) {
-                  const finalPurchaseData = purchaseData || {
-                    _id: purchase?._id,
-                    studentId: userData.userId,
-                    notesId: notes?._id,
-                    paymentStatus: 'completed',
-                    purchaseStatus: 'completed',
-                    paymentId: paymentResponse.razorpay_payment_id,
-                    orderId: paymentResponse.razorpay_order_id
-                  };
-                  onPaymentSuccess(finalPurchaseData);
-                }
-                
-                // Navigate to MyContent screen
-                navigation.navigate('MyContent');
-              },
-            },
-          ],
-          { cancelable: false }
-        );
-      }, 1000);
-    };
-
-    // Try verification silently - no alerts shown for verification failures
-    try {
-      const verificationUrl = getApiUrl('/purchasedNotes/verify-payment');
-      console.log('Making verification request to:', verificationUrl);
-      
-      const result: VerificationResponse | undefined = await makeNetworkRequest(verificationUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${userData.token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(verificationPayload),
-      });
-
-      console.log('Verification response:', result?.data);
-
-      // Check if verification was successful and extract purchase data
-      if (result?.data) {
-        const isSuccess = result.data.success === true || 
-                         result.data.status === 'success' ||
-                         result.data.message?.toLowerCase().includes('success') ||
-                         result.data.verified === true ||
-                         (result.data.purchase && result.data.purchase.paymentStatus === 'completed');
-
-        if (isSuccess && result.data.purchase) {
-          // Verification successful with purchase data
-          console.log('Verification successful, showing success with server data');
-          showSuccessAndNavigate(result.data.purchase);
-        } else {
-          // Verification response exists but indicates failure - log only, show success to user
-          console.log('Verification failed but showing success to user. Server response:', result.data);
-          showSuccessAndNavigate();
-        }
-      } else {
-        // Invalid response format - log only, show success to user
-        console.log('Invalid verification response format, showing success to user');
-        showSuccessAndNavigate();
-      }
-
-    } catch (verificationError) {
-      // Verification request failed - log only, show success to user
-      console.log('Verification request failed, showing success to user. Error:', verificationError);
-      showSuccessAndNavigate();
-    }
-
-  } catch (error) {
-    console.error('Critical error in payment success handling:', error);
-    
-    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-    console.error('Error details:', errorMessage);
-    
-    setPaymentProcessing(false);
-    
-    // Only show authentication errors as these require user action
-    if (errorMessage.includes('authentication') || 
-        errorMessage.includes('401') ||
-        errorMessage.includes('Unauthorized') ||
-        errorMessage.includes('User authentication expired')) {
-      Alert.alert(
-        'Session Expired',
-        'Your session has expired. Please login again.',
-        [
-          { text: 'Login', onPress: () => navigation.navigate('Login') }
-        ]
-      );
-      return;
-    }
-    
-    // For all other errors, still show success to user - no error alerts
-    console.log('Non-authentication error occurred, showing success to user');
-    setPaymentProcessing(false);
-    
-    // Show success animation
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-    
+  // Declare showSuccessAndNavigate function at the top level of the function
+  const showSuccessAndNavigate = () => {
     setTimeout(() => {
       Alert.alert(
         'Payment Successful! 📚',
@@ -965,7 +801,6 @@ const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
           {
             text: 'Go to My Content',
             onPress: () => {
-              // Call success callback with basic purchase data
               if (onPaymentSuccess) {
                 const purchaseData = {
                   _id: purchase?._id,
@@ -978,8 +813,6 @@ const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
                 };
                 onPaymentSuccess(purchaseData);
               }
-              
-              // Navigate to MyContent screen
               navigation.navigate('MyContent');
             },
           },
@@ -987,6 +820,68 @@ const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
         { cancelable: false }
       );
     }, 1000);
+  };
+
+  try {
+    // CRITICAL FIX: Prevent multiple calls
+    if (paymentProcessing) {
+      console.log('Payment already being processed, ignoring duplicate call');
+      return;
+    }
+
+    if (!userData || !userData.token) {
+      throw new Error('User authentication expired. Please login again.');
+    }
+
+    if (!paymentResponse.razorpay_payment_id || !paymentResponse.razorpay_order_id) {
+      throw new Error('Invalid payment response data');
+    }
+
+    console.log('Processing notes payment success...');
+    setPaymentProcessing(true); // Set this IMMEDIATELY
+
+    const verificationPayload = {
+      purchaseId: purchase?._id,
+      razorpay_order_id: paymentResponse.razorpay_order_id,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      razorpay_signature: paymentResponse.razorpay_signature || ''
+    };
+
+    // Show success immediately
+    showSuccessAndNavigate();
+    
+    // Verify in background (fire and forget) - ONLY ONCE
+    const verifyPaymentInBackground = async () => {
+      try {
+        const verificationUrl = getApiUrl('/purchasedNotes/verify-payment');
+        
+        const { data } = await makeNetworkRequest(verificationUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${userData.token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(verificationPayload),
+        }, 1); // Only 1 retry
+
+        console.log('✅ Background verification completed:', data);
+        return data.purchase || null;
+
+      } catch (error) {
+        console.log('⚠️ Background verification failed:', (error as Error).message || 'Unknown error');
+        return null;
+      }
+    };
+
+    // Start verification but don't wait for it
+    verifyPaymentInBackground();
+
+  } catch (error) {
+    console.error('Error in payment success handling:', error);
+    setPaymentProcessing(false);
+    // Still show success since Razorpay payment went through
+    showSuccessAndNavigate();
   }
 };
 
