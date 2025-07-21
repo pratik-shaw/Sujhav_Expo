@@ -592,99 +592,130 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
 
   // Handle real payment success
   const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
-    try {
-      if (!userData || !userData.token) {
-        throw new Error('User authentication expired. Please login again.');
-      }
-
-      console.log('Processing payment success...');
-      console.log('Payment response:', {
-        paymentId: paymentResponse.razorpay_payment_id,
-        orderId: paymentResponse.razorpay_order_id,
-        signature: paymentResponse.razorpay_signature ? 'Present' : 'Missing'
-      });
-
-      // Verify payment with backend
-      const verificationPayload = {
-        enrollmentId: enrollment._id,
-        razorpay_order_id: paymentResponse.razorpay_order_id,
-        razorpay_payment_id: paymentResponse.razorpay_payment_id,
-        razorpay_signature: paymentResponse.razorpay_signature,
-      };
-
-      console.log('Sending verification request...');
-      const verificationUrl = getApiUrl('/enrollment/verify-payment');
-      
-      const result = await makeNetworkRequest(verificationUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${userData.token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(verificationPayload),
-      });
-
-      if (result && result.data && result.data.success) {
-        setPaymentProcessing(false);
-        
-        // Show success animation
-        Animated.timing(progressAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }).start();
-
-        setTimeout(() => {
-          Alert.alert(
-            'Payment Successful! 🎉',
-            'Payment verified successfully!\nYou are now enrolled in the course.',
-            [
-              {
-                text: 'Start Learning',
-                onPress: () => {
-                  navigation.navigate('CourseContent', { 
-                    courseId: course._id,
-                    enrollmentId: result.data.enrollment._id
-                  });
-                },
-              },
-            ]
-          );
-        }, 1000);
-      } else {
-        const errorMessage = result?.data?.message || 'Payment verification failed';
-        throw new Error(errorMessage);
-      }
-    } catch (error) {
-      console.error('Payment verification error:', error);
-      setPaymentProcessing(false);
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      setNetworkError(errorMessage);
-      
-      let displayMessage = 'Payment verification failed.';
-      let actions: AlertButton[] = [{ text: 'OK', style: 'cancel' }];
-      
-      if (errorMessage.includes('Network request failed') || 
-          errorMessage.includes('timeout') || 
-          errorMessage.includes('fetch')) {
-        displayMessage = 'Network connection error. Please check your internet connection and try again.';
-        actions = [
-          { text: 'Retry', onPress: () => handlePaymentSuccess(paymentResponse) },
-          { text: 'Cancel', style: 'cancel' }
-        ];
-      } else if (errorMessage.includes('authentication') || 
-                 errorMessage.includes('401')) {
-        displayMessage = 'Session expired. Please login again.';
-        actions = [
-          { text: 'Login', onPress: () => navigation.navigate('Login') },
-          { text: 'Cancel', style: 'cancel' }
-        ];
-      }
-
-      Alert.alert('Payment Verification Error', displayMessage, actions);
+  try {
+    if (!userData || !userData.token) {
+      throw new Error('User authentication expired. Please login again.');
     }
-  };
+
+    console.log('Processing payment success...');
+    console.log('Payment response:', {
+      paymentId: paymentResponse.razorpay_payment_id,
+      orderId: paymentResponse.razorpay_order_id,
+      signature: paymentResponse.razorpay_signature ? 'Present' : 'Missing'
+    });
+
+    // Verify payment with backend
+    const verificationPayload = {
+      enrollmentId: enrollment._id,
+      razorpay_order_id: paymentResponse.razorpay_order_id,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      razorpay_signature: paymentResponse.razorpay_signature,
+    };
+
+    console.log('Sending verification request...');
+    const verificationUrl = getApiUrl('/enrollment/verify-payment');
+    
+    const result = await makeNetworkRequest(verificationUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${userData.token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(verificationPayload),
+    });
+
+    if (result && result.data && result.data.success) {
+      setPaymentProcessing(false);
+      
+      // Show success animation - FIXED: useNativeDriver set to false
+      Animated.timing(progressAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: false, // This is the key fix
+      }).start();
+
+      setTimeout(() => {
+        Alert.alert(
+          'Payment Successful! 🎉',
+          'Payment verified successfully!\nYou are now enrolled in the course.',
+          [
+            {
+              text: 'Start Learning',
+              onPress: () => {
+                navigation.navigate('CourseContent', { 
+                  courseId: course._id,
+                  enrollmentId: result.data.enrollment._id
+                });
+              },
+            },
+          ]
+        );
+      }, 1000);
+    } else {
+      const errorMessage = result?.data?.message || 'Payment verification failed';
+      throw new Error(errorMessage);
+    }
+  } catch (error) {
+    console.error('Payment verification error:', error);
+    setPaymentProcessing(false);
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    setNetworkError(errorMessage);
+    
+    let displayMessage = 'Payment verification failed.';
+    let actions: AlertButton[] = [{ text: 'OK', style: 'cancel' }];
+    
+    if (errorMessage.includes('Network request failed') || 
+        errorMessage.includes('timeout') || 
+        errorMessage.includes('fetch')) {
+      displayMessage = 'Network connection error. Please check your internet connection and try again.';
+      actions = [
+        { text: 'Retry', onPress: () => handlePaymentSuccess(paymentResponse) },
+        { text: 'Cancel', style: 'cancel' }
+      ];
+    } else if (errorMessage.includes('authentication') || 
+               errorMessage.includes('401')) {
+      displayMessage = 'Session expired. Please login again.';
+      actions = [
+        { text: 'Login', onPress: () => navigation.navigate('Login') },
+        { text: 'Cancel', style: 'cancel' }
+      ];
+    }
+
+    Alert.alert('Payment Verification Error', displayMessage, actions);
+  }
+};
+
+// Alternative approach: Use transform scaleX instead of width
+// Replace the progress bar animation with this more performant approach:
+
+const renderProgressBar = () => {
+  if (!paymentProcessing) return null;
+  
+  return (
+    <Animated.View style={[styles.progressContainer, { opacity: fadeAnim }]}>
+      <View style={styles.progressBar}>
+        <Animated.View
+          style={[
+            styles.progressFill,
+            {
+              transform: [
+                {
+                  scaleX: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 1],
+                  }),
+                },
+              ],
+              transformOrigin: 'left', // This ensures scaling from left to right
+            },
+          ]}
+        />
+      </View>
+      <Text style={styles.progressText}>Verifying payment...</Text>
+    </Animated.View>
+  );
+};
 
   const handlePaymentFailure = (error: any) => {
     console.error('Payment failed:', error);
@@ -1221,7 +1252,9 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
+    width: '100%', // Full width, controlled by scaleX transform
     backgroundColor: BRAND.primaryColor,
+    transformOrigin: 'left center', // Ensures animation starts from left
   },
   progressText: {
     color: BRAND.primaryColor,
