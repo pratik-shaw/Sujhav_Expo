@@ -11,6 +11,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Linking,
 } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -361,6 +362,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     return filteredCourses.length > 1;
   };
 
+  // Handle contact actions
+  const handlePhoneCall = () => {
+    const phoneNumber = '+91-XXXXXXXXXX'; // Replace with your actual phone number
+    Linking.openURL(`tel:${phoneNumber}`).catch(err => console.error('Error making call:', err));
+  };
+
+  const handleEmailPress = () => {
+    const email = 'support@sujhav.com'; // Replace with your actual email
+    Linking.openURL(`mailto:${email}`).catch(err => console.error('Error opening email:', err));
+  };
+
   useEffect(() => {
     fetchCourses();
     startEntranceAnimation();
@@ -496,12 +508,40 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     </>
   );
 
-  // Render footer component for ScrollView - NOW ONLY HAS MORE OPTIONS
+  // Render footer component for ScrollView - NOW INCLUDES TECHNICAL SUPPORT
   const renderFooter = () => (
     <>
-      {/* More Options Section - MOVED HERE (LAST) */}
+      {/* More Options Section */}
       <Animated.View style={[styles.moreOptionsContainer, { opacity: fadeAnim }]}>
         <MoreOptionSection navigation={navigation} fadeAnim={fadeAnim} />
+      </Animated.View>
+
+      {/* Technical Support Section */}
+      <Animated.View style={[styles.technicalSupportContainer, { opacity: fadeAnim }]}>
+        <View style={styles.supportCard}>
+          <View style={styles.supportHeader}>
+            <Text style={styles.supportTitle}>Need Technical Help?</Text>
+            <Text style={styles.supportSubtitle}>We're here to assist you</Text>
+          </View>
+          
+          <View style={styles.supportButtons}>
+            <TouchableOpacity 
+              style={styles.supportButton}
+              onPress={handlePhoneCall}
+            >
+              <Text style={styles.supportButtonText}>📞 Call Us</Text>
+              <Text style={styles.supportContactText}>+91-XXXXXXXXXX</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.supportButton}
+              onPress={handleEmailPress}
+            >
+              <Text style={styles.supportButtonText}>✉️ Email Us</Text>
+              <Text style={styles.supportContactText}>support@sujhav.com</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Animated.View>
 
       {/* Bottom padding */}
@@ -558,7 +598,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         </View>
       </Animated.View>
 
-      {/* Main Content - Layout: OfflinePromotion -> Courses -> MoreOptions */}
+      {/* Main Content - Layout: OfflinePromotion -> Courses -> MoreOptions -> TechnicalSupport */}
       <CoursesSection
         courses={getLatestCourses()}
         loading={loading}
@@ -730,10 +770,67 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // More Options Container - Now appears last
+  // More Options Container
   moreOptionsContainer: {
     marginTop: 20,
     paddingHorizontal: 0,
+  },
+
+  // Technical Support Section
+  technicalSupportContainer: {
+    marginTop: 30,
+    marginBottom: 10,
+    paddingHorizontal: 20,
+  },
+  supportCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 136, 0.2)',
+  },
+  supportHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  supportTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#ffffff',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  supportSubtitle: {
+    fontSize: 14,
+    color: '#cccccc',
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+  supportButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  supportButton: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 136, 0.3)',
+  },
+  supportButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.primaryColor,
+    marginBottom: 4,
+  },
+  supportContactText: {
+    fontSize: 12,
+    color: '#cccccc',
+    textAlign: 'center',
   },
 
   // Bottom padding
