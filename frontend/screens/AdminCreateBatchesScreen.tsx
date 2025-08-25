@@ -1,22 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  SafeAreaView,
-  StatusBar,
-  ActivityIndicator,
-  Modal,
-  FlatList,
-  Platform,
+  View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet,
+  Alert, SafeAreaView, StatusBar, ActivityIndicator, Modal, FlatList,
   RefreshControl,
 } from 'react-native';
 import { API_BASE } from '../config/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import BatchAssignmentModal from '../components/BatchAssignmentModal';
 
 // Brand configuration
 const BRAND = {
@@ -30,267 +20,253 @@ const BRAND = {
   goldColor: '#ffd700',
 };
 
-// API configuration
 const API_BASE_URL = API_BASE;
 
 // Types
+interface Subject {
+  _id?: string;
+  name: string;
+  teacher?: string;
+}
+
 interface User {
   _id: string;
   name: string;
   email: string;
-  role: 'student' | 'teacher';
-  createdAt?: string;
+  role: 'user' | 'teacher';
 }
 
 interface Batch {
   _id?: string;
   batchName: string;
   classes: string[];
+  subjects: Subject[];
   category: 'jee' | 'neet' | 'boards';
   students: User[];
-  teachers: User[];
   schedule: string;
   description: string;
   isActive: boolean;
-  createdBy?: User;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 interface BatchForm {
   batchName: string;
   classes: string[];
+  subjects: Subject[];
   category: 'jee' | 'neet' | 'boards';
   students: string[];
-  teachers: string[];
   schedule: string;
   description: string;
   isActive: boolean;
 }
 
+interface StudentAssignment {
+  studentId: string;
+  assignedClasses: string[];
+  assignedSubjects: string[];
+}
+
+interface TeacherAssignment {
+  teacherId: string;
+  assignedSubjects: string[];
+}
+
 interface AdminCreateBatchesScreenProps {
-  navigation?: any;
+  navigation?: {
+    goBack?: () => void;
+    navigate?: (screen: string) => void;
+  };
   onBack?: () => void;
 }
 
-export default function AdminCreateBatchesScreen({ 
-  navigation, 
-  onBack 
-}: AdminCreateBatchesScreenProps) {
-  // State
+export default function AdminCreateBatchesScreen({ navigation, onBack }: AdminCreateBatchesScreenProps) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [eligibleStudents, setEligibleStudents] = useState<User[]>([]);
-  const [eligibleTeachers, setEligibleTeachers] = useState<User[]>([]);
-  const [availableStudents, setAvailableStudents] = useState<User[]>([]);
-  const [availableTeachers, setAvailableTeachers] = useState<User[]>([]);
+  const [allTeachers, setAllTeachers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showStudentSelector, setShowStudentSelector] = useState(false);
-  const [showTeacherSelector, setShowTeacherSelector] = useState(false);
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [loadingStudents, setLoadingStudents] = useState(false);
-  const [loadingTeachers, setLoadingTeachers] = useState(false);
   const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
-  const [assigningBatch, setAssigningBatch] = useState<Batch | null>(null);
   const [classInput, setClassInput] = useState('');
-  const [selectedAssignStudents, setSelectedAssignStudents] = useState<string[]>([]);
-  const [selectedAssignTeachers, setSelectedAssignTeachers] = useState<string[]>([]);
+  const [subjectInput, setSubjectInput] = useState('');
 
-  // Form state
+  // Assignment modal states
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false);
+  const [assignmentModalType, setAssignmentModalType] = useState<'assign_students' | 'remove_students' | 'assign_teachers'>('assign_students');
+  const [selectedBatchForAssignment, setSelectedBatchForAssignment] = useState<Batch | null>(null);
+
   const [batchForm, setBatchForm] = useState<BatchForm>({
     batchName: '',
     classes: [],
+    subjects: [],
     category: 'jee',
     students: [],
-    teachers: [],
     schedule: '',
     description: '',
     isActive: true,
   });
 
-  // Load data on mount
   useEffect(() => {
-    loadBatches();
-    loadEligibleUsers();
+    loadData();
   }, []);
 
-  // Handle back navigation
   const handleBackPress = () => {
-    if (onBack) {
-      onBack();
-    } else if (navigation) {
-      if (navigation.goBack) {
-        navigation.goBack();
-      } else if (navigation.navigate) {
-        navigation.navigate('AdminDashboard');
-      }
-    }
+    if (onBack) onBack();
+    else if (navigation?.goBack) navigation.goBack();
+    else if (navigation?.navigate) navigation.navigate('AdminDashboard');
   };
 
-  // Fixed getAuthHeaders function
   const getAuthHeaders = async (): Promise<Record<string, string>> => {
     try {
-      // Try different possible token keys
-      let token = await AsyncStorage.getItem('authToken') || 
-                  await AsyncStorage.getItem('token') || 
-                  await AsyncStorage.getItem('userToken') ||
-                  await AsyncStorage.getItem('accessToken');
+      const token = await AsyncStorage.getItem('authToken') || 
+                    await AsyncStorage.getItem('token') || 
+                    await AsyncStorage.getItem('userToken') ||
+                    await AsyncStorage.getItem('accessToken');
       
-      console.log('Using token:', token ? 'Token found' : 'No token found');
-      
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       return headers;
     } catch (error) {
-      console.error('Error getting auth token:', error);
-      return {
-        'Content-Type': 'application/json',
-      };
+      return { 'Content-Type': 'application/json' };
     }
   };
 
-  // API functions
-  const loadBatches = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
       const headers = await getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/batches`, {
-        method: 'GET',
-        headers,
-      });
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const [batchesRes, studentsRes, teachersRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/batches`, { headers }),
+        fetch(`${API_BASE_URL}/batches/eligible-students`, { headers }),
+        fetch(`${API_BASE_URL}/batches/all-teachers`, { headers })
+      ]);
+
+      if (batchesRes.ok) {
+        const data = await batchesRes.json();
+        if (data.success) setBatches(data.data || []);
       }
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setBatches(data.data || []);
-      } else {
-        Alert.alert('Error', data.message || 'Failed to load batches');
+
+      if (studentsRes.ok) {
+        const data = await studentsRes.json();
+        if (data.success) setEligibleStudents(data.data || []);
+      }
+
+      if (teachersRes.ok) {
+        const data = await teachersRes.json();
+        if (data.success) setAllTeachers(data.data || []);
       }
     } catch (error) {
-      console.error('Error loading batches:', error);
-      Alert.alert('Error', 'Failed to load batches. Please check your internet connection.');
+      Alert.alert('Error', 'Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadEligibleUsers = async () => {
-    try {
-      const headers = await getAuthHeaders();
-      
-      // Load eligible students (not assigned to any batch)
-      const studentsResponse = await fetch(`${API_BASE_URL}/batches/eligible-students`, {
-        method: 'GET',
-        headers,
-      });
-      
-      if (studentsResponse.ok) {
-        const studentsData = await studentsResponse.json();
-        if (studentsData.success) {
-          setEligibleStudents(studentsData.data || []);
-          console.log('Eligible students loaded:', studentsData.data?.length || 0);
-        } else {
-          console.error('Failed to load eligible students:', studentsData.message);
-        }
-      } else {
-        console.error('Failed to fetch eligible students:', studentsResponse.status);
-      }
-
-      // Load eligible teachers (not assigned to any batch)
-      const teachersResponse = await fetch(`${API_BASE_URL}/batches/eligible-teachers`, {
-        method: 'GET',
-        headers,
-      });
-      
-      if (teachersResponse.ok) {
-        const teachersData = await teachersResponse.json();
-        if (teachersData.success) {
-          setEligibleTeachers(teachersData.data || []);
-          console.log('Eligible teachers loaded:', teachersData.data?.length || 0);
-        } else {
-          console.error('Failed to load eligible teachers:', teachersData.message);
-        }
-      } else {
-        console.error('Failed to fetch eligible teachers:', teachersResponse.status);
-      }
-    } catch (error) {
-      console.error('Error loading eligible users:', error);
-    }
-  };
-
-  const loadAvailableUsersForBatch = async (batchId?: string) => {
-    if (!batchId) return;
-    
-    try {
-      const headers = await getAuthHeaders();
-      
-      // Load available students for this batch
-      setLoadingStudents(true);
-      const studentsResponse = await fetch(`${API_BASE_URL}/batches/${batchId}/available-students`, {
-        method: 'GET',
-        headers,
-      });
-      
-      if (studentsResponse.ok) {
-        const studentsData = await studentsResponse.json();
-        if (studentsData.success) {
-          setAvailableStudents(studentsData.data || []);
-          console.log('Available students for batch loaded:', studentsData.data?.length || 0);
-        }
-      }
-      
-      // Load available teachers for this batch
-      setLoadingTeachers(true);
-      const teachersResponse = await fetch(`${API_BASE_URL}/batches/${batchId}/available-teachers`, {
-        method: 'GET',
-        headers,
-      });
-      
-      if (teachersResponse.ok) {
-        const teachersData = await teachersResponse.json();
-        if (teachersData.success) {
-          setAvailableTeachers(teachersData.data || []);
-          console.log('Available teachers for batch loaded:', teachersData.data?.length || 0);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading available users for batch:', error);
-    } finally {
-      setLoadingStudents(false);
-      setLoadingTeachers(false);
-    }
-  };
-
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([
-      loadBatches(),
-      loadEligibleUsers()
-    ]);
+    await loadData();
     setRefreshing(false);
   };
 
-  const saveBatch = async () => {
+  // Assignment handlers
+  const handleAssignStudents = (batch: Batch) => {
+    setSelectedBatchForAssignment(batch);
+    setAssignmentModalType('assign_students');
+    setShowAssignmentModal(true);
+  };
+
+  const handleRemoveStudents = (batch: Batch) => {
+    if (!batch.students?.length) {
+      Alert.alert('Info', 'No students to remove');
+      return;
+    }
+    setSelectedBatchForAssignment(batch);
+    setAssignmentModalType('remove_students');
+    setShowAssignmentModal(true);
+  };
+
+  const handleAssignTeachers = (batch: Batch) => {
+    if (!batch.subjects?.length) {
+      Alert.alert('Info', 'No subjects available for teacher assignment');
+      return;
+    }
+    setSelectedBatchForAssignment(batch);
+    setAssignmentModalType('assign_teachers');
+    setShowAssignmentModal(true);
+  };
+
+  const handleStudentAssignment = async (assignments: StudentAssignment[] | TeacherAssignment[]) => {
+    if (!selectedBatchForAssignment?._id) return;
+
     try {
-      if (!validateBatch()) return;
-      
       setLoading(true);
       const headers = await getAuthHeaders();
-      const url = editingBatch 
-        ? `${API_BASE_URL}/batches/${editingBatch._id}`
-        : `${API_BASE_URL}/batches`;
       
+      if (assignmentModalType === 'assign_students') {
+        const studentAssignments = assignments as StudentAssignment[];
+        const response = await fetch(`${API_BASE_URL}/batches/${selectedBatchForAssignment._id}/assign-students-detailed`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ assignments: studentAssignments }),
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          Alert.alert('Success', 'Students assigned successfully!');
+          setShowAssignmentModal(false);
+          loadData();
+        } else {
+          Alert.alert('Error', data.message || 'Failed to assign students');
+        }
+      } else if (assignmentModalType === 'remove_students') {
+        const studentIds = (assignments as StudentAssignment[]).map(a => a.studentId);
+        const response = await fetch(`${API_BASE_URL}/batches/${selectedBatchForAssignment._id}/remove-students`, {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ studentIds }),
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          Alert.alert('Success', 'Students removed successfully!');
+          setShowAssignmentModal(false);
+          loadData();
+        } else {
+          Alert.alert('Error', data.message || 'Failed to remove students');
+        }
+      } else if (assignmentModalType === 'assign_teachers') {
+        const teacherAssignments = assignments as TeacherAssignment[];
+        const response = await fetch(`${API_BASE_URL}/batches/${selectedBatchForAssignment._id}/assign-teachers`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ assignments: teacherAssignments }),
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          Alert.alert('Success', 'Teachers assigned successfully!');
+          setShowAssignmentModal(false);
+          loadData();
+        } else {
+          Alert.alert('Error', data.message || 'Failed to assign teachers');
+        }
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to process assignment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Rest of your existing functions remain the same
+  const saveBatch = async () => {
+    if (!validateBatch()) return;
+    
+    try {
+      setLoading(true);
+      const headers = await getAuthHeaders();
+      const url = editingBatch ? `${API_BASE_URL}/batches/${editingBatch._id}` : `${API_BASE_URL}/batches`;
       const method = editingBatch ? 'PUT' : 'POST';
       
       const response = await fetch(url, {
@@ -299,190 +275,27 @@ export default function AdminCreateBatchesScreen({
         body: JSON.stringify(batchForm),
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      
       const data = await response.json();
       
       if (data.success) {
-        Alert.alert('Success', editingBatch ? 'Batch updated successfully!' : 'Batch created successfully!');
+        Alert.alert('Success', editingBatch ? 'Batch updated!' : 'Batch created!');
         resetForm();
         setShowCreateModal(false);
-        await Promise.all([
-          loadBatches(),
-          loadEligibleUsers() // Reload eligible users after creating/updating batch
-        ]);
+        loadData();
       } else {
         Alert.alert('Error', data.message || 'Failed to save batch');
       }
     } catch (error) {
-      console.error('Error saving batch:', error);
-      const errorMessage = (error instanceof Error && error.message) ? error.message : 'Failed to save batch. Please try again.';
-      Alert.alert('Error', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // NEW: Assign students to batch
-  const assignStudentsToBatch = async (batchId: string, studentIds: string[]) => {
-    try {
-      setLoading(true);
-      const headers = await getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/batches/${batchId}/assign-students`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ studentIds }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        Alert.alert('Success', 'Students assigned successfully!');
-        await Promise.all([
-          loadBatches(),
-          loadEligibleUsers()
-        ]);
-      } else {
-        Alert.alert('Error', data.message || 'Failed to assign students');
-      }
-    } catch (error) {
-      console.error('Error assigning students:', error);
-      const errorMessage = (error instanceof Error && error.message) ? error.message : 'Failed to assign students. Please try again.';
-      Alert.alert('Error', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // NEW: Assign teachers to batch
-  const assignTeachersToBatch = async (batchId: string, teacherIds: string[]) => {
-    try {
-      setLoading(true);
-      const headers = await getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/batches/${batchId}/assign-teachers`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ teacherIds }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        Alert.alert('Success', 'Teachers assigned successfully!');
-        await Promise.all([
-          loadBatches(),
-          loadEligibleUsers()
-        ]);
-      } else {
-        Alert.alert('Error', data.message || 'Failed to assign teachers');
-      }
-    } catch (error) {
-      console.error('Error assigning teachers:', error);
-      const errorMessage = (error instanceof Error && error.message) ? error.message : 'Failed to assign teachers. Please try again.';
-      Alert.alert('Error', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // NEW: Remove students from batch
-  const removeStudentsFromBatch = async (batchId: string, studentIds: string[]) => {
-    try {
-      setLoading(true);
-      const headers = await getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/batches/${batchId}/remove-students`, {
-        method: 'DELETE',
-        headers,
-        body: JSON.stringify({ studentIds }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        Alert.alert('Success', 'Students removed successfully!');
-        await Promise.all([
-          loadBatches(),
-          loadEligibleUsers()
-        ]);
-      } else {
-        Alert.alert('Error', data.message || 'Failed to remove students');
-      }
-    } catch (error) {
-      console.error('Error removing students:', error);
-      const errorMessage = (error instanceof Error && error.message) ? error.message : 'Failed to remove students. Please try again.';
-      Alert.alert('Error', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // NEW: Remove teachers from batch
-  const removeTeachersFromBatch = async (batchId: string, teacherIds: string[]) => {
-    try {
-      setLoading(true);
-      const headers = await getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/batches/${batchId}/remove-teachers`, {
-        method: 'DELETE',
-        headers,
-        body: JSON.stringify({ teacherIds }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        Alert.alert('Success', 'Teachers removed successfully!');
-        await Promise.all([
-          loadBatches(),
-          loadEligibleUsers()
-        ]);
-      } else {
-        Alert.alert('Error', data.message || 'Failed to remove teachers');
-      }
-    } catch (error) {
-      console.error('Error removing teachers:', error);
-      const errorMessage = (error instanceof Error && error.message) ? error.message : 'Failed to remove teachers. Please try again.';
-      Alert.alert('Error', errorMessage);
+      Alert.alert('Error', 'Failed to save batch');
     } finally {
       setLoading(false);
     }
   };
 
   const deleteBatch = async (batchId: string) => {
-    if (!batchId) {
-      Alert.alert('Error', 'Batch ID is required');
-      return;
-    }
-
     Alert.alert(
       'Delete Batch',
-      'Are you sure you want to delete this batch? This action cannot be undone.',
+      'Are you sure?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -497,24 +310,16 @@ export default function AdminCreateBatchesScreen({
                 headers,
               });
               
-              if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-              }
-              
               const data = await response.json();
               
               if (data.success) {
-                Alert.alert('Success', 'Batch deleted successfully!');
-                await Promise.all([
-                  loadBatches(),
-                  loadEligibleUsers() // Reload eligible users after deleting batch
-                ]);
+                Alert.alert('Success', 'Batch deleted!');
+                loadData();
               } else {
-                Alert.alert('Error', data.message || 'Failed to delete batch');
+                Alert.alert('Error', data.message);
               }
             } catch (error) {
-              console.error('Error deleting batch:', error);
-              Alert.alert('Error', 'Failed to delete batch. Please try again.');
+              Alert.alert('Error', 'Failed to delete batch');
             } finally {
               setLoading(false);
             }
@@ -524,153 +329,47 @@ export default function AdminCreateBatchesScreen({
     );
   };
 
-  // Validation functions
   const validateBatch = () => {
     if (!batchForm.batchName?.trim()) {
       Alert.alert('Error', 'Batch name is required');
       return false;
     }
-    if (!batchForm.classes || batchForm.classes.length === 0) {
-      Alert.alert('Error', 'At least one class must be specified');
-      return false;
-    }
-    if (!batchForm.category) {
-      Alert.alert('Error', 'Category is required');
+    if (batchForm.classes.length === 0) {
+      Alert.alert('Error', 'At least one class is required');
       return false;
     }
     return true;
   };
 
-  // Helper functions
   const resetForm = () => {
     setBatchForm({
       batchName: '',
       classes: [],
+      subjects: [],
       category: 'jee',
       students: [],
-      teachers: [],
       schedule: '',
       description: '',
       isActive: true,
     });
     setEditingBatch(null);
     setClassInput('');
-    setAvailableStudents([]);
-    setAvailableTeachers([]);
-  };
-
-  const resetAssignForm = () => {
-    setSelectedAssignStudents([]);
-    setSelectedAssignTeachers([]);
-    setAssigningBatch(null);
-    setAvailableStudents([]);
-    setAvailableTeachers([]);
+    setSubjectInput('');
   };
 
   const editBatch = (batch: Batch) => {
     setBatchForm({
       batchName: batch.batchName,
       classes: batch.classes || [],
+      subjects: batch.subjects || [],
       category: batch.category,
       students: batch.students?.map(s => s._id) || [],
-      teachers: batch.teachers?.map(t => t._id) || [],
       schedule: batch.schedule || '',
       description: batch.description || '',
       isActive: batch.isActive !== undefined ? batch.isActive : true,
     });
     setEditingBatch(batch);
-    
-    // Load available users for this batch
-    if (batch._id) {
-      loadAvailableUsersForBatch(batch._id);
-    }
-    
     setShowCreateModal(true);
-  };
-
-  // NEW: Open assign users modal
-  const openAssignModal = (batch: Batch) => {
-    setAssigningBatch(batch);
-    setSelectedAssignStudents([]);
-    setSelectedAssignTeachers([]);
-    
-    // Load available users for this batch
-    if (batch._id) {
-      loadAvailableUsersForBatch(batch._id);
-    }
-    
-    setShowAssignModal(true);
-  };
-
-  // NEW: Handle assignment submission
-  const handleAssignUsers = async () => {
-    if (!assigningBatch || !assigningBatch._id) {
-      Alert.alert('Error', 'No batch selected for assignment');
-      return;
-    }
-
-    if (selectedAssignStudents.length === 0 && selectedAssignTeachers.length === 0) {
-      Alert.alert('Error', 'Please select at least one student or teacher to assign');
-      return;
-    }
-
-    try {
-      // Assign students if selected
-      if (selectedAssignStudents.length > 0) {
-        await assignStudentsToBatch(assigningBatch._id, selectedAssignStudents);
-      }
-
-      // Assign teachers if selected
-      if (selectedAssignTeachers.length > 0) {
-        await assignTeachersToBatch(assigningBatch._id, selectedAssignTeachers);
-      }
-
-      resetAssignForm();
-      setShowAssignModal(false);
-    } catch (error) {
-      console.error('Error assigning users:', error);
-    }
-  };
-
-  // NEW: Handle remove users from batch
-  const handleRemoveUsers = (batch: Batch) => {
-    if (!batch._id) return;
-
-    const currentStudents = batch.students || [];
-    const currentTeachers = batch.teachers || [];
-
-    if (currentStudents.length === 0 && currentTeachers.length === 0) {
-      Alert.alert('Info', 'No users assigned to this batch');
-      return;
-    }
-
-    const message = `Current assignment:\n${currentStudents.length} students\n${currentTeachers.length} teachers\n\nWhat would you like to remove?`;
-
-    Alert.alert(
-      'Remove Users',
-      message,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove All Students',
-          style: 'destructive',
-          onPress: () => {
-            if (currentStudents.length > 0) {
-              removeStudentsFromBatch(batch._id!, currentStudents.map(s => s._id));
-            }
-          },
-        },
-        {
-          text: 'Remove All Teachers',
-          style: 'destructive',
-          onPress: () => {
-            if (currentTeachers.length > 0) {
-              removeTeachersFromBatch(batch._id!, currentTeachers.map(t => t._id));
-            }
-          },
-        },
-      ]
-    );
   };
 
   const addClass = () => {
@@ -690,6 +389,23 @@ export default function AdminCreateBatchesScreen({
     });
   };
 
+  const addSubject = () => {
+    if (subjectInput.trim() && !batchForm.subjects.some(s => s.name === subjectInput.trim())) {
+      setBatchForm({
+        ...batchForm,
+        subjects: [...batchForm.subjects, { name: subjectInput.trim() }]
+      });
+      setSubjectInput('');
+    }
+  };
+
+  const removeSubject = (subjectToRemove: string) => {
+    setBatchForm({
+      ...batchForm,
+      subjects: batchForm.subjects.filter(s => s.name !== subjectToRemove)
+    });
+  };
+
   const toggleStudentSelection = (studentId: string) => {
     const isSelected = batchForm.students.includes(studentId);
     setBatchForm({
@@ -700,140 +416,64 @@ export default function AdminCreateBatchesScreen({
     });
   };
 
-  const toggleTeacherSelection = (teacherId: string) => {
-    const isSelected = batchForm.teachers.includes(teacherId);
-    setBatchForm({
-      ...batchForm,
-      teachers: isSelected
-        ? batchForm.teachers.filter(id => id !== teacherId)
-        : [...batchForm.teachers, teacherId]
-    });
-  };
-
-  // NEW: Toggle assignment selection
-  const toggleAssignStudentSelection = (studentId: string) => {
-    const isSelected = selectedAssignStudents.includes(studentId);
-    setSelectedAssignStudents(isSelected
-      ? selectedAssignStudents.filter(id => id !== studentId)
-      : [...selectedAssignStudents, studentId]
+  const getAvailableStudentsForAssignment = () => {
+    if (!selectedBatchForAssignment) return [];
+    return eligibleStudents.filter(student => 
+      !selectedBatchForAssignment.students?.some(bs => bs._id === student._id)
     );
   };
 
-  const toggleAssignTeacherSelection = (teacherId: string) => {
-    const isSelected = selectedAssignTeachers.includes(teacherId);
-    setSelectedAssignTeachers(isSelected
-      ? selectedAssignTeachers.filter(id => id !== teacherId)
-      : [...selectedAssignTeachers, teacherId]
-    );
-  };
-
-  const getSelectedStudentsText = () => {
-    const studentList = editingBatch ? availableStudents : eligibleStudents;
-    const selectedStudents = studentList.filter(s => batchForm.students.includes(s._id));
-    return selectedStudents.length > 0 
-      ? `${selectedStudents.length} student${selectedStudents.length > 1 ? 's' : ''} selected`
-      : 'No students selected';
-  };
-
-  const getSelectedTeachersText = () => {
-    const teacherList = editingBatch ? availableTeachers : eligibleTeachers;
-    const selectedTeachers = teacherList.filter(t => batchForm.teachers.includes(t._id));
-    return selectedTeachers.length > 0 
-      ? `${selectedTeachers.length} teacher${selectedTeachers.length > 1 ? 's' : ''} selected`
-      : 'No teachers selected';
-  };
-
-  const openStudentSelector = () => {
-    // For new batch, use eligible students
-    // For editing batch, use available students (which includes current batch students)
-    if (!editingBatch) {
-      setShowStudentSelector(true);
-    } else {
-      // Make sure available students are loaded
-      if (availableStudents.length === 0 && !loadingStudents) {
-        loadAvailableUsersForBatch(editingBatch._id);
-      }
-      setShowStudentSelector(true);
-    }
-  };
-
-  const openTeacherSelector = () => {
-    // For new batch, use eligible teachers
-    // For editing batch, use available teachers (which includes current batch teachers)
-    if (!editingBatch) {
-      setShowTeacherSelector(true);
-    } else {
-      // Make sure available teachers are loaded
-      if (availableTeachers.length === 0 && !loadingTeachers) {
-        loadAvailableUsersForBatch(editingBatch._id);
-      }
-      setShowTeacherSelector(true);
-    }
-  };
-
-  // Render functions
   const renderBatchItem = ({ item }: { item: Batch }) => (
     <View style={styles.batchCard}>
       <View style={styles.batchHeader}>
-        <View style={styles.batchHeaderLeft}>
+        <View>
           <Text style={styles.batchName}>{item.batchName}</Text>
           <Text style={styles.batchCategory}>{item.category.toUpperCase()}</Text>
         </View>
-        <View style={styles.statusContainer}>
-          <Text style={[
-            styles.statusText,
-            { color: item.isActive ? BRAND.primaryColor : BRAND.errorColor }
-          ]}>
-            {item.isActive ? 'Active' : 'Inactive'}
-          </Text>
-        </View>
+        <Text style={[
+          styles.statusText,
+          { color: item.isActive ? BRAND.primaryColor : BRAND.errorColor }
+        ]}>
+          {item.isActive ? 'Active' : 'Inactive'}
+        </Text>
       </View>
       
       <View style={styles.batchInfo}>
-        <Text style={styles.infoText}>
-          Classes: {item.classes?.join(', ') || 'No classes'}
-        </Text>
-        <Text style={styles.infoText}>
-          Students: {item.students?.length || 0}
-        </Text>
-        <Text style={styles.infoText}>
-          Teachers: {item.teachers?.length || 0}
-        </Text>
-        {item.schedule && (
-          <Text style={styles.infoText}>Schedule: {item.schedule}</Text>
-        )}
+        <Text style={styles.infoText}>Classes: {item.classes?.join(', ') || 'None'}</Text>
+        <Text style={styles.infoText}>Subjects: {item.subjects?.length || 0}</Text>
+        <Text style={styles.infoText}>Students: {item.students?.length || 0}</Text>
+        {item.schedule && <Text style={styles.infoText}>Schedule: {item.schedule}</Text>}
       </View>
       
-      {item.description && (
-        <Text style={styles.batchDescription}>{item.description}</Text>
-      )}
+      {item.description && <Text style={styles.batchDescription}>{item.description}</Text>}
+      
+      <ScrollView horizontal style={styles.subjectsContainer}>
+        {item.subjects?.map((subject, index) => (
+          <View key={index} style={styles.subjectChip}>
+            <Text style={styles.subjectName}>{subject.name}</Text>
+            {subject.teacher && (
+              <Text style={styles.teacherName}>
+                {allTeachers.find(t => t._id === subject.teacher)?.name || 'Teacher'}
+              </Text>
+            )}
+          </View>
+        ))}
+      </ScrollView>
       
       <View style={styles.batchActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.editButton]}
-          onPress={() => editBatch(item)}
-        >
+        <TouchableOpacity style={[styles.actionButton, styles.editButton]} onPress={() => editBatch(item)}>
           <Text style={styles.actionButtonText}>Edit</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.actionButton, styles.assignButton]}
-          onPress={() => openAssignModal(item)}
-        >
-          <Text style={styles.actionButtonText}>Assign</Text>
+        <TouchableOpacity style={[styles.actionButton, styles.assignButton]} onPress={() => handleAssignStudents(item)}>
+          <Text style={styles.actionButtonText}>+Students</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.actionButton, styles.removeButton]}
-          onPress={() => handleRemoveUsers(item)}
-        >
-          <Text style={styles.actionButtonText}>Remove</Text>
+        <TouchableOpacity style={[styles.actionButton, styles.removeButton]} onPress={() => handleRemoveStudents(item)}>
+          <Text style={styles.actionButtonText}>-Students</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.actionButton, styles.deleteButton]}
-          onPress={() => item._id && deleteBatch(item._id)}
-        >
+        <TouchableOpacity style={[styles.actionButton, styles.warningButton]} onPress={() => handleAssignTeachers(item)}>
+          <Text style={styles.actionButtonText}>Teachers</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.actionButton, styles.deleteButton]} onPress={() => item._id && deleteBatch(item._id)}>
           <Text style={styles.actionButtonText}>Delete</Text>
         </TouchableOpacity>
       </View>
@@ -842,95 +482,31 @@ export default function AdminCreateBatchesScreen({
 
   const renderStudentItem = ({ item }: { item: User }) => (
     <TouchableOpacity
-      style={[
-        styles.userItem,
-        batchForm.students.includes(item._id) && styles.userItemSelected
-      ]}
+      style={[styles.userItem, batchForm.students.includes(item._id) && styles.userItemSelected]}
       onPress={() => toggleStudentSelection(item._id)}
     >
-      <View style={styles.userInfo}>
+      <View>
         <Text style={styles.userName}>{item.name}</Text>
         <Text style={styles.userEmail}>{item.email}</Text>
       </View>
-      <View style={styles.selectionIndicator}>
-        {batchForm.students.includes(item._id) && (
-          <Text style={styles.selectionCheck}>✓</Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-
-  const renderTeacherItem = ({ item }: { item: User }) => (
-    <TouchableOpacity
-      style={[
-        styles.userItem,
-        batchForm.teachers.includes(item._id) && styles.userItemSelected
-      ]}
-      onPress={() => toggleTeacherSelection(item._id)}
-    >
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
-      </View>
-      <View style={styles.selectionIndicator}>
-        {batchForm.teachers.includes(item._id) && (
-          <Text style={styles.selectionCheck}>✓</Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-
-  // NEW: Render assignment student item
-  // NEW: Render assignment student item
-  const renderAssignStudentItem = ({ item }: { item: User }) => (
-    <TouchableOpacity
-      style={[
-        styles.userItem,
-        selectedAssignStudents.includes(item._id) && styles.userItemSelected
-      ]}
-      onPress={() => toggleAssignStudentSelection(item._id)}
-    >
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
-      </View>
-      <View style={styles.selectionIndicator}>
-        {selectedAssignStudents.includes(item._id) && (
-          <Text style={styles.selectionCheck}>✓</Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-
-  // NEW: Render assignment teacher item
-  const renderAssignTeacherItem = ({ item }: { item: User }) => (
-    <TouchableOpacity
-      style={[
-        styles.userItem,
-        selectedAssignTeachers.includes(item._id) && styles.userItemSelected
-      ]}
-      onPress={() => toggleAssignTeacherSelection(item._id)}
-    >
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
-      </View>
-      <View style={styles.selectionIndicator}>
-        {selectedAssignTeachers.includes(item._id) && (
-          <Text style={styles.selectionCheck}>✓</Text>
-        )}
-      </View>
+      {batchForm.students.includes(item._id) && <Text style={styles.selectionCheck}>✓</Text>}
     </TouchableOpacity>
   );
 
   const renderClassItem = ({ item }: { item: string }) => (
     <View style={styles.classItem}>
       <Text style={styles.classText}>{item}</Text>
-      <TouchableOpacity
-        style={styles.removeClassButton}
-        onPress={() => removeClass(item)}
-      >
-        <Text style={styles.removeClassText}>×</Text>
+      <TouchableOpacity onPress={() => removeClass(item)}>
+        <Text style={styles.removeText}>×</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderSubjectItem = ({ item }: { item: Subject }) => (
+    <View style={styles.classItem}>
+      <Text style={styles.classText}>{item.name}</Text>
+      <TouchableOpacity onPress={() => removeSubject(item.name)}>
+        <Text style={styles.removeText}>×</Text>
       </TouchableOpacity>
     </View>
   );
@@ -939,65 +515,43 @@ export default function AdminCreateBatchesScreen({
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
       
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={handleBackPress}
-        >
+        <TouchableOpacity onPress={handleBackPress}>
           <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Batch Management</Text>
-        <TouchableOpacity
-          style={styles.createButton}
-          onPress={() => {
-            resetForm();
-            setShowCreateModal(true);
-          }}
-        >
+        <TouchableOpacity onPress={() => { resetForm(); setShowCreateModal(true); }}>
           <Text style={styles.createButtonText}>+ Create</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Main Content */}
       <ScrollView
         style={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[BRAND.primaryColor]}
-            tintColor={BRAND.primaryColor}
-          />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[BRAND.primaryColor]} />}
       >
-        {/* Stats */}
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>{batches.length}</Text>
             <Text style={styles.statLabel}>Total Batches</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {batches.filter(b => b.isActive).length}
-            </Text>
-            <Text style={styles.statLabel}>Active Batches</Text>
+            <Text style={styles.statNumber}>{batches.filter(b => b.isActive).length}</Text>
+            <Text style={styles.statLabel}>Active</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>{eligibleStudents.length}</Text>
             <Text style={styles.statLabel}>Available Students</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{eligibleTeachers.length}</Text>
-            <Text style={styles.statLabel}>Available Teachers</Text>
+            <Text style={styles.statNumber}>{allTeachers.length}</Text>
+            <Text style={styles.statLabel}>Teachers</Text>
           </View>
         </View>
 
-        {/* Batches List */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={BRAND.primaryColor} />
-            <Text style={styles.loadingText}>Loading batches...</Text>
+            <Text style={styles.loadingText}>Loading...</Text>
           </View>
         ) : (
           <FlatList
@@ -1005,43 +559,35 @@ export default function AdminCreateBatchesScreen({
             renderItem={renderBatchItem}
             keyExtractor={(item) => item._id || Math.random().toString()}
             scrollEnabled={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.batchesList}
           />
         )}
       </ScrollView>
 
-      {/* Create/Edit Batch Modal */}
-      <Modal
-        visible={showCreateModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowCreateModal(false)}
-      >
+      {/* Assignment Modal */}
+      <BatchAssignmentModal
+        visible={showAssignmentModal}
+        onClose={() => setShowAssignmentModal(false)}
+        batch={selectedBatchForAssignment}
+        availableUsers={getAvailableStudentsForAssignment()}
+        allTeachers={allTeachers}
+        type={assignmentModalType}
+        onAssign={handleStudentAssignment}
+      />
+
+      {/* Create/Edit Modal */}
+      <Modal visible={showCreateModal} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowCreateModal(false)}
-            >
+            <TouchableOpacity onPress={() => setShowCreateModal(false)}>
               <Text style={styles.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>
-              {editingBatch ? 'Edit Batch' : 'Create New Batch'}
-            </Text>
-            <TouchableOpacity
-              style={styles.modalSaveButton}
-              onPress={saveBatch}
-              disabled={loading}
-            >
-              <Text style={styles.modalSaveText}>
-                {loading ? 'Saving...' : 'Save'}
-              </Text>
+            <Text style={styles.modalTitle}>{editingBatch ? 'Edit' : 'Create'} Batch</Text>
+            <TouchableOpacity onPress={saveBatch} disabled={loading}>
+              <Text style={styles.modalSaveText}>{loading ? 'Saving...' : 'Save'}</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.modalContent}>
-            {/* Batch Name */}
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Batch Name *</Text>
               <TextInput
@@ -1053,23 +599,16 @@ export default function AdminCreateBatchesScreen({
               />
             </View>
 
-            {/* Category */}
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Category *</Text>
               <View style={styles.categoryContainer}>
                 {['jee', 'neet', 'boards'].map((category) => (
                   <TouchableOpacity
                     key={category}
-                    style={[
-                      styles.categoryButton,
-                      batchForm.category === category && styles.categoryButtonSelected
-                    ]}
+                    style={[styles.categoryButton, batchForm.category === category && styles.categoryButtonSelected]}
                     onPress={() => setBatchForm({...batchForm, category: category as 'jee' | 'neet' | 'boards'})}
                   >
-                    <Text style={[
-                      styles.categoryButtonText,
-                      batchForm.category === category && styles.categoryButtonTextSelected
-                    ]}>
+                    <Text style={[styles.categoryButtonText, batchForm.category === category && styles.categoryButtonTextSelected]}>
                       {category.toUpperCase()}
                     </Text>
                   </TouchableOpacity>
@@ -1077,100 +616,93 @@ export default function AdminCreateBatchesScreen({
               </View>
             </View>
 
-            {/* Classes */}
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Classes *</Text>
-              <View style={styles.classInputContainer}>
+              <View style={styles.inputContainer}>
                 <TextInput
-                  style={styles.classInput}
+                  style={styles.textInput}
                   value={classInput}
                   onChangeText={setClassInput}
-                  placeholder="Enter class (e.g., 11th, 12th)"
+                  placeholder="Enter class"
                   placeholderTextColor={BRAND.accentColor}
                 />
-                <TouchableOpacity
-                  style={styles.addClassButton}
-                  onPress={addClass}
-                >
-                  <Text style={styles.addClassText}>Add</Text>
+                <TouchableOpacity style={styles.addButton} onPress={addClass}>
+                  <Text style={styles.addButtonText}>Add</Text>
                 </TouchableOpacity>
               </View>
-              {batchForm.classes.length > 0 && (
-                <FlatList
-                  data={batchForm.classes}
-                  renderItem={renderClassItem}
-                  keyExtractor={(item, index) => `${item}-${index}`}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.classesContainer}
-                />
-              )}
+              <FlatList
+                data={batchForm.classes}
+                renderItem={renderClassItem}
+                keyExtractor={(item, index) => `${item}-${index}`}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+              />
             </View>
 
-            {/* Schedule */}
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Subjects</Text>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.textInput}
+                  value={subjectInput}
+                  onChangeText={setSubjectInput}
+                  placeholder="Enter subject"
+                  placeholderTextColor={BRAND.accentColor}
+                />
+                <TouchableOpacity style={styles.addButton} onPress={addSubject}>
+                  <Text style={styles.addButtonText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={batchForm.subjects}
+                renderItem={renderSubjectItem}
+                keyExtractor={(item, index) => `${item.name}-${index}`}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+              />
+            </View>
+
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Schedule</Text>
               <TextInput
                 style={styles.formInput}
                 value={batchForm.schedule}
                 onChangeText={(text) => setBatchForm({...batchForm, schedule: text})}
-                placeholder="Enter schedule (e.g., Mon-Fri 9:00 AM)"
+                placeholder="Enter schedule"
                 placeholderTextColor={BRAND.accentColor}
               />
             </View>
 
-            {/* Description */}
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Description</Text>
               <TextInput
                 style={[styles.formInput, styles.textArea]}
                 value={batchForm.description}
                 onChangeText={(text) => setBatchForm({...batchForm, description: text})}
-                placeholder="Enter batch description"
+                placeholder="Enter description"
                 placeholderTextColor={BRAND.accentColor}
                 multiline
-                numberOfLines={4}
+                numberOfLines={3}
               />
             </View>
 
-            {/* Students Selection */}
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Students</Text>
               <TouchableOpacity
                 style={styles.selectorButton}
-                onPress={openStudentSelector}
+                onPress={() => setShowStudentSelector(true)}
               >
                 <Text style={styles.selectorButtonText}>
-                  {getSelectedStudentsText()}
+                  Select Students ({batchForm.students.length} selected)
                 </Text>
-                <Text style={styles.selectorArrow}>→</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Teachers Selection */}
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Teachers</Text>
-              <TouchableOpacity
-                style={styles.selectorButton}
-                onPress={openTeacherSelector}
-              >
-                <Text style={styles.selectorButtonText}>
-                  {getSelectedTeachersText()}
-                </Text>
-                <Text style={styles.selectorArrow}>→</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Active Status */}
             <View style={styles.formGroup}>
               <TouchableOpacity
                 style={styles.checkboxContainer}
                 onPress={() => setBatchForm({...batchForm, isActive: !batchForm.isActive})}
               >
-                <View style={[
-                  styles.checkbox,
-                  batchForm.isActive && styles.checkboxChecked
-                ]}>
+                <View style={[styles.checkbox, batchForm.isActive && styles.checkboxChecked]}>
                   {batchForm.isActive && <Text style={styles.checkboxCheck}>✓</Text>}
                 </View>
                 <Text style={styles.checkboxLabel}>Active Batch</Text>
@@ -1181,173 +713,23 @@ export default function AdminCreateBatchesScreen({
       </Modal>
 
       {/* Student Selector Modal */}
-      <Modal
-        visible={showStudentSelector}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowStudentSelector(false)}
-      >
+      <Modal visible={showStudentSelector} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowStudentSelector(false)}
-            >
+            <TouchableOpacity onPress={() => setShowStudentSelector(false)}>
               <Text style={styles.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>Select Students</Text>
-            <TouchableOpacity
-              style={styles.modalSaveButton}
-              onPress={() => setShowStudentSelector(false)}
-            >
+            <TouchableOpacity onPress={() => setShowStudentSelector(false)}>
               <Text style={styles.modalSaveText}>Done</Text>
             </TouchableOpacity>
           </View>
-
-          <View style={styles.modalContent}>
-            {loadingStudents ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={BRAND.primaryColor} />
-                <Text style={styles.loadingText}>Loading students...</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={editingBatch ? availableStudents : eligibleStudents}
-                renderItem={renderStudentItem}
-                keyExtractor={(item) => item._id}
-                showsVerticalScrollIndicator={false}
-              />
-            )}
-          </View>
-        </SafeAreaView>
-      </Modal>
-
-      {/* Teacher Selector Modal */}
-      <Modal
-        visible={showTeacherSelector}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowTeacherSelector(false)}
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowTeacherSelector(false)}
-            >
-              <Text style={styles.modalCloseText}>Cancel</Text>
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Select Teachers</Text>
-            <TouchableOpacity
-              style={styles.modalSaveButton}
-              onPress={() => setShowTeacherSelector(false)}
-            >
-              <Text style={styles.modalSaveText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.modalContent}>
-            {loadingTeachers ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={BRAND.primaryColor} />
-                <Text style={styles.loadingText}>Loading teachers...</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={editingBatch ? availableTeachers : eligibleTeachers}
-                renderItem={renderTeacherItem}
-                keyExtractor={(item) => item._id}
-                showsVerticalScrollIndicator={false}
-              />
-            )}
-          </View>
-        </SafeAreaView>
-      </Modal>
-
-      {/* NEW: Assign Users Modal */}
-      <Modal
-        visible={showAssignModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowAssignModal(false)}
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => {
-                setShowAssignModal(false);
-                resetAssignForm();
-              }}
-            >
-              <Text style={styles.modalCloseText}>Cancel</Text>
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Assign Users</Text>
-            <TouchableOpacity
-              style={styles.modalSaveButton}
-              onPress={handleAssignUsers}
-              disabled={loading}
-            >
-              <Text style={styles.modalSaveText}>
-                {loading ? 'Assigning...' : 'Assign'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            {/* Students Section */}
-            <View style={styles.assignSection}>
-              <Text style={styles.assignSectionTitle}>
-                Available Students ({availableStudents.length})
-              </Text>
-              {loadingStudents ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color={BRAND.primaryColor} />
-                  <Text style={styles.loadingText}>Loading students...</Text>
-                </View>
-              ) : availableStudents.length > 0 ? (
-                <FlatList
-                  data={availableStudents}
-                  renderItem={renderAssignStudentItem}
-                  keyExtractor={(item) => item._id}
-                  showsVerticalScrollIndicator={false}
-                  scrollEnabled={false}
-                />
-              ) : (
-                <Text style={styles.noDataText}>No students available</Text>
-              )}
-            </View>
-
-            {/* Teachers Section */}
-            <View style={styles.assignSection}>
-              <Text style={styles.assignSectionTitle}>
-                Available Teachers ({availableTeachers.length})
-              </Text>
-              {loadingTeachers ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color={BRAND.primaryColor} />
-                  <Text style={styles.loadingText}>Loading teachers...</Text>
-                </View>
-              ) : availableTeachers.length > 0 ? (
-                <FlatList
-                  data={availableTeachers}
-                  renderItem={renderAssignTeacherItem}
-                  keyExtractor={(item) => item._id}
-                  showsVerticalScrollIndicator={false}
-                  scrollEnabled={false}
-                />
-              ) : (
-                <Text style={styles.noDataText}>No teachers available</Text>
-              )}
-            </View>
-
-            {/* Selection Summary */}
-            <View style={styles.selectionSummary}>
-              <Text style={styles.summaryText}>
-                Selected: {selectedAssignStudents.length} students, {selectedAssignTeachers.length} teachers
-              </Text>
-            </View>
-          </ScrollView>
+          <FlatList
+            data={eligibleStudents}
+            renderItem={renderStudentItem}
+            keyExtractor={(item) => item._id}
+            style={styles.modalContent}
+          />
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -1355,443 +737,452 @@ export default function AdminCreateBatchesScreen({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: BRAND.backgroundColor,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: BRAND.accentColor,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.primaryColor,
-  },
-  backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  backButtonText: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  headerTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  createButton: {
-    backgroundColor: BRAND.primaryColor,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-  },
-  createButtonText: {
-    color: BRAND.backgroundColor,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  statCard: {
-    backgroundColor: BRAND.accentColor,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    width: '48%',
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '20',
-  },
-  statNumber: {
-    color: BRAND.primaryColor,
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  statLabel: {
-    color: '#ffffff',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  loadingText: {
-    color: '#ffffff',
-    marginTop: 12,
-    fontSize: 16,
-  },
-  batchesList: {
-    paddingBottom: 20,
-  },
-  batchCard: {
-    backgroundColor: BRAND.accentColor,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '20',
-  },
-  batchHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  batchHeaderLeft: {
-    flex: 1,
-  },
-  batchName: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  batchCategory: {
-    color: BRAND.primaryColor,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  statusContainer: {
-    backgroundColor: BRAND.primaryColor + '20',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  batchInfo: {
-    marginBottom: 12,
-  },
-  infoText: {
-    color: '#cccccc',
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  batchDescription: {
-    color: '#aaaaaa',
-    fontSize: 14,
-    fontStyle: 'italic',
-    marginBottom: 16,
-  },
-  batchActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-  },
-  actionButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    minWidth: '22%',
-    alignItems: 'center',
-  },
-  editButton: {
-    backgroundColor: BRAND.primaryColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor,
-  },
-  assignButton: {
-    backgroundColor: BRAND.goldColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.goldColor,
-  },
-  removeButton: {
-    backgroundColor: BRAND.warningColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.warningColor,
-  },
-  deleteButton: {
-    backgroundColor: BRAND.errorColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.errorColor,
-  },
-  actionButtonText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: BRAND.backgroundColor,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: BRAND.accentColor,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.primaryColor,
-  },
-  modalCloseButton: {
-    paddingVertical: 8,
-  },
-  modalCloseText: {
-    color: BRAND.errorColor,
-    fontSize: 16,
-  },
-  modalTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  modalSaveButton: {
-    paddingVertical: 8,
-  },
-  modalSaveText: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalContent: {
-    flex: 1,
-    padding: 16,
-  },
-  formGroup: {
-    marginBottom: 20,
-  },
-  formLabel: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  formInput: {
-    backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    color: '#ffffff',
-    fontSize: 16,
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  categoryContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  categoryButton: {
-    flex: 1,
-    backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  categoryButtonSelected: {
-    backgroundColor: BRAND.primaryColor + '20',
-    borderColor: BRAND.primaryColor,
-  },
-  categoryButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  categoryButtonTextSelected: {
-    color: BRAND.primaryColor,
-  },
-  classInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  classInput: {
-    flex: 1,
-    backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    color: '#ffffff',
-    fontSize: 16,
-    marginRight: 8,
-  },
-  addClassButton: {
-    backgroundColor: BRAND.primaryColor,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-  },
-  addClassText: {
-    color: BRAND.backgroundColor,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  classesContainer: {
-    marginTop: 8,
-  },
-  classItem: {
-    backgroundColor: BRAND.primaryColor + '20',
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  classText: {
-    color: BRAND.primaryColor,
-    fontSize: 14,
-    marginRight: 8,
-  },
-  removeClassButton: {
-    backgroundColor: BRAND.errorColor,
-    borderRadius: 4,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  removeClassText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  selectorButton: {
-    backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  selectorButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-  },
-  selectorArrow: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-  },
-  checkboxContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 2,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 4,
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: BRAND.primaryColor,
-    borderColor: BRAND.primaryColor,
-  },
-  checkboxCheck: {
-    color: BRAND.backgroundColor,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  checkboxLabel: {
-    color: '#ffffff',
-    fontSize: 16,
-  },
-  userItem: {
-    backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '20',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  userItemSelected: {
-    backgroundColor: BRAND.primaryColor + '20',
-    borderColor: BRAND.primaryColor,
-  },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  userEmail: {
-    color: '#cccccc',
-    fontSize: 14,
-  },
-  selectionIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: BRAND.primaryColor,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectionCheck: {
-    color: BRAND.backgroundColor,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  assignSection: {
-    marginBottom: 24,
-  },
-  assignSectionTitle: {
-    color: BRAND.primaryColor,
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 12,
-  },
-  noDataText: {
-    color: '#aaaaaa',
-    fontSize: 16,
-    textAlign: 'center',
-    paddingVertical: 20,
-    fontStyle: 'italic',
-  },
-  selectionSummary: {
-    backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginTop: 16,
-  },
-  summaryText: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
+  // ============================================================================
+  // MAIN CONTAINER & LAYOUT
+  // ============================================================================
+  container: { 
+    flex: 1, 
+    backgroundColor: BRAND.backgroundColor 
+  },
+
+  // ============================================================================
+  // HEADER SECTION
+  // ============================================================================
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 16, 
+    paddingVertical: 12, 
+    borderBottomWidth: 1, 
+    borderBottomColor: BRAND.accentColor 
+  },
+  
+  backButtonText: { 
+    color: BRAND.primaryColor, 
+    fontSize: 16 
+  },
+  
+  headerTitle: { 
+    color: 'white', 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
+  
+  createButtonText: { 
+    color: BRAND.primaryColor, 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+
+  // ============================================================================
+  // CONTENT & SCROLLABLE AREAS
+  // ============================================================================
+  content: { 
+    flex: 1, 
+    padding: 16 
+  },
+
+  // ============================================================================
+  // STATISTICS CARDS
+  // ============================================================================
+  statsContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: 20 
+  },
+  
+  statCard: { 
+    flex: 1, 
+    backgroundColor: BRAND.accentColor, 
+    padding: 12, 
+    borderRadius: 8, 
+    marginHorizontal: 4, 
+    alignItems: 'center' 
+  },
+  
+  statNumber: { 
+    color: BRAND.primaryColor, 
+    fontSize: 20, 
+    fontWeight: 'bold' 
+  },
+  
+  statLabel: { 
+    color: 'white', 
+    fontSize: 12, 
+    marginTop: 4 
+  },
+
+  // ============================================================================
+  // LOADING STATES
+  // ============================================================================
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    paddingVertical: 40 
+  },
+  
+  loadingText: { 
+    color: 'white', 
+    marginTop: 10 
+  },
+
+  // ============================================================================
+  // BATCH CARDS
+  // ============================================================================
+  batchCard: { 
+    backgroundColor: BRAND.accentColor, 
+    borderRadius: 12, 
+    padding: 16, 
+    marginBottom: 16 
+  },
+  
+  batchHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'flex-start', 
+    marginBottom: 12 
+  },
+  
+  batchName: { 
+    color: 'white', 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
+  
+  batchCategory: { 
+    color: BRAND.primaryColor, 
+    fontSize: 12, 
+    fontWeight: 'bold', 
+    marginTop: 4 
+  },
+  
+  statusText: { 
+    fontSize: 12, 
+    fontWeight: 'bold' 
+  },
+  
+  batchInfo: { 
+    marginBottom: 12 
+  },
+  
+  infoText: { 
+    color: '#ccc', 
+    fontSize: 14, 
+    marginBottom: 4 
+  },
+  
+  batchDescription: { 
+    color: '#aaa', 
+    fontSize: 14, 
+    fontStyle: 'italic', 
+    marginBottom: 12 
+  },
+
+  // ============================================================================
+  // SUBJECTS & CHIPS
+  // ============================================================================
+  subjectsContainer: { 
+    marginBottom: 12 
+  },
+  
+  subjectChip: { 
+    backgroundColor: BRAND.backgroundColor, 
+    padding: 8, 
+    borderRadius: 6, 
+    marginRight: 8 
+  },
+  
+  subjectName: { 
+    color: 'white', 
+    fontSize: 12, 
+    fontWeight: 'bold' 
+  },
+  
+  teacherName: { 
+    color: BRAND.primaryColor, 
+    fontSize: 10 
+  },
+
+  // ============================================================================
+  // ACTION BUTTONS
+  // ============================================================================
+  batchActions: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between' 
+  },
+  
+  actionButton: { 
+    flex: 1, 
+    padding: 8, 
+    borderRadius: 6, 
+    marginHorizontal: 2 
+  },
+  
+  editButton: { 
+    backgroundColor: BRAND.warningColor 
+  },
+  
+  assignButton: { 
+    backgroundColor: BRAND.primaryColor 
+  },
+  
+  removeButton: { 
+    backgroundColor: BRAND.errorColor 
+  },
+  
+  deleteButton: { 
+    backgroundColor: '#666' 
+  },
+  
+  actionButtonText: { 
+    color: 'white', 
+    fontSize: 12, 
+    fontWeight: 'bold', 
+    textAlign: 'center' 
+  },
+
+  // ============================================================================
+  // MODAL COMPONENTS
+  // ============================================================================
+  modalContainer: { 
+    flex: 1, 
+    backgroundColor: BRAND.backgroundColor 
+  },
+  
+  modalHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    padding: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: BRAND.accentColor 
+  },
+  
+  modalCloseText: { 
+    color: BRAND.errorColor, 
+    fontSize: 16 
+  },
+  
+  modalTitle: { 
+    color: 'white', 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
+  
+  modalSaveText: { 
+    color: BRAND.primaryColor, 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+  
+  modalContent: { 
+    flex: 1, 
+    padding: 16 
+  },
+
+  // ============================================================================
+  // FORM COMPONENTS
+  // ============================================================================
+  formGroup: { 
+    marginBottom: 20 
+  },
+  
+  formLabel: { 
+    color: 'white', 
+    fontSize: 16, 
+    fontWeight: 'bold', 
+    marginBottom: 8 
+  },
+  
+  formInput: { 
+    backgroundColor: BRAND.accentColor, 
+    color: 'white', 
+    padding: 12, 
+    borderRadius: 8, 
+    fontSize: 16 
+  },
+  
+  textArea: { 
+    height: 80, 
+    textAlignVertical: 'top' 
+  },
+
+  // ============================================================================
+  // CATEGORY SELECTION
+  // ============================================================================
+  categoryContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between' 
+  },
+  
+  categoryButton: { 
+    flex: 1, 
+    padding: 12, 
+    backgroundColor: BRAND.accentColor, 
+    borderRadius: 8, 
+    marginHorizontal: 4, 
+    alignItems: 'center' 
+  },
+  
+  categoryButtonSelected: { 
+    backgroundColor: BRAND.primaryColor 
+  },
+  
+  categoryButtonText: { 
+    color: 'white', 
+    fontSize: 14, 
+    fontWeight: 'bold' 
+  },
+  
+  categoryButtonTextSelected: { 
+    color: BRAND.backgroundColor 
+  },
+
+  // ============================================================================
+  // INPUT CONTAINERS
+  // ============================================================================
+  inputContainer: { 
+    flexDirection: 'row', 
+    marginBottom: 12 
+  },
+  
+  textInput: { 
+    flex: 1, 
+    backgroundColor: BRAND.accentColor, 
+    color: 'white', 
+    padding: 12, 
+    borderRadius: 8, 
+    fontSize: 16, 
+    marginRight: 8 
+  },
+  
+  addButton: { 
+    backgroundColor: BRAND.primaryColor, 
+    paddingHorizontal: 16, 
+    justifyContent: 'center', 
+    borderRadius: 8 
+  },
+  
+  addButtonText: { 
+    color: BRAND.backgroundColor, 
+    fontSize: 14, 
+    fontWeight: 'bold' 
+  },
+
+  // ============================================================================
+  // LIST ITEMS (Classes & Subjects)
+  // ============================================================================
+  classItem: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: BRAND.backgroundColor, 
+    padding: 8, 
+    borderRadius: 6, 
+    marginRight: 8, 
+    marginBottom: 8 
+  },
+  
+  classText: { 
+    color: 'white', 
+    fontSize: 14, 
+    marginRight: 8 
+  },
+  
+  removeText: { 
+    color: BRAND.errorColor, 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+
+  // ============================================================================
+  // SELECTOR BUTTONS
+  // ============================================================================
+  selectorButton: { 
+    backgroundColor: BRAND.accentColor, 
+    padding: 16, 
+    borderRadius: 8, 
+    alignItems: 'center' 
+  },
+  
+  selectorButtonText: { 
+    color: 'white', 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+
+  // ============================================================================
+  // CHECKBOX COMPONENTS
+  // ============================================================================
+  checkboxContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center' 
+  },
+  
+  checkbox: { 
+    width: 20, 
+    height: 20, 
+    borderWidth: 2, 
+    borderColor: BRAND.primaryColor, 
+    borderRadius: 4, 
+    marginRight: 12, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  
+  checkboxChecked: { 
+    backgroundColor: BRAND.primaryColor 
+  },
+  
+  checkboxCheck: { 
+    color: BRAND.backgroundColor, 
+    fontSize: 12, 
+    fontWeight: 'bold' 
+  },
+  
+  checkboxLabel: { 
+    color: 'white', 
+    fontSize: 16 
+  },
+
+  // ============================================================================
+  // USER SELECTION ITEMS
+  // ============================================================================
+  userItem: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    backgroundColor: BRAND.accentColor, 
+    padding: 16, 
+    marginBottom: 8, 
+    borderRadius: 8 
+  },
+  
+  userItemSelected: { 
+    backgroundColor: BRAND.primaryColor + '20', 
+    borderWidth: 1, 
+    borderColor: BRAND.primaryColor 
+  },
+  
+  userName: { 
+    color: 'white', 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+  
+  userEmail: { 
+    color: '#ccc', 
+    fontSize: 14 
+  },
+  
+  selectionCheck: { 
+    color: BRAND.primaryColor, 
+    fontSize: 20, 
+    fontWeight: 'bold' 
+  },
+  warningButton: { 
+  backgroundColor: BRAND.warningColor 
+},
 });
+

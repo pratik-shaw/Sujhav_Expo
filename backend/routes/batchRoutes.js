@@ -7,46 +7,54 @@ const {
   updateBatch,
   deleteBatch,
   assignStudentsToBatch,
-  assignTeachersToBatch,
+  assignTeacherToSubject,
   removeStudentsFromBatch,
-  removeTeachersFromBatch,
   getEligibleStudents,
-  getEligibleTeachers,
-  getAvailableStudentsForBatch,
-  getAvailableTeachersForBatch,
+  getAllTeachers,
   getBatchesByCategory,
-  getTeacherBatches,        // Add this
-  getTeacherBatchById       // Add this
+  getTeacherBatches,
+  getTeacherBatchById,
+  // New enhanced functions
+  getStudentsWithAssignments,
+  getTeachersWithAssignments,
+  assignStudentsToBatchEnhanced,
+  assignTeachersToSubjectsEnhanced,
+  getBatchStatistics
 } = require('../controllers/batchController');
-
-// Import authentication middleware
 const { verifyToken, verifyAdmin } = require('../middlewares/authMiddleware');
 
-// Admin-only routes (require admin authentication)
+// Admin-only routes
 router.post('/', verifyAdmin, createBatch);
 router.put('/:id', verifyAdmin, updateBatch);
 router.delete('/:id', verifyAdmin, deleteBatch);
 
-// Student and Teacher assignment routes (Admin only)
+// Enhanced assignment routes (Admin only)
+router.get('/:batchId/students-assignments', verifyAdmin, getStudentsWithAssignments);
+router.get('/:batchId/teachers-assignments', verifyAdmin, getTeachersWithAssignments);
+router.post('/:id/assign-students-enhanced', verifyAdmin, assignStudentsToBatchEnhanced);
+router.post('/:id/assign-teachers-enhanced', verifyAdmin, assignTeachersToSubjectsEnhanced);
+
+// Batch statistics
+router.get('/:id/statistics', verifyAdmin, getBatchStatistics);
+
+// Student assignment routes (Admin only) - Keep existing
 router.post('/:id/assign-students', verifyAdmin, assignStudentsToBatch);
-router.post('/:id/assign-teachers', verifyAdmin, assignTeachersToBatch);
 router.delete('/:id/remove-students', verifyAdmin, removeStudentsFromBatch);
-router.delete('/:id/remove-teachers', verifyAdmin, removeTeachersFromBatch);
 
-// Routes to get eligible users (Admin only)
+// Teacher-subject assignment (Admin only) - Keep existing
+router.put('/:id/subjects/:subjectId/assign-teacher', verifyAdmin, assignTeacherToSubject);
+
+// Get users for assignment (Admin only)
 router.get('/eligible-students', verifyAdmin, getEligibleStudents);
-router.get('/eligible-teachers', verifyAdmin, getEligibleTeachers);
+router.get('/all-teachers', verifyAdmin, getAllTeachers);
 
-// Routes to get available users for specific batch (Admin only)
-router.get('/:id/available-students', verifyAdmin, getAvailableStudentsForBatch);
-router.get('/:id/available-teachers', verifyAdmin, getAvailableTeachersForBatch);
-
-// Public routes (accessible by authenticated users)
+// Public routes (authenticated users)
 router.get('/', verifyToken, getAllBatches);
 router.get('/category/:category', verifyToken, getBatchesByCategory);
-router.get('/:id', verifyToken, getBatchById); // This should be last among GET routes
+router.get('/:id', verifyToken, getBatchById);
 
-router.get('/teacher/my-batches', verifyToken, getTeacherBatches); // Get all batches assigned to logged-in teacher
-router.get('/teacher/batch/:id', verifyToken, getTeacherBatchById); // Get specific batch details for teacher
+// Teacher-specific routes
+router.get('/teacher/my-batches', verifyToken, getTeacherBatches);
+router.get('/teacher/batch/:id', verifyToken, getTeacherBatchById);
 
 module.exports = router;
