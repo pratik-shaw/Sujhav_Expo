@@ -1,5 +1,49 @@
 const mongoose = require('mongoose');
 
+// Enhanced student assignment schema
+const studentAssignmentSchema = new mongoose.Schema({
+  student: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    validate: {
+      validator: async function(studentId) {
+        const User = mongoose.model('User');
+        const student = await User.findById(studentId);
+        return student && student.role === 'user';
+      },
+      message: 'Student must be a valid user with user role'
+    }
+  },
+  assignedClasses: [{
+    type: String,
+    required: true,
+    trim: true,
+    minlength: [1, 'Class name cannot be empty'],
+    maxlength: [50, 'Class name cannot exceed 50 characters']
+  }],
+  assignedSubjects: [{
+    subjectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true
+    },
+    subjectName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    teacher: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    }
+  }],
+  enrolledAt: {
+    type: Date,
+    default: Date.now
+  }
+}, { _id: true });
+
 const subjectSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -52,6 +96,9 @@ const batchSchema = new mongoose.Schema({
     lowercase: true,
     index: true
   },
+  // Enhanced student assignments instead of simple array
+  studentAssignments: [studentAssignmentSchema],
+  // Keep old students field for backward compatibility (will be deprecated)
   students: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -104,11 +151,11 @@ const batchSchema = new mongoose.Schema({
 batchSchema.index({ category: 1, isActive: 1 });
 batchSchema.index({ createdBy: 1 });
 batchSchema.index({ 'subjects.teacher': 1 });
-batchSchema.index({ students: 1 });
+batchSchema.index({ 'studentAssignments.student': 1 });
 
-// Virtual for student count
+// Virtual for student count (using new assignments)
 batchSchema.virtual('studentCount').get(function() {
-  return this.students ? this.students.length : 0;
+  return this.studentAssignments ? this.studentAssignments.length : 0;
 });
 
 // Virtual for subject count
@@ -124,9 +171,22 @@ batchSchema.pre('save', function(next) {
   // Remove empty subjects
   this.subjects = this.subjects.filter(subject => subject.name && subject.name.trim());
   
-  // Remove duplicate students
-  const uniqueStudents = [...new Set(this.students.map(s => s.toString()))];
-  this.students = uniqueStudents;
+  // Remove duplicate student assignments
+  const uniqueAssignments = [];
+  const seenStudents = new Set();
+  
+  this.studentAssignments.forEach(assignment => {
+    const studentId = assignment.student.toString();
+    if (!seenStudents.has(studentId)) {
+      seenStudents.add(studentId);
+      uniqueAssignments.push(assignment);
+    }
+  });
+  
+  this.studentAssignments = uniqueAssignments;
+  
+  // Sync old students array with new assignments for backward compatibility
+  this.students = this.studentAssignments.map(assignment => assignment.student);
   
   next();
 });
@@ -136,7 +196,7 @@ batchSchema.statics.findByTeacher = function(teacherId) {
   return this.find({
     'subjects.teacher': teacherId,
     isActive: true
-  }).populate('students', 'name email')
+  }).populate('studentAssignments.student', 'name email')
     .populate('subjects.teacher', 'name email')
     .populate('createdBy', 'name email');
 };
@@ -144,12 +204,12 @@ batchSchema.statics.findByTeacher = function(teacherId) {
 // Static method to find eligible students (not in any batch)
 batchSchema.statics.findEligibleStudents = async function() {
   const User = mongoose.model('User');
-  const batches = await this.find({}).select('students');
+  const batches = await this.find({}).select('studentAssignments.student');
   const assignedStudentIds = new Set();
   
   batches.forEach(batch => {
-    batch.students.forEach(studentId => {
-      assignedStudentIds.add(studentId.toString());
+    batch.studentAssignments.forEach(assignment => {
+      assignedStudentIds.add(assignment.student.toString());
     });
   });
 
@@ -161,23 +221,76 @@ batchSchema.statics.findEligibleStudents = async function() {
 
 // Instance method to check if a student is in this batch
 batchSchema.methods.hasStudent = function(studentId) {
-  return this.students.some(s => s.toString() === studentId.toString());
+  return this.studentAssignments.some(assignment => 
+    assignment.student.toString() === studentId.toString()
+  );
 };
 
-// Instance method to add students (avoiding duplicates)
-batchSchema.methods.addStudents = function(studentIds) {
-  const existingIds = this.students.map(s => s.toString());
-  const newStudents = studentIds.filter(id => !existingIds.includes(id.toString()));
-  this.students.push(...newStudents);
-  return newStudents.length;
+// Enhanced method to add students with detailed assignments
+batchSchema.methods.addStudentAssignments = function(assignments) {
+  const existingStudentIds = this.studentAssignments.map(a => a.student.toString());
+  let addedCount = 0;
+  
+  assignments.forEach(assignment => {
+    if (!existingStudentIds.includes(assignment.student.toString())) {
+      // Map assigned subjects to include subject details
+      const assignedSubjects = assignment.assignedSubjects.map(subjectName => {
+        const subject = this.subjects.find(s => s.name === subjectName);
+        return {
+          subjectId: subject ? subject._id : new mongoose.Types.ObjectId(),
+          subjectName: subjectName,
+          teacher: subject ? subject.teacher : null
+        };
+      });
+      
+      this.studentAssignments.push({
+        student: assignment.student,
+        assignedClasses: assignment.assignedClasses || [],
+        assignedSubjects: assignedSubjects,
+        enrolledAt: new Date()
+      });
+      addedCount++;
+    }
+  });
+  
+  return addedCount;
 };
 
-// Instance method to remove students
-batchSchema.methods.removeStudents = function(studentIds) {
+// Enhanced method to remove students
+batchSchema.methods.removeStudentAssignments = function(studentIds) {
   const idsToRemove = studentIds.map(id => id.toString());
-  const originalLength = this.students.length;
-  this.students = this.students.filter(s => !idsToRemove.includes(s.toString()));
-  return originalLength - this.students.length;
+  const originalLength = this.studentAssignments.length;
+  
+  this.studentAssignments = this.studentAssignments.filter(assignment => 
+    !idsToRemove.includes(assignment.student.toString())
+  );
+  
+  return originalLength - this.studentAssignments.length;
+};
+
+// Method to update student's subject assignments when teachers change
+batchSchema.methods.updateStudentSubjectTeachers = function() {
+  this.studentAssignments.forEach(assignment => {
+    assignment.assignedSubjects.forEach(assignedSubject => {
+      const currentSubject = this.subjects.find(s => s.name === assignedSubject.subjectName);
+      if (currentSubject) {
+        assignedSubject.teacher = currentSubject.teacher;
+      }
+    });
+  });
+};
+
+// Method to get detailed student information
+batchSchema.methods.getStudentDetails = function() {
+  return this.studentAssignments.map(assignment => ({
+    studentId: assignment.student,
+    assignedClasses: assignment.assignedClasses,
+    assignedSubjects: assignment.assignedSubjects.map(subject => ({
+      name: subject.subjectName,
+      teacher: subject.teacher
+    })),
+    enrolledAt: assignment.enrolledAt
+  }));
 };
 
 module.exports = mongoose.model('Batch', batchSchema);

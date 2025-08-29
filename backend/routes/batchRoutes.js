@@ -7,20 +7,20 @@ const {
   updateBatch,
   deleteBatch,
   assignStudentsToBatch,
-  assignTeacherToSubject,
+  assignStudentsEnhanced,
   removeStudentsFromBatch,
+  assignTeachersEnhanced,
+  assignTeacherToSubject,
   getEligibleStudents,
   getAllTeachers,
   getBatchesByCategory,
   getTeacherBatches,
   getTeacherBatchById,
-  // New enhanced functions
+  getBatchStatistics,
   getStudentsWithAssignments,
-  getTeachersWithAssignments,
-  assignStudentsToBatchEnhanced,
-  assignTeachersToSubjectsEnhanced,
-  getBatchStatistics
+  getTeachersWithAssignments
 } = require('../controllers/batchController');
+
 const { verifyToken, verifyAdmin } = require('../middlewares/authMiddleware');
 
 // Admin-only routes
@@ -28,21 +28,20 @@ router.post('/', verifyAdmin, createBatch);
 router.put('/:id', verifyAdmin, updateBatch);
 router.delete('/:id', verifyAdmin, deleteBatch);
 
-// Enhanced assignment routes (Admin only)
+// Student assignment routes (Admin only) - FIXED
+router.post('/:id/assign-students', verifyAdmin, assignStudentsToBatch);
+router.post('/:id/assign-students-enhanced', verifyAdmin, assignStudentsEnhanced);
+// FIXED: Changed to POST to match frontend expectation
+router.post('/:id/remove-students', verifyAdmin, removeStudentsFromBatch);
+
+// Teacher assignment routes (Admin only)
+router.post('/:id/assign-teachers-enhanced', verifyAdmin, assignTeachersEnhanced);
+router.put('/:id/subjects/:subjectId/assign-teacher', verifyAdmin, assignTeacherToSubject);
+
+// Enhanced management routes (Admin only)
 router.get('/:batchId/students-assignments', verifyAdmin, getStudentsWithAssignments);
 router.get('/:batchId/teachers-assignments', verifyAdmin, getTeachersWithAssignments);
-router.post('/:id/assign-students-enhanced', verifyAdmin, assignStudentsToBatchEnhanced);
-router.post('/:id/assign-teachers-enhanced', verifyAdmin, assignTeachersToSubjectsEnhanced);
-
-// Batch statistics
 router.get('/:id/statistics', verifyAdmin, getBatchStatistics);
-
-// Student assignment routes (Admin only) - Keep existing
-router.post('/:id/assign-students', verifyAdmin, assignStudentsToBatch);
-router.delete('/:id/remove-students', verifyAdmin, removeStudentsFromBatch);
-
-// Teacher-subject assignment (Admin only) - Keep existing
-router.put('/:id/subjects/:subjectId/assign-teacher', verifyAdmin, assignTeacherToSubject);
 
 // Get users for assignment (Admin only)
 router.get('/eligible-students', verifyAdmin, getEligibleStudents);

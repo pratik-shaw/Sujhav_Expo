@@ -1,106 +1,56 @@
 const Batch = require('../models/Batch');
 const User = require('../models/User');
 
-// Create a new batch with subjects (Admin only)
+// Utility function for validation
+const validateUsers = async (userIds, role) => {
+  const users = await User.find({ _id: { $in: userIds }, role });
+  return users.length === userIds.length;
+};
+
+// Create batch
 const createBatch = async (req, res) => {
   try {
-    const { batchName, classes, subjects, category, students, schedule, description, isActive } = req.body;
+    const { batchName, classes, subjects, category, schedule, description, isActive } = req.body;
 
-    // Enhanced validation
-    if (!batchName || !batchName.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Batch name is required'
-      });
+    if (!batchName?.trim()) {
+      return res.status(400).json({ success: false, message: 'Batch name is required' });
     }
 
-    if (!classes || !Array.isArray(classes) || classes.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'At least one class must be specified'
-      });
+    if (!classes?.length) {
+      return res.status(400).json({ success: false, message: 'At least one class must be specified' });
     }
 
-    if (!category || !['jee', 'neet', 'boards'].includes(category.toLowerCase())) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid category (jee, neet, boards) is required'
-      });
+    if (!['jee', 'neet', 'boards'].includes(category?.toLowerCase())) {
+      return res.status(400).json({ success: false, message: 'Valid category (jee, neet, boards) is required' });
     }
 
-    // Validate user exists and has admin role
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({
-        success: false,
-        message: 'User authentication required'
-      });
-    }
-
-    // Validate students if provided
-    if (students && Array.isArray(students) && students.length > 0) {
-      const validStudents = students.filter(id => id && id.trim()); // Remove empty IDs
-      if (validStudents.length > 0) {
-        const studentUsers = await User.find({ _id: { $in: validStudents }, role: 'user' });
-        if (studentUsers.length !== validStudents.length) {
-          return res.status(400).json({
-            success: false,
-            message: 'Some selected students are invalid or do not exist'
-          });
-        }
+    // Validate teachers in subjects
+    if (subjects?.length) {
+      const teacherIds = subjects.filter(s => s.teacher).map(s => s.teacher);
+      if (teacherIds.length && !(await validateUsers(teacherIds, 'teacher'))) {
+        return res.status(400).json({ success: false, message: 'Some assigned teachers are invalid' });
       }
     }
 
-    // Validate teachers in subjects if provided
-    if (subjects && Array.isArray(subjects) && subjects.length > 0) {
-      const teacherIds = subjects
-        .filter(s => s && s.teacher && s.teacher.trim())
-        .map(s => s.teacher);
-      
-      if (teacherIds.length > 0) {
-        const teacherUsers = await User.find({ _id: { $in: teacherIds }, role: 'teacher' });
-        const validTeacherIds = teacherUsers.map(t => t._id.toString());
-        
-        // Check if all teacher IDs are valid
-        const invalidTeachers = teacherIds.filter(id => !validTeacherIds.includes(id));
-        if (invalidTeachers.length > 0) {
-          return res.status(400).json({
-            success: false,
-            message: 'Some assigned teachers are invalid or do not exist'
-          });
-        }
-      }
-    }
-
-    // Clean and prepare data
     const batchData = {
       batchName: batchName.trim(),
-      classes: classes.filter(cls => cls && cls.trim()).map(cls => cls.trim()),
-      subjects: subjects && Array.isArray(subjects) ? subjects.filter(s => s && s.name && s.name.trim()).map(s => ({
+      classes: classes.filter(cls => cls?.trim()).map(cls => cls.trim()),
+      subjects: subjects?.filter(s => s?.name?.trim()).map(s => ({
         name: s.name.trim(),
-        teacher: s.teacher && s.teacher.trim() ? s.teacher.trim() : null
-      })) : [],
+        teacher: s.teacher?.trim() || null
+      })) || [],
       category: category.toLowerCase(),
-      students: students && Array.isArray(students) ? students.filter(id => id && id.trim()) : [],
       createdBy: req.user.id,
-      schedule: schedule && schedule.trim() ? schedule.trim() : '',
-      description: description && description.trim() ? description.trim() : '',
+      schedule: schedule?.trim() || '',
+      description: description?.trim() || '',
       isActive: isActive !== undefined ? Boolean(isActive) : true
     };
-
-    // Additional validation for empty classes after filtering
-    if (batchData.classes.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'At least one valid class must be specified'
-      });
-    }
 
     const newBatch = new Batch(batchData);
     const savedBatch = await newBatch.save();
     
-    // Populate the saved batch
     const populatedBatch = await Batch.findById(savedBatch._id)
-      .populate('students', 'name email')
+      .populate('studentAssignments.student', 'name email')
       .populate('subjects.teacher', 'name email')
       .populate('createdBy', 'name email');
     
@@ -112,146 +62,11 @@ const createBatch = async (req, res) => {
   } catch (error) {
     console.error('Batch creation error:', error);
     
-    // Handle validation errors
     if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errors: validationErrors
-      });
-    }
-
-    // Handle duplicate key errors
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: 'A batch with this name already exists'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error during batch creation',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-    });
-  }
-};
-
-// Update batch (Admin only) - Enhanced with better error handling
-const updateBatch = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { batchName, classes, subjects, category, students, schedule, description, isActive } = req.body;
-
-    if (!id || !id.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Batch ID is required'
-      });
-    }
-
-    const batch = await Batch.findById(id);
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    // Validate students if provided
-    if (students && Array.isArray(students) && students.length > 0) {
-      const validStudents = students.filter(id => id && id.trim());
-      if (validStudents.length > 0) {
-        const studentUsers = await User.find({ _id: { $in: validStudents }, role: 'user' });
-        if (studentUsers.length !== validStudents.length) {
-          return res.status(400).json({
-            success: false,
-            message: 'Some selected students are invalid or do not exist'
-          });
-        }
-      }
-    }
-
-    // Validate teachers in subjects if provided
-    if (subjects && Array.isArray(subjects) && subjects.length > 0) {
-      const teacherIds = subjects
-        .filter(s => s && s.teacher && s.teacher.trim())
-        .map(s => s.teacher);
-      
-      if (teacherIds.length > 0) {
-        const teacherUsers = await User.find({ _id: { $in: teacherIds }, role: 'teacher' });
-        const validTeacherIds = teacherUsers.map(t => t._id.toString());
-        
-        const invalidTeachers = teacherIds.filter(id => !validTeacherIds.includes(id));
-        if (invalidTeachers.length > 0) {
-          return res.status(400).json({
-            success: false,
-            message: 'Some assigned teachers are invalid or do not exist'
-          });
-        }
-      }
-    }
-
-    // Build update data
-    const updateData = {};
-    if (batchName !== undefined) updateData.batchName = batchName.trim();
-    if (classes !== undefined) {
-      if (!Array.isArray(classes)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Classes must be an array'
-        });
-      }
-      updateData.classes = classes.filter(cls => cls && cls.trim()).map(cls => cls.trim());
-      if (updateData.classes.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'At least one valid class must be specified'
-        });
-      }
-    }
-    if (subjects !== undefined) {
-      updateData.subjects = Array.isArray(subjects) ? subjects.filter(s => s && s.name && s.name.trim()).map(s => ({
-        name: s.name.trim(),
-        teacher: s.teacher && s.teacher.trim() ? s.teacher.trim() : null
-      })) : [];
-    }
-    if (category !== undefined) {
-      if (!['jee', 'neet', 'boards'].includes(category.toLowerCase())) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid category. Must be jee, neet, or boards'
-        });
-      }
-      updateData.category = category.toLowerCase();
-    }
-    if (students !== undefined) {
-      updateData.students = Array.isArray(students) ? students.filter(id => id && id.trim()) : [];
-    }
-    if (schedule !== undefined) updateData.schedule = schedule ? schedule.trim() : '';
-    if (description !== undefined) updateData.description = description ? description.trim() : '';
-    if (isActive !== undefined) updateData.isActive = Boolean(isActive);
-
-    const updatedBatch = await Batch.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email')
-      .populate('createdBy', 'name email');
-
-    res.json({
-      success: true,
-      message: 'Batch updated successfully',
-      data: updatedBatch
-    });
-  } catch (error) {
-    console.error('Batch update error:', error);
-    
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: validationErrors
+        errors: Object.values(error.errors).map(err => err.message)
       });
     }
 
@@ -264,155 +79,424 @@ const updateBatch = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: 'Failed to update batch',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+      message: 'Internal server error during batch creation'
     });
   }
 };
 
-// Enhanced assign students function
-const assignStudentsToBatch = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { studentIds } = req.body;
-
-    if (!Array.isArray(studentIds) || studentIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Student IDs array is required'
-      });
-    }
-
-    const batch = await Batch.findById(id);
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    // Filter out empty IDs
-    const validStudentIds = studentIds.filter(id => id && id.trim());
-    
-    if (validStudentIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid student IDs are required'
-      });
-    }
-
-    const studentUsers = await User.find({ _id: { $in: validStudentIds }, role: 'user' });
-    if (studentUsers.length !== validStudentIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Some selected students are invalid or do not exist'
-      });
-    }
-
-    const existingStudents = batch.students.map(s => s.toString());
-    const newStudents = validStudentIds.filter(id => !existingStudents.includes(id));
-    
-    if (newStudents.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'All selected students are already in this batch'
-      });
-    }
-
-    batch.students.push(...newStudents);
-    await batch.save();
-
-    const populatedBatch = await Batch.findById(id)
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email')
-      .populate('createdBy', 'name email');
-
-    res.json({
-      success: true,
-      message: `${newStudents.length} students assigned successfully`,
-      data: populatedBatch
-    });
-  } catch (error) {
-    console.error('Student assignment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign students',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-    });
-  }
-};
-
-// Keep the rest of the functions unchanged
+// Get all batches
 const getAllBatches = async (req, res) => {
   try {
     const batches = await Batch.find()
-      .populate('students', 'name email')
+      .populate('studentAssignments.student', 'name email')
       .populate('subjects.teacher', 'name email')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
     
-    res.json({
-      success: true,
-      data: batches,
-      count: batches.length
-    });
+    res.json({ success: true, data: batches, count: batches.length });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch batches',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch batches', error: error.message });
   }
 };
 
+// Get batch by ID
 const getBatchById = async (req, res) => {
   try {
     const batch = await Batch.findById(req.params.id)
-      .populate('students', 'name email')
+      .populate('studentAssignments.student', 'name email')
+      .populate('studentAssignments.assignedSubjects.teacher', 'name email')
       .populate('subjects.teacher', 'name email')
       .populate('createdBy', 'name email');
     
     if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
+      return res.status(404).json({ success: false, message: 'Batch not found' });
     }
 
     res.json({ success: true, data: batch });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch batch',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch batch', error: error.message });
   }
 };
 
+// Update batch
+const updateBatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { batchName, classes, subjects, category, schedule, description, isActive } = req.body;
+
+    const batch = await Batch.findById(id);
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'Batch not found' });
+    }
+
+    // Validate teachers if subjects are being updated
+    if (subjects?.length) {
+      const teacherIds = subjects.filter(s => s.teacher).map(s => s.teacher);
+      if (teacherIds.length && !(await validateUsers(teacherIds, 'teacher'))) {
+        return res.status(400).json({ success: false, message: 'Some assigned teachers are invalid' });
+      }
+    }
+
+    const updateData = {};
+    if (batchName !== undefined) updateData.batchName = batchName.trim();
+    if (classes !== undefined) {
+      updateData.classes = classes.filter(cls => cls?.trim()).map(cls => cls.trim());
+      if (!updateData.classes.length) {
+        return res.status(400).json({ success: false, message: 'At least one valid class required' });
+      }
+    }
+    if (subjects !== undefined) {
+      updateData.subjects = subjects.filter(s => s?.name?.trim()).map(s => ({
+        name: s.name.trim(),
+        teacher: s.teacher?.trim() || null
+      }));
+    }
+    if (category !== undefined) {
+      if (!['jee', 'neet', 'boards'].includes(category.toLowerCase())) {
+        return res.status(400).json({ success: false, message: 'Invalid category' });
+      }
+      updateData.category = category.toLowerCase();
+    }
+    if (schedule !== undefined) updateData.schedule = schedule?.trim() || '';
+    if (description !== undefined) updateData.description = description?.trim() || '';
+    if (isActive !== undefined) updateData.isActive = Boolean(isActive);
+
+    const updatedBatch = await Batch.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+      .populate('studentAssignments.student', 'name email')
+      .populate('subjects.teacher', 'name email')
+      .populate('createdBy', 'name email');
+
+    // Update student subject teachers when subjects change
+    if (subjects !== undefined) {
+      updatedBatch.updateStudentSubjectTeachers();
+      await updatedBatch.save();
+    }
+
+    res.json({ success: true, message: 'Batch updated successfully', data: updatedBatch });
+  } catch (error) {
+    console.error('Batch update error:', error);
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+
+    res.status(500).json({ success: false, message: 'Failed to update batch' });
+  }
+};
+
+// Delete batch
 const deleteBatch = async (req, res) => {
   try {
     const batch = await Batch.findById(req.params.id);
     if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
+      return res.status(404).json({ success: false, message: 'Batch not found' });
     }
 
     await Batch.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Batch deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to delete batch', error: error.message });
+  }
+};
+
+// Enhanced assign students with class and subject assignments
+const assignStudentsToBatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { studentAssignments } = req.body; // [{ student, assignedClasses, assignedSubjects }]
+
+    if (!Array.isArray(studentAssignments) || !studentAssignments.length) {
+      return res.status(400).json({ success: false, message: 'Student assignments array is required' });
+    }
+
+    const batch = await Batch.findById(id);
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'Batch not found' });
+    }
+
+    // Validate all student IDs
+    const studentIds = studentAssignments.map(a => a.student);
+    if (!(await validateUsers(studentIds, 'user'))) {
+      return res.status(400).json({ success: false, message: 'Some students are invalid' });
+    }
+
+    const addedCount = batch.addStudentAssignments(studentAssignments);
+    await batch.save();
+
+    const populatedBatch = await Batch.findById(id)
+      .populate('studentAssignments.student', 'name email')
+      .populate('studentAssignments.assignedSubjects.teacher', 'name email')
+      .populate('subjects.teacher', 'name email')
+      .populate('createdBy', 'name email');
+
     res.json({
       success: true,
-      message: 'Batch deleted successfully'
+      message: `${addedCount} students assigned successfully`,
+      data: populatedBatch
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete batch',
-      error: error.message
+    console.error('Student assignment error:', error);
+    res.status(500).json({ success: false, message: 'Failed to assign students' });
+  }
+};
+
+// NEW: Enhanced assign students endpoint (what the frontend is calling)
+const assignStudentsEnhanced = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { studentAssignments } = req.body;
+
+    console.log('Received assignment request:', { id, studentAssignments });
+
+    if (!Array.isArray(studentAssignments) || !studentAssignments.length) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Student assignments array is required and cannot be empty' 
+      });
+    }
+
+    const batch = await Batch.findById(id);
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'Batch not found' });
+    }
+
+    // Transform the frontend format to match the model expectations
+    const transformedAssignments = studentAssignments.map(assignment => {
+      // Handle both formats: { studentId, ... } and { student, ... }
+      const studentId = assignment.studentId || assignment.student;
+      
+      if (!studentId) {
+        throw new Error('Student ID is required for each assignment');
+      }
+
+      return {
+        student: studentId,
+        assignedClasses: assignment.assignedClasses || [],
+        assignedSubjects: assignment.assignedSubjects || []
+      };
+    });
+
+    console.log('Transformed assignments:', transformedAssignments);
+
+    // Validate all student IDs
+    const studentIds = transformedAssignments.map(a => a.student);
+    const validStudents = await User.find({ 
+      _id: { $in: studentIds }, 
+      role: 'user' 
+    });
+    
+    if (validStudents.length !== studentIds.length) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Some students are invalid or not found' 
+      });
+    }
+
+    // Check for already assigned students
+    const alreadyAssigned = transformedAssignments.filter(assignment => 
+      batch.hasStudent(assignment.student)
+    );
+
+    if (alreadyAssigned.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Some students are already assigned to this batch`,
+        details: alreadyAssigned.map(a => a.student)
+      });
+    }
+
+    const addedCount = batch.addStudentAssignments(transformedAssignments);
+    await batch.save();
+
+    const populatedBatch = await Batch.findById(id)
+      .populate('studentAssignments.student', 'name email')
+      .populate('studentAssignments.assignedSubjects.teacher', 'name email')
+      .populate('subjects.teacher', 'name email')
+      .populate('createdBy', 'name email');
+
+    res.json({
+      success: true,
+      message: `${addedCount} students assigned successfully`,
+      data: populatedBatch
+    });
+  } catch (error) {
+    console.error('Enhanced student assignment error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to assign students', 
+      error: error.message 
     });
   }
 };
 
+
+// Remove students from batch
+const removeStudentsFromBatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { studentIds } = req.body;
+
+    console.log('Received removal request:', { id, studentIds });
+
+    if (!Array.isArray(studentIds) || !studentIds.length) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Student IDs array is required and cannot be empty' 
+      });
+    }
+
+    const batch = await Batch.findById(id);
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'Batch not found' });
+    }
+
+    // Check if students are actually assigned to this batch
+    const assignedStudents = studentIds.filter(studentId => 
+      batch.hasStudent(studentId)
+    );
+
+    if (assignedStudents.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'None of the specified students are assigned to this batch'
+      });
+    }
+
+    const removedCount = batch.removeStudentAssignments(studentIds);
+    await batch.save();
+
+    const populatedBatch = await Batch.findById(id)
+      .populate('studentAssignments.student', 'name email')
+      .populate('studentAssignments.assignedSubjects.teacher', 'name email')
+      .populate('subjects.teacher', 'name email')
+      .populate('createdBy', 'name email');
+
+    res.json({
+      success: true,
+      message: `${removedCount} students removed successfully`,
+      data: populatedBatch,
+      details: {
+        requestedCount: studentIds.length,
+        removedCount: removedCount,
+        removedStudents: assignedStudents
+      }
+    });
+  } catch (error) {
+    console.error('Student removal error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to remove students', 
+      error: error.message 
+    });
+  }
+};
+
+
+// NEW: Enhanced teacher assignment endpoint
+const assignTeachersEnhanced = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { teacherAssignments } = req.body;
+
+    console.log('Received teacher assignment request:', { id, teacherAssignments });
+
+    if (!Array.isArray(teacherAssignments) || !teacherAssignments.length) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Teacher assignments array is required and cannot be empty' 
+      });
+    }
+
+    const batch = await Batch.findById(id);
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'Batch not found' });
+    }
+
+    // Transform the frontend format
+    const transformedAssignments = teacherAssignments.map(assignment => {
+      const teacherId = assignment.teacherId || assignment.teacher;
+      
+      if (!teacherId) {
+        throw new Error('Teacher ID is required for each assignment');
+      }
+
+      return {
+        teacherId: teacherId,
+        assignedSubjects: assignment.assignedSubjects || []
+      };
+    });
+
+    // Validate all teacher IDs
+    const teacherIds = transformedAssignments.map(a => a.teacherId);
+    const validTeachers = await User.find({ 
+      _id: { $in: teacherIds }, 
+      role: 'teacher' 
+    });
+    
+    if (validTeachers.length !== teacherIds.length) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Some teachers are invalid or not found' 
+      });
+    }
+
+    let assignedCount = 0;
+    const assignmentDetails = [];
+    
+    // Assign teachers to their selected subjects
+    transformedAssignments.forEach(assignment => {
+      assignment.assignedSubjects.forEach(subjectName => {
+        const subject = batch.subjects.find(s => s.name === subjectName);
+        if (subject) {
+          const previousTeacher = subject.teacher;
+          subject.teacher = assignment.teacherId;
+          assignedCount++;
+          assignmentDetails.push({
+            subject: subjectName,
+            teacher: assignment.teacherId,
+            previousTeacher: previousTeacher
+          });
+        }
+      });
+    });
+
+    if (assignedCount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid subject assignments were made'
+      });
+    }
+
+    // Update student subject teachers
+    batch.updateStudentSubjectTeachers();
+    await batch.save();
+
+    const populatedBatch = await Batch.findById(id)
+      .populate('studentAssignments.student', 'name email')
+      .populate('subjects.teacher', 'name email')
+      .populate('createdBy', 'name email');
+
+    res.json({
+      success: true,
+      message: `Teachers assigned to ${assignedCount} subjects successfully`,
+      data: populatedBatch,
+      details: assignmentDetails
+    });
+  } catch (error) {
+    console.error('Enhanced teacher assignment error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to assign teachers', 
+      error: error.message 
+    });
+  }
+};
+
+// Assign teacher to subject
 const assignTeacherToSubject = async (req, res) => {
   try {
     const { id, subjectId } = req.params;
@@ -420,35 +504,24 @@ const assignTeacherToSubject = async (req, res) => {
 
     const batch = await Batch.findById(id);
     if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
+      return res.status(404).json({ success: false, message: 'Batch not found' });
     }
 
     const subject = batch.subjects.id(subjectId);
     if (!subject) {
-      return res.status(404).json({
-        success: false,
-        message: 'Subject not found'
-      });
+      return res.status(404).json({ success: false, message: 'Subject not found' });
     }
 
-    if (teacherId) {
-      const teacher = await User.findById(teacherId);
-      if (!teacher || teacher.role !== 'teacher') {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid teacher ID'
-        });
-      }
+    if (teacherId && !(await validateUsers([teacherId], 'teacher'))) {
+      return res.status(400).json({ success: false, message: 'Invalid teacher ID' });
     }
 
     subject.teacher = teacherId || null;
+    batch.updateStudentSubjectTeachers(); // Update student assignments
     await batch.save();
 
     const populatedBatch = await Batch.findById(id)
-      .populate('students', 'name email')
+      .populate('studentAssignments.student', 'name email')
       .populate('subjects.teacher', 'name email')
       .populate('createdBy', 'name email');
 
@@ -458,102 +531,34 @@ const assignTeacherToSubject = async (req, res) => {
       data: populatedBatch
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign teacher to subject',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to assign teacher', error: error.message });
   }
 };
 
-const removeStudentsFromBatch = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { studentIds } = req.body;
-
-    const batch = await Batch.findById(id);
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    batch.students = batch.students.filter(
-      studentId => !studentIds.includes(studentId.toString())
-    );
-    
-    await batch.save();
-
-    const populatedBatch = await Batch.findById(id)
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email')
-      .populate('createdBy', 'name email');
-
-    res.json({
-      success: true,
-      message: 'Students removed successfully',
-      data: populatedBatch
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to remove students',
-      error: error.message
-    });
-  }
-};
-
+// Get eligible students
 const getEligibleStudents = async (req, res) => {
   try {
-    const batches = await Batch.find({}).select('students');
-    const assignedStudentIds = new Set();
-    
-    batches.forEach(batch => {
-      batch.students.forEach(studentId => {
-        assignedStudentIds.add(studentId.toString());
-      });
-    });
-
-    const students = await User.find({
-      role: 'user',
-      _id: { $nin: Array.from(assignedStudentIds) }
-    }).select('name email').sort({ name: 1 });
-
-    res.json({
-      success: true,
-      data: students,
-      count: students.length
-    });
+    const students = await Batch.findEligibleStudents();
+    res.json({ success: true, data: students, count: students.length });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch eligible students',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch eligible students', error: error.message });
   }
 };
 
+// Get all teachers
 const getAllTeachers = async (req, res) => {
   try {
     const teachers = await User.find({ role: 'teacher' })
       .select('name email')
       .sort({ name: 1 });
 
-    res.json({
-      success: true,
-      data: teachers,
-      count: teachers.length
-    });
+    res.json({ success: true, data: teachers, count: teachers.length });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch teachers',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch teachers', error: error.message });
   }
 };
 
+// Get batches by category
 const getBatchesByCategory = async (req, res) => {
   try {
     const { category } = req.params;
@@ -561,37 +566,22 @@ const getBatchesByCategory = async (req, res) => {
       category: category.toLowerCase(),
       isActive: true 
     })
-      .populate('students', 'name email')
+      .populate('studentAssignments.student', 'name email')
       .populate('subjects.teacher', 'name email')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
 
-    res.json({
-      success: true,
-      data: batches,
-      count: batches.length
-    });
+    res.json({ success: true, data: batches, count: batches.length });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch batches by category',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch batches', error: error.message });
   }
 };
 
+// Get teacher's batches
 const getTeacherBatches = async (req, res) => {
   try {
     const teacherId = req.user.id;
-    
-    const batches = await Batch.find({
-      'subjects.teacher': teacherId,
-      isActive: true
-    })
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email')
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 });
+    const batches = await Batch.findByTeacher(teacherId);
 
     const teacherBatches = batches.map(batch => ({
       ...batch.toObject(),
@@ -600,20 +590,13 @@ const getTeacherBatches = async (req, res) => {
       )
     }));
 
-    res.json({
-      success: true,
-      data: teacherBatches,
-      count: teacherBatches.length
-    });
+    res.json({ success: true, data: teacherBatches, count: teacherBatches.length });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch your assigned batches',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch your batches', error: error.message });
   }
 };
 
+// Get teacher's batch by ID
 const getTeacherBatchById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -624,7 +607,7 @@ const getTeacherBatchById = async (req, res) => {
       'subjects.teacher': teacherId,
       isActive: true
     })
-      .populate('students', 'name email')
+      .populate('studentAssignments.student', 'name email')
       .populate('subjects.teacher', 'name email')
       .populate('createdBy', 'name email');
 
@@ -642,248 +625,9 @@ const getTeacherBatchById = async (req, res) => {
       )
     };
 
-    res.json({
-      success: true,
-      data: teacherBatch
-    });
+    res.json({ success: true, data: teacherBatch });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch batch details',
-      error: error.message
-    });
-  }
-};
-
-const getStudentsWithAssignments = async (req, res) => {
-  try {
-    const { batchId } = req.params;
-    
-    const batch = await Batch.findById(batchId)
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email');
-
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    // Get all students (both assigned and eligible)
-    const allStudents = await User.find({ role: 'user' }).select('name email');
-    
-    // Map students with their assignment status
-    const studentsWithStatus = allStudents.map(student => {
-      const isAssigned = batch.students.some(assignedStudent => 
-        assignedStudent._id.toString() === student._id.toString()
-      );
-      
-      return {
-        ...student.toObject(),
-        isAssigned,
-        assignedClasses: isAssigned ? batch.classes : [],
-        assignedSubjects: isAssigned ? batch.subjects.map(s => s.name) : []
-      };
-    });
-
-    res.json({
-      success: true,
-      data: {
-        batch: batch,
-        students: studentsWithStatus,
-        availableClasses: batch.classes,
-        availableSubjects: batch.subjects
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching students with assignments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch students with assignments',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-    });
-  }
-};
-
-// Enhanced function to get teachers with their current assignments
-const getTeachersWithAssignments = async (req, res) => {
-  try {
-    const { batchId } = req.params;
-    
-    const batch = await Batch.findById(batchId)
-      .populate('subjects.teacher', 'name email');
-
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    // Get all teachers
-    const allTeachers = await User.find({ role: 'teacher' }).select('name email');
-    
-    // Map teachers with their current subject assignments
-    const teachersWithAssignments = allTeachers.map(teacher => {
-      const assignedSubjects = batch.subjects
-        .filter(subject => subject.teacher && subject.teacher._id.toString() === teacher._id.toString())
-        .map(subject => subject.name);
-      
-      return {
-        ...teacher.toObject(),
-        assignedSubjects,
-        isAssigned: assignedSubjects.length > 0
-      };
-    });
-
-    res.json({
-      success: true,
-      data: {
-        batch: batch,
-        teachers: teachersWithAssignments,
-        availableSubjects: batch.subjects
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching teachers with assignments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch teachers with assignments',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-    });
-  }
-};
-
-// Enhanced assign students function with class/subject specific assignment
-const assignStudentsToBatchEnhanced = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { studentAssignments } = req.body; // Array of {studentId, assignedClasses, assignedSubjects}
-
-    if (!Array.isArray(studentAssignments) || studentAssignments.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Student assignments array is required'
-      });
-    }
-
-    const batch = await Batch.findById(id);
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    // Validate all student IDs
-    const studentIds = studentAssignments.map(a => a.studentId);
-    const validStudents = await User.find({ 
-      _id: { $in: studentIds }, 
-      role: 'user' 
-    });
-
-    if (validStudents.length !== studentIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Some selected students are invalid or do not exist'
-      });
-    }
-
-    // Add students to batch (avoid duplicates)
-    const existingStudentIds = batch.students.map(s => s.toString());
-    const newStudentIds = studentIds.filter(id => !existingStudentIds.includes(id));
-    
-    batch.students.push(...newStudentIds);
-    await batch.save();
-
-    // Note: In a more complex system, you might want to store class/subject specific assignments
-    // in a separate collection or as embedded documents with more detail
-
-    const populatedBatch = await Batch.findById(id)
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email')
-      .populate('createdBy', 'name email');
-
-    res.json({
-      success: true,
-      message: `${newStudentIds.length} students assigned successfully`,
-      data: populatedBatch
-    });
-  } catch (error) {
-    console.error('Enhanced student assignment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign students',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-    });
-  }
-};
-
-// Enhanced assign teachers to subjects
-const assignTeachersToSubjectsEnhanced = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { teacherAssignments } = req.body; // Array of {teacherId, assignedSubjects}
-
-    if (!Array.isArray(teacherAssignments) || teacherAssignments.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Teacher assignments array is required'
-      });
-    }
-
-    const batch = await Batch.findById(id);
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    // Validate all teacher IDs
-    const teacherIds = teacherAssignments.map(a => a.teacherId);
-    const validTeachers = await User.find({ 
-      _id: { $in: teacherIds }, 
-      role: 'teacher' 
-    });
-
-    if (validTeachers.length !== teacherIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Some selected teachers are invalid or do not exist'
-      });
-    }
-
-    // Update subject assignments
-    teacherAssignments.forEach(assignment => {
-      assignment.assignedSubjects.forEach(subjectName => {
-        const subject = batch.subjects.find(s => s.name === subjectName);
-        if (subject) {
-          subject.teacher = assignment.teacherId;
-        }
-      });
-    });
-
-    await batch.save();
-
-    const populatedBatch = await Batch.findById(id)
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email')
-      .populate('createdBy', 'name email');
-
-    res.json({
-      success: true,
-      message: 'Teachers assigned to subjects successfully',
-      data: populatedBatch
-    });
-  } catch (error) {
-    console.error('Enhanced teacher assignment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign teachers to subjects',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch batch', error: error.message });
   }
 };
 
@@ -893,43 +637,114 @@ const getBatchStatistics = async (req, res) => {
     const { id } = req.params;
     
     const batch = await Batch.findById(id)
-      .populate('students', 'name email')
-      .populate('subjects.teacher', 'name email')
-      .populate('createdBy', 'name email');
+      .populate('studentAssignments.student', 'name email')
+      .populate('subjects.teacher', 'name email');
 
     if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
+      return res.status(404).json({ success: false, message: 'Batch not found' });
     }
 
     const statistics = {
-      totalStudents: batch.students.length,
-      totalSubjects: batch.subjects.length,
+      totalStudents: batch.studentCount,
+      totalSubjects: batch.subjectCount,
       totalClasses: batch.classes.length,
       assignedTeachers: batch.subjects.filter(s => s.teacher).length,
       unassignedSubjects: batch.subjects.filter(s => !s.teacher).length,
-      isActive: batch.isActive
+      isActive: batch.isActive,
+      studentDetails: batch.getStudentDetails()
     };
+
+    res.json({ success: true, data: { batch, statistics } });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch statistics', error: error.message });
+  }
+};
+
+// FIXED: Get students with their assignment details
+const getStudentsWithAssignments = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    
+    const batch = await Batch.findById(batchId)
+      .populate('studentAssignments.student', 'name email')
+      .populate('studentAssignments.assignedSubjects.teacher', 'name email')
+      .populate('subjects.teacher', 'name email');
+
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'Batch not found' });
+    }
+
+    const allStudents = await User.find({ role: 'user' }).select('name email');
+    
+    const studentsWithStatus = allStudents.map(student => {
+      const assignment = batch.studentAssignments.find(a => 
+        a.student._id.toString() === student._id.toString()
+      );
+      
+      return {
+        ...student.toObject(),
+        isAssigned: !!assignment,
+        assignedClasses: assignment?.assignedClasses || [],
+        assignedSubjects: assignment?.assignedSubjects?.map(s => s.subjectName) || [],
+        enrolledAt: assignment?.enrolledAt
+      };
+    });
 
     res.json({
       success: true,
       data: {
         batch,
-        statistics
+        students: studentsWithStatus,
+        availableClasses: batch.classes,
+        availableSubjects: batch.subjects,
+        statistics: {
+          totalStudents: batch.studentCount,
+          totalSubjects: batch.subjectCount,
+          totalClasses: batch.classes.length,
+          assignedTeachers: batch.subjects.filter(s => s.teacher).length,
+          unassignedSubjects: batch.subjects.filter(s => !s.teacher).length,
+          isActive: batch.isActive
+        }
       }
     });
   } catch (error) {
-    console.error('Error fetching batch statistics:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch batch statistics',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-    });
+    console.error('Error in getStudentsWithAssignments:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch student assignments' });
   }
 };
 
+// NEW: Get teachers with assignment data
+const getTeachersWithAssignments = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    
+    const batch = await Batch.findById(batchId)
+      .populate('subjects.teacher', 'name email');
+
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'Batch not found' });
+    }
+
+    const allTeachers = await User.find({ role: 'teacher' }).select('name email');
+    
+    res.json({
+      success: true,
+      data: {
+        batch,
+        teachers: allTeachers,
+        availableSubjects: batch.subjects,
+        statistics: {
+          totalSubjects: batch.subjectCount,
+          assignedTeachers: batch.subjects.filter(s => s.teacher).length,
+          unassignedSubjects: batch.subjects.filter(s => !s.teacher).length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error in getTeachersWithAssignments:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch teacher assignments' });
+  }
+};
 
 module.exports = {
   createBatch,
@@ -938,17 +753,16 @@ module.exports = {
   updateBatch,
   deleteBatch,
   assignStudentsToBatch,
-  assignTeacherToSubject,
+  assignStudentsEnhanced, // NEW
   removeStudentsFromBatch,
+  assignTeachersEnhanced, // NEW
+  assignTeacherToSubject,
   getEligibleStudents,
   getAllTeachers,
   getBatchesByCategory,
   getTeacherBatches,
   getTeacherBatchById,
-  
+  getBatchStatistics,
   getStudentsWithAssignments,
-  getTeachersWithAssignments,
-  assignStudentsToBatchEnhanced,
-  assignTeachersToSubjectsEnhanced,
-  getBatchStatistics
+  getTeachersWithAssignments // NEW
 };

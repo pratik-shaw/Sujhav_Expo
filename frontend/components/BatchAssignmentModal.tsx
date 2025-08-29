@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, FlatList, TouchableOpacity, TextInput,
   Alert, SafeAreaView, StyleSheet, ScrollView, ActivityIndicator,
-  RefreshControl, StatusBar
+  RefreshControl, StatusBar, GestureResponderEvent
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from '../config/api';
@@ -20,24 +20,29 @@ const BRAND = {
   infoColor: '#2196f3',
 };
 
-// Use the same API base URL as the main screen
 const API_BASE_URL = API_BASE;
 
-// Create a timeout wrapper for fetch that works in React Native with proper types
-const fetchWithTimeout = (url: string, options: RequestInit, timeoutMs: number = 10000): Promise<Response> => {
+// Enhanced timeout wrapper with proper typing
+const fetchWithTimeout = (url: string, options: RequestInit, timeoutMs: number = 15000): Promise<Response> => {
   return new Promise((resolve, reject) => {
+    const controller = new AbortController();
     const timeoutId = setTimeout(() => {
+      controller.abort();
       reject(new Error('Request timeout'));
     }, timeoutMs);
 
-    fetch(url, options)
-      .then((response: Response) => {
+    fetch(url, { ...options, signal: controller.signal })
+      .then((response) => {
         clearTimeout(timeoutId);
         resolve(response);
       })
-      .catch((error: Error) => {
+      .catch((error) => {
         clearTimeout(timeoutId);
-        reject(error);
+        if (error.name === 'AbortError') {
+          reject(new Error('Request timeout'));
+        } else {
+          reject(error);
+        }
       });
   });
 };
@@ -50,6 +55,7 @@ interface User {
   isAssigned?: boolean;
   assignedClasses?: string[];
   assignedSubjects?: string[];
+  enrolledAt?: string;
 }
 
 interface Subject {
@@ -104,6 +110,17 @@ interface BatchAssignmentModalProps {
   type: 'assign_students' | 'remove_students' | 'assign_teachers' | 'view_assignments';
   onAssign?: (assignments: StudentAssignment[] | TeacherAssignment[]) => void;
   onRemove?: (userIds: string[]) => void;
+  onSuccess?: () => void; // Added for refresh callback
+}
+
+interface ApiResponse {
+  success: boolean;
+  data?: BatchData;
+  message?: string;
+}
+
+interface ApiError {
+  message?: string;
 }
 
 export default function BatchAssignmentModal({
@@ -112,16 +129,18 @@ export default function BatchAssignmentModal({
   batch,
   type,
   onAssign,
-  onRemove
+  onRemove,
+  onSuccess
 }: BatchAssignmentModalProps) {
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState<string>('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [studentAssignments, setStudentAssignments] = useState<Record<string, StudentAssignment>>({});
   const [teacherAssignments, setTeacherAssignments] = useState<Record<string, TeacherAssignment>>({});
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [batchData, setBatchData] = useState<BatchData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [networkRetryCount, setNetworkRetryCount] = useState<number>(0);
 
   useEffect(() => {
     if (visible && batch) {
@@ -130,19 +149,25 @@ export default function BatchAssignmentModal({
     }
   }, [visible, type, batch?._id]);
 
-  // Get auth headers using the same method as the main screen
   const getAuthHeaders = async (): Promise<Record<string, string>> => {
     try {
-      const token = await AsyncStorage.getItem('authToken') || 
-                    await AsyncStorage.getItem('token') || 
-                    await AsyncStorage.getItem('userToken') ||
-                    await AsyncStorage.getItem('accessToken');
+      const tokenKeys = ['authToken', 'token', 'userToken', 'accessToken'];
+      let token: string | null = null;
+      
+      for (const key of tokenKeys) {
+        token = await AsyncStorage.getItem(key);
+        if (token) break;
+      }
       
       const headers: Record<string, string> = { 
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       return headers;
     } catch (error) {
       console.error('Error getting auth headers:', error);
@@ -159,9 +184,10 @@ export default function BatchAssignmentModal({
     setStudentAssignments({});
     setTeacherAssignments({});
     setError(null);
+    setNetworkRetryCount(0);
   };
 
-  const loadBatchData = async () => {
+  const loadBatchData = async (retryCount: number = 0) => {
     if (!batch?._id) return;
     
     setLoading(true);
@@ -171,7 +197,6 @@ export default function BatchAssignmentModal({
       const headers = await getAuthHeaders();
       let endpoint = '';
       
-      // Construct proper endpoint URLs
       switch (type) {
         case 'assign_students':
         case 'remove_students':
@@ -185,49 +210,66 @@ export default function BatchAssignmentModal({
           throw new Error('Invalid assignment type');
       }
 
-      console.log('Making request to:', endpoint);
+      console.log('Loading data from:', endpoint);
 
-      // Use the React Native compatible timeout wrapper with proper typing
-      const response: Response = await fetchWithTimeout(endpoint, {
+      const response = await fetchWithTimeout(endpoint, {
         method: 'GET',
         headers,
-      }, 10000); // 10 second timeout
+      }, 15000);
 
-      console.log('Response status:', response.status);
-      console.log('Response ok:', response.ok);
+      console.log('Response status:', response.status, response.statusText);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.log('Error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText || 'Request failed'}`);
+        console.error('Error response:', errorText);
+        
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please login again.');
+        } else if (response.status === 403) {
+          throw new Error('Access denied. Administrator privileges required.');
+        } else if (response.status === 404) {
+          throw new Error('Batch not found or endpoint unavailable.');
+        } else if (response.status >= 500) {
+          throw new Error('Server error. Please try again later.');
+        } else {
+          throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+        }
       }
 
-      const data = await response.json();
-      console.log('Response data:', data);
+      const data: ApiResponse = await response.json();
+      console.log('Received data structure:', JSON.stringify(data, null, 2));
       
-      if (data.success) {
+      if (data.success && data.data) {
         setBatchData(data.data);
+        setNetworkRetryCount(0); // Reset retry count on success
       } else {
-        throw new Error(data.message || 'Failed to load data');
+        throw new Error(data.message || 'Failed to load batch data');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error loading batch data:', error);
-      let errorMessage = 'Network error occurred';
       
-      if (error.message === 'Request timeout') {
-        errorMessage = 'Request timed out. Please try again.';
-      } else if (error.message.includes('Network request failed')) {
-        errorMessage = 'Cannot connect to server. Please check your internet connection.';
-      } else if (error.message.includes('404')) {
-        errorMessage = 'API endpoint not found. Please verify the server routes.';
-      } else if (error.message.includes('401')) {
-        errorMessage = 'Authentication failed. Please login again.';
-      } else if (error.message.includes('403')) {
-        errorMessage = 'Access denied. Administrator privileges required.';
-      } else if (error.message.includes('500')) {
-        errorMessage = 'Server error. Please try again later.';
-      } else if (error.message) {
-        errorMessage = error.message;
+      let errorMessage = 'Failed to load data';
+      const err = error as Error;
+      
+      if (err.message === 'Request timeout') {
+        errorMessage = 'Request timed out. Please check your connection and try again.';
+      } else if (err.message.includes('Network request failed') || err.message.includes('fetch')) {
+        errorMessage = 'Network error. Please check your internet connection.';
+        // Auto-retry network errors up to 2 times
+        if (retryCount < 2) {
+          console.log(`Retrying network request, attempt ${retryCount + 1}`);
+          setTimeout(() => {
+            setNetworkRetryCount(retryCount + 1);
+            loadBatchData(retryCount + 1);
+          }, 2000 * (retryCount + 1)); // Progressive backoff
+          return;
+        }
+      } else if (err.message.includes('Authentication failed')) {
+        errorMessage = 'Please login again to continue.';
+      } else if (err.message.includes('Access denied')) {
+        errorMessage = 'You do not have permission to perform this action.';
+      } else {
+        errorMessage = err.message || 'An unexpected error occurred';
       }
       
       setError(errorMessage);
@@ -238,6 +280,7 @@ export default function BatchAssignmentModal({
 
   const onRefresh = async () => {
     setRefreshing(true);
+    setError(null);
     await loadBatchData();
     setRefreshing(false);
   };
@@ -252,7 +295,7 @@ export default function BatchAssignmentModal({
     }
   };
 
-  const getUsers = () => {
+  const getUsers = (): User[] => {
     if (!batchData) return [];
     
     switch (type) {
@@ -268,7 +311,7 @@ export default function BatchAssignmentModal({
     }
   };
 
-  const filteredUsers = getUsers().filter(user =>
+  const filteredUsers = getUsers().filter((user: User) =>
     user.name.toLowerCase().includes(searchText.toLowerCase()) ||
     user.email.toLowerCase().includes(searchText.toLowerCase())
   );
@@ -327,7 +370,7 @@ export default function BatchAssignmentModal({
         [studentId]: {
           ...assignment,
           assignedClasses: isSelected
-            ? assignment.assignedClasses.filter(c => c !== className)
+            ? assignment.assignedClasses.filter((c: string) => c !== className)
             : [...assignment.assignedClasses, className]
         }
       };
@@ -346,7 +389,7 @@ export default function BatchAssignmentModal({
           [userId]: {
             ...assignment,
             assignedSubjects: isSelected
-              ? assignment.assignedSubjects.filter(s => s !== subjectName)
+              ? assignment.assignedSubjects.filter((s: string) => s !== subjectName)
               : [...assignment.assignedSubjects, subjectName]
           }
         };
@@ -362,7 +405,7 @@ export default function BatchAssignmentModal({
           [userId]: {
             ...assignment,
             assignedSubjects: isSelected
-              ? assignment.assignedSubjects.filter(s => s !== subjectName)
+              ? assignment.assignedSubjects.filter((s: string) => s !== subjectName)
               : [...assignment.assignedSubjects, subjectName]
           }
         };
@@ -379,13 +422,10 @@ export default function BatchAssignmentModal({
     setLoading(true);
     try {
       if (type === 'remove_students') {
-        if (onRemove) {
-          await onRemove(selectedUsers);
-        }
+        await removeStudents(selectedUsers);
       } else if (type === 'assign_students') {
-        // Fixed: Use the enhanced assignment endpoint
         const assignments = Object.values(studentAssignments);
-        const invalidAssignments = assignments.filter(a => 
+        const invalidAssignments = assignments.filter((a: StudentAssignment) => 
           a.assignedClasses.length === 0 && a.assignedSubjects.length === 0
         );
         
@@ -394,32 +434,37 @@ export default function BatchAssignmentModal({
           return;
         }
         
-        // Make the API call directly here instead of relying on onAssign
         await assignStudentsEnhanced(assignments);
       } else if (type === 'assign_teachers') {
-        // Fixed: Use the enhanced assignment endpoint
         const assignments = Object.values(teacherAssignments);
-        const invalidAssignments = assignments.filter(a => a.assignedSubjects.length === 0);
+        const invalidAssignments = assignments.filter((a: TeacherAssignment) => a.assignedSubjects.length === 0);
         
         if (invalidAssignments.length > 0) {
           Alert.alert('Error', 'Please assign at least one subject to each selected teacher');
           return;
         }
         
-        // Make the API call directly here instead of relying on onAssign
         await assignTeachersEnhanced(assignments);
       }
       
-      onClose();
-    } catch (error) {
+      // Call success callback to refresh parent component
+      if (onSuccess) {
+        onSuccess();
+      }
+      
+      Alert.alert('Success', 'Assignment completed successfully', [
+        { text: 'OK', onPress: onClose }
+      ]);
+      
+    } catch (error: unknown) {
       console.error('Assignment error:', error);
-      Alert.alert('Error', 'Failed to complete assignment');
+      const err = error as Error;
+      Alert.alert('Error', err.message || 'Failed to complete assignment');
     } finally {
       setLoading(false);
     }
   };
 
-  // Fixed: Add the enhanced assignment functions
   const assignStudentsEnhanced = async (assignments: StudentAssignment[]) => {
     if (!batch?._id) throw new Error('Batch ID is required');
     
@@ -431,17 +476,60 @@ export default function BatchAssignmentModal({
         headers,
         body: JSON.stringify({ studentAssignments: assignments })
       },
-      10000
+      15000
     );
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Assignment failed: ${errorText}`);
+      let errorMessage = `Assignment failed: ${response.status}`;
+      
+      try {
+        const errorData: ApiError = JSON.parse(errorText);
+        errorMessage = errorData.message || errorMessage;
+      } catch (e) {
+        // Keep default error message if JSON parsing fails
+      }
+      
+      throw new Error(errorMessage);
     }
 
-    const result = await response.json();
+    const result: ApiResponse = await response.json();
     if (!result.success) {
       throw new Error(result.message || 'Assignment failed');
+    }
+  };
+
+  const removeStudents = async (studentIds: string[]) => {
+    if (!batch?._id) throw new Error('Batch ID is required');
+    
+    const headers = await getAuthHeaders();
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}/batches/${batch._id}/remove-students`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ studentIds })
+      },
+      15000
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = `Removal failed: ${response.status}`;
+      
+      try {
+        const errorData: ApiError = JSON.parse(errorText);
+        errorMessage = errorData.message || errorMessage;
+      } catch (e) {
+        // Keep default error message
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    const result: ApiResponse = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || 'Removal failed');
     }
   };
 
@@ -456,17 +544,26 @@ export default function BatchAssignmentModal({
         headers,
         body: JSON.stringify({ teacherAssignments: assignments })
       },
-      10000
+      15000
     );
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Assignment failed: ${errorText}`);
+      let errorMessage = `Teacher assignment failed: ${response.status}`;
+      
+      try {
+        const errorData: ApiError = JSON.parse(errorText);
+        errorMessage = errorData.message || errorMessage;
+      } catch (e) {
+        // Keep default error message
+      }
+      
+      throw new Error(errorMessage);
     }
 
-    const result = await response.json();
+    const result: ApiResponse = await response.json();
     if (!result.success) {
-      throw new Error(result.message || 'Assignment failed');
+      throw new Error(result.message || 'Teacher assignment failed');
     }
   };
 
@@ -478,22 +575,29 @@ export default function BatchAssignmentModal({
         <Text style={styles.statisticsTitle}>Batch Statistics</Text>
         <View style={styles.statisticsRow}>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{batchData.statistics.totalStudents}</Text>
+            <Text style={styles.statNumber}>{batchData.statistics.totalStudents || 0}</Text>
             <Text style={styles.statLabel}>Students</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{batchData.statistics.assignedTeachers}</Text>
+            <Text style={styles.statNumber}>{batchData.statistics.assignedTeachers || 0}</Text>
             <Text style={styles.statLabel}>Teachers</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{batchData.statistics.totalSubjects}</Text>
+            <Text style={styles.statNumber}>{batchData.statistics.totalSubjects || 0}</Text>
             <Text style={styles.statLabel}>Subjects</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{batchData.statistics.totalClasses}</Text>
+            <Text style={styles.statNumber}>{batchData.statistics.totalClasses || 0}</Text>
             <Text style={styles.statLabel}>Classes</Text>
           </View>
         </View>
+        {batchData.statistics.unassignedSubjects > 0 && (
+          <View style={styles.warningContainer}>
+            <Text style={styles.warningText}>
+              {batchData.statistics.unassignedSubjects} subject(s) without teachers
+            </Text>
+          </View>
+        )}
       </View>
     );
   };
@@ -533,6 +637,14 @@ export default function BatchAssignmentModal({
                     <Text style={styles.assignmentText}>{item.assignedSubjects.join(', ')}</Text>
                   </View>
                 )}
+                {item.enrolledAt && (
+                  <View style={styles.assignmentInfo}>
+                    <Text style={styles.assignmentLabel}>Enrolled: </Text>
+                    <Text style={styles.assignmentText}>
+                      {new Date(item.enrolledAt).toLocaleDateString()}
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
           </View>
@@ -548,7 +660,7 @@ export default function BatchAssignmentModal({
               <View style={styles.assignmentSection}>
                 <Text style={styles.assignmentTitle}>Classes:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {batchData.availableClasses.map((className, index) => (
+                  {batchData.availableClasses.map((className: string, index: number) => (
                     <TouchableOpacity
                       key={index}
                       style={[
@@ -573,7 +685,7 @@ export default function BatchAssignmentModal({
               <View style={styles.assignmentSection}>
                 <Text style={styles.assignmentTitle}>Subjects:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {batchData.availableSubjects.map((subject, index) => {
+                  {batchData.availableSubjects.map((subject: Subject, index: number) => {
                     const currentAssignment = type === 'assign_teachers' ? teacherAssignment : studentAssignment;
                     return (
                       <TouchableOpacity
@@ -607,7 +719,9 @@ export default function BatchAssignmentModal({
       return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={BRAND.primaryColor} />
-          <Text style={styles.loadingText}>Loading data...</Text>
+          <Text style={styles.loadingText}>
+            {networkRetryCount > 0 ? `Retrying... (${networkRetryCount}/2)` : 'Loading data...'}
+          </Text>
         </View>
       );
     }
@@ -616,7 +730,7 @@ export default function BatchAssignmentModal({
       return (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadBatchData}>
+          <TouchableOpacity style={styles.retryButton} onPress={() => loadBatchData()}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -632,6 +746,11 @@ export default function BatchAssignmentModal({
              type === 'assign_teachers' ? 'No teachers found' :
              'No assignments found'}
           </Text>
+          {!batchData && (
+            <TouchableOpacity style={styles.retryButton} onPress={() => loadBatchData()}>
+              <Text style={styles.retryButtonText}>Load Data</Text>
+            </TouchableOpacity>
+          )}
         </View>
       );
     }
@@ -653,6 +772,10 @@ export default function BatchAssignmentModal({
         showsVerticalScrollIndicator={false}
       />
     );
+  };
+
+  const handleButtonPress = () => {
+    handleAssign();
   };
 
   return (
@@ -728,9 +851,9 @@ export default function BatchAssignmentModal({
               <TouchableOpacity
                 style={[
                   styles.confirmButton,
-                  selectedUsers.length === 0 && styles.confirmButtonDisabled
+                  (selectedUsers.length === 0 || loading) && styles.confirmButtonDisabled
                 ]}
-                onPress={handleAssign}
+                onPress={handleButtonPress}
                 disabled={loading || selectedUsers.length === 0}
               >
                 {loading ? (
@@ -794,29 +917,32 @@ const styles = StyleSheet.create({
   },
   batchCategory: {
     fontSize: 14,
-    color: '#ccc',
-    marginTop: 5,
+    color: '#aaa',
+    marginTop: 4,
   },
   errorBanner: {
     backgroundColor: BRAND.errorColor,
-    padding: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     marginHorizontal: 20,
-    marginVertical: 10,
+    marginTop: 10,
     borderRadius: 8,
   },
   errorBannerText: {
     color: '#fff',
-    textAlign: 'center',
     fontSize: 14,
+    textAlign: 'center',
   },
   statisticsContainer: {
     paddingHorizontal: 20,
     paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.accentColor,
   },
   statisticsTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: BRAND.primaryColor,
     marginBottom: 10,
   },
   statisticsRow: {
@@ -827,40 +953,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: BRAND.primaryColor,
+    color: '#fff',
   },
   statLabel: {
     fontSize: 12,
-    color: '#ccc',
+    color: '#aaa',
     marginTop: 2,
+  },
+  warningContainer: {
+    backgroundColor: BRAND.warningColor,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginTop: 10,
+  },
+  warningText: {
+    color: '#fff',
+    fontSize: 12,
+    textAlign: 'center',
   },
   searchContainer: {
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 15,
   },
   searchInput: {
     backgroundColor: BRAND.accentColor,
-    borderRadius: 8,
-    paddingHorizontal: 15,
+    borderRadius: 25,
+    paddingHorizontal: 20,
     paddingVertical: 12,
-    color: '#fff',
     fontSize: 16,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: BRAND.primaryColor,
   },
   selectionSummary: {
     paddingHorizontal: 20,
     paddingVertical: 10,
     backgroundColor: BRAND.accentColor,
-    marginHorizontal: 20,
-    borderRadius: 8,
-    marginBottom: 10,
   },
   selectionText: {
     color: BRAND.primaryColor,
-    textAlign: 'center',
     fontSize: 14,
-    fontWeight: '500',
+    textAlign: 'center',
   },
   contentContainer: {
     flex: 1,
@@ -869,43 +1005,47 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 50,
   },
   loadingText: {
-    color: '#ccc',
+    color: '#aaa',
+    fontSize: 16,
     marginTop: 10,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 40,
   },
   errorText: {
     color: BRAND.errorColor,
-    textAlign: 'center',
     fontSize: 16,
+    textAlign: 'center',
     marginBottom: 20,
   },
   retryButton: {
     backgroundColor: BRAND.primaryColor,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 8,
   },
   retryButtonText: {
     color: BRAND.secondaryColor,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 40,
   },
   emptyText: {
-    color: '#ccc',
-    textAlign: 'center',
+    color: '#aaa',
     fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
   },
   listContainer: {
     paddingBottom: 20,
@@ -916,33 +1056,33 @@ const styles = StyleSheet.create({
   },
   userItem: {
     backgroundColor: BRAND.accentColor,
-    borderRadius: 8,
-    padding: 15,
+    borderRadius: 12,
+    padding: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   userItemSelected: {
-    backgroundColor: BRAND.primaryColor + '20',
-    borderWidth: 2,
     borderColor: BRAND.primaryColor,
+    backgroundColor: `${BRAND.primaryColor}20`,
   },
   userItemAssigned: {
-    backgroundColor: BRAND.successColor + '20',
-    borderWidth: 1,
     borderColor: BRAND.successColor,
+    backgroundColor: `${BRAND.successColor}20`,
   },
   userInfo: {
     flex: 1,
   },
   userName: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+    color: '#fff',
   },
   userEmail: {
-    color: '#ccc',
     fontSize: 14,
+    color: '#aaa',
     marginTop: 2,
   },
   currentAssignments: {
@@ -950,52 +1090,53 @@ const styles = StyleSheet.create({
   },
   assignmentInfo: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     marginTop: 4,
   },
   assignmentLabel: {
-    color: BRAND.primaryColor,
     fontSize: 12,
+    color: BRAND.primaryColor,
     fontWeight: 'bold',
   },
   assignmentText: {
-    color: '#ccc',
     fontSize: 12,
+    color: '#ccc',
     flex: 1,
   },
   selectionCheck: {
+    fontSize: 20,
     color: BRAND.primaryColor,
-    fontSize: 18,
     fontWeight: 'bold',
   },
   assignedBadge: {
-    color: BRAND.successColor,
     fontSize: 10,
+    color: BRAND.successColor,
     fontWeight: 'bold',
-    backgroundColor: BRAND.successColor + '20',
+    backgroundColor: `${BRAND.successColor}30`,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
+    borderRadius: 12,
   },
   assignmentContainer: {
-    backgroundColor: BRAND.backgroundColor,
-    borderRadius: 8,
-    padding: 15,
-    marginTop: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
   },
   assignmentSection: {
-    marginBottom: 15,
+    marginBottom: 12,
   },
   assignmentTitle: {
-    color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+    color: BRAND.primaryColor,
     marginBottom: 8,
   },
   assignmentChip: {
-    backgroundColor: BRAND.accentColor,
+    backgroundColor: '#333',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     marginRight: 8,
     borderWidth: 1,
     borderColor: 'transparent',
@@ -1005,8 +1146,8 @@ const styles = StyleSheet.create({
     borderColor: BRAND.primaryColor,
   },
   assignmentChipText: {
-    color: '#ccc',
     fontSize: 12,
+    color: '#fff',
   },
   assignmentChipTextSelected: {
     color: BRAND.secondaryColor,
@@ -1021,30 +1162,27 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor,
+    backgroundColor: '#333',
+    paddingVertical: 15,
     borderRadius: 8,
-    paddingVertical: 12,
     marginRight: 10,
     alignItems: 'center',
   },
   cancelButtonText: {
-    color: BRAND.primaryColor,
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
   confirmButton: {
     flex: 1,
     backgroundColor: BRAND.primaryColor,
+    paddingVertical: 15,
     borderRadius: 8,
-    paddingVertical: 12,
     marginLeft: 10,
     alignItems: 'center',
   },
   confirmButtonDisabled: {
-    backgroundColor: BRAND.accentColor,
-    opacity: 0.5,
+    backgroundColor: '#555',
   },
   confirmButtonText: {
     color: BRAND.secondaryColor,
