@@ -27,6 +27,7 @@ type TeacherTestListRouteProp = {
   name: string;
   params: {
     batchId: string;
+    subjectName?: string; // Added optional subject name
   };
 };
 
@@ -43,7 +44,6 @@ const BRAND = {
 
 const API_BASE_URL = API_BASE;
 
-
 interface Test {
   _id: string;
   testTitle: string;
@@ -51,6 +51,8 @@ interface Test {
   instructions: string;
   dueDate: Date | null;
   isActive: boolean;
+  className: string; // Added className field
+  subjectName: string; // Added subjectName field
   batch: {
     _id: string;
     batchName: string;
@@ -73,23 +75,27 @@ interface Test {
   };
   createdAt: string;
   updatedAt: string;
+  hasQuestionPdf?: boolean;
+  hasAnswerPdf?: boolean;
 }
 
 interface TestListResponse {
   success: boolean;
   data: Test[];
   message: string;
+  count: number; // Added count field
 }
 
 export default function TeacherTestListScreen() {
   const navigation = useNavigation<TeacherTestListNavigationProp>();
   const route = useRoute<TeacherTestListRouteProp>();
-  const { batchId } = route.params;
+  const { batchId, subjectName } = route.params;
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tests, setTests] = useState<Test[]>([]);
   const [batchName, setBatchName] = useState('');
+  const [currentSubject, setCurrentSubject] = useState(subjectName || '');
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -102,7 +108,7 @@ export default function TeacherTestListScreen() {
   useEffect(() => {
     fetchTests();
     startEntranceAnimation();
-  }, [batchId]);
+  }, [batchId, subjectName]);
 
   const fetchTests = async () => {
     try {
@@ -114,7 +120,18 @@ export default function TeacherTestListScreen() {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/tests/batch/${batchId}`, {
+      let url: string;
+      
+      // Fix: Check if subjectName actually exists and is not undefined
+      if (subjectName && subjectName !== 'undefined') {
+        // Fetch tests for specific batch and subject
+        url = `${API_BASE_URL}/tests/batch/${batchId}/subject/${encodeURIComponent(subjectName)}`;
+      } else {
+        // Fetch all teacher's tests - you might want to filter by batch on frontend
+        url = `${API_BASE_URL}/tests/my-tests`;
+      }
+
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -125,9 +142,20 @@ export default function TeacherTestListScreen() {
       const data: TestListResponse = await response.json();
       
       if (data.success) {
-        setTests(data.data);
-        if (data.data.length > 0) {
-          setBatchName(data.data[0].batch.batchName);
+        let filteredTests = data.data;
+        
+        // If no subject specified but we have batchId, filter by batch
+        if ((!subjectName || subjectName === 'undefined') && batchId) {
+          filteredTests = data.data.filter(test => test.batch._id === batchId);
+        }
+        
+        setTests(filteredTests);
+        if (filteredTests.length > 0) {
+          setBatchName(filteredTests[0].batch.batchName);
+          // Fix: Only set currentSubject if we have a valid subjectName
+          if (!currentSubject && filteredTests[0].subjectName && subjectName && subjectName !== 'undefined') {
+            setCurrentSubject(filteredTests[0].subjectName);
+          }
         }
       } else {
         Alert.alert('Error', data.message || 'Failed to fetch tests');
@@ -204,24 +232,30 @@ export default function TeacherTestListScreen() {
     });
   };
 
-  const getTestStats = (test: Test) => {
-  const totalStudents = test.assignedStudents.length;
-  const submittedStudents = test.assignedStudents.filter(s => s.submittedAt);
-  const submittedCount = submittedStudents.length;
-  
-  // Only count evaluations for students who have actually submitted
-  const evaluatedCount = submittedStudents.filter(s => s.evaluatedAt).length;
-  
-  // Pending count should be submitted but not evaluated
-  const pendingCount = submittedCount - evaluatedCount;
-  
-  return {
-    totalStudents,
-    submittedCount,
-    evaluatedCount,
-    pendingCount: Math.max(0, pendingCount), // Ensure it's never negative
+  const handleCreateTest = () => {
+    navigation.navigate('TeacherHandleTestScreen', { 
+      batchId,
+    });
   };
-};
+
+  const getTestStats = (test: Test) => {
+    const totalStudents = test.assignedStudents.length;
+    const submittedStudents = test.assignedStudents.filter(s => s.submittedAt);
+    const submittedCount = submittedStudents.length;
+    
+    // Only count evaluations for students who have actually submitted
+    const evaluatedCount = submittedStudents.filter(s => s.evaluatedAt).length;
+    
+    // Pending count should be submitted but not evaluated
+    const pendingCount = submittedCount - evaluatedCount;
+    
+    return {
+      totalStudents,
+      submittedCount,
+      evaluatedCount,
+      pendingCount: Math.max(0, pendingCount), // Ensure it's never negative
+    };
+  };
 
   const renderTestCard = ({ item }: { item: Test }) => {
     const stats = getTestStats(item);
@@ -244,6 +278,8 @@ export default function TeacherTestListScreen() {
               <Text style={styles.testTitle}>{item.testTitle}</Text>
               <View style={styles.testMeta}>
                 <Text style={styles.testMarks}>{item.fullMarks} marks</Text>
+                <Text style={styles.testClass}>Class: {item.className}</Text>
+                <Text style={styles.testSubject}>{item.subjectName}</Text>
                 <Text style={[
                   styles.testStatus,
                   { color: item.isActive ? BRAND.primaryColor : '#ff6b6b' }
@@ -271,6 +307,24 @@ export default function TeacherTestListScreen() {
                 Due: {new Date(item.dueDate).toLocaleDateString()} at {new Date(item.dueDate).toLocaleTimeString()}
                 {isOverdue && ' (Overdue)'}
               </Text>
+            </View>
+          )}
+
+          {/* PDF indicators */}
+          {(item.hasQuestionPdf || item.hasAnswerPdf) && (
+            <View style={styles.pdfIndicators}>
+              {item.hasQuestionPdf && (
+                <View style={styles.pdfIndicator}>
+                  <MaterialIcons name="description" size={14} color={BRAND.primaryColor} />
+                  <Text style={styles.pdfIndicatorText}>Question PDF</Text>
+                </View>
+              )}
+              {item.hasAnswerPdf && (
+                <View style={styles.pdfIndicator}>
+                  <MaterialIcons name="description" size={14} color="#ffa500" />
+                  <Text style={styles.pdfIndicatorText}>Answer PDF</Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -322,11 +376,14 @@ export default function TeacherTestListScreen() {
       <MaterialIcons name="assignment" size={80} color="#333" />
       <Text style={styles.emptyStateTitle}>No Tests Found</Text>
       <Text style={styles.emptyStateSubtitle}>
-        No tests have been created for this batch yet.
+        {subjectName 
+          ? `No tests have been created for ${subjectName} in this batch yet.`
+          : 'No tests have been created for this batch yet.'
+        }
       </Text>
       <TouchableOpacity
         style={styles.createTestButton}
-        onPress={() => navigation.navigate('TeacherHandleTestScreen', { batchId })}
+        onPress={handleCreateTest}
       >
         <MaterialIcons name="add" size={20} color="#000" />
         <Text style={styles.createTestButtonText}>Create Test</Text>
@@ -394,14 +451,25 @@ export default function TeacherTestListScreen() {
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>Test Scores</Text>
-            <Text style={styles.headerSubtitle}>{batchName}</Text>
+            <Text style={styles.headerSubtitle}>
+              {batchName}
+              {currentSubject && ` • ${currentSubject}`}
+            </Text>
           </View>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={onRefresh}
-          >
-            <MaterialIcons name="refresh" size={20} color={BRAND.primaryColor} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity 
+              style={styles.createButton}
+              onPress={handleCreateTest}
+            >
+              <MaterialIcons name="add" size={20} color="#000" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={onRefresh}
+            >
+              <MaterialIcons name="refresh" size={20} color={BRAND.primaryColor} />
+            </TouchableOpacity>
+          </View>
         </View>
       </Animated.View>
 
@@ -515,6 +583,18 @@ const styles = StyleSheet.create({
     color: '#888',
     marginTop: 2,
   },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  createButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: BRAND.primaryColor,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   refreshButton: {
     width: 36,
     height: 36,
@@ -555,20 +635,45 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 5,
+    marginBottom: 8,
   },
   testMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    flexWrap: 'wrap',
+    gap: 12,
   },
   testMarks: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#888',
+    backgroundColor: '#222',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  testClass: {
+    fontSize: 12,
+    color: '#888',
+    backgroundColor: '#222',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  testSubject: {
+    fontSize: 12,
+    color: '#888',
+    backgroundColor: '#222',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   testStatus: {
     fontSize: 12,
     fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#222',
   },
   testActions: {
     marginLeft: 10,
@@ -581,6 +686,24 @@ const styles = StyleSheet.create({
   },
   dueDateText: {
     fontSize: 14,
+  },
+  pdfIndicators: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 15,
+  },
+  pdfIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#222',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  pdfIndicatorText: {
+    fontSize: 11,
+    color: '#888',
   },
   testStats: {
     flexDirection: 'row',

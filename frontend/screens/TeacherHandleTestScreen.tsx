@@ -25,6 +25,7 @@ import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { RootStackParamList } from '../App';
 import { API_BASE } from '../config/api';
+import { Picker } from '@react-native-picker/picker';
 
 type TeacherHandleTestNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type TeacherHandleTestRouteProp = {
@@ -32,6 +33,7 @@ type TeacherHandleTestRouteProp = {
   name: string;
   params: {
     batchId: string;
+    subjectName: string; // Added required subject parameter
   };
 };
 
@@ -48,12 +50,13 @@ const BRAND = {
 
 const API_BASE_URL = API_BASE;
 
-
-// Test interface
+// Updated Test interface to match backend
 interface Test {
   _id: string;
   testTitle: string;
   fullMarks: number;
+  className: string;
+  subjectName: string;
   batch: {
     _id: string;
     batchName: string;
@@ -79,6 +82,8 @@ interface Test {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  hasQuestionPdf?: boolean;
+  hasAnswerPdf?: boolean;
 }
 
 // Student interface
@@ -86,6 +91,21 @@ interface Student {
   _id: string;
   name: string;
   email: string;
+}
+
+interface BatchInfo {
+  _id: string;
+  batchName: string;
+  category: string;
+  classes: string[];
+  subjects: {
+    name: string;
+    teacher: {
+      _id: string;
+      name: string;
+      email: string;
+    };
+  }[];
 }
 
 // File interface
@@ -99,12 +119,13 @@ interface FileUpload {
 export default function TeacherHandleTestScreen() {
   const navigation = useNavigation<TeacherHandleTestNavigationProp>();
   const route = useRoute<TeacherHandleTestRouteProp>();
-  const { batchId } = route.params;
+  const { batchId, subjectName } = route.params;
 
   // State management
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tests, setTests] = useState<Test[]>([]);
+  const [batchInfo, setBatchInfo] = useState<BatchInfo | null>(null);
   const [availableStudents, setAvailableStudents] = useState<Student[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -118,11 +139,15 @@ export default function TeacherHandleTestScreen() {
   // Create test form state
   const [testTitle, setTestTitle] = useState('');
   const [fullMarks, setFullMarks] = useState('');
+  const [selectedClass, setSelectedClass] = useState('');
   const [instructions, setInstructions] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [questionPdf, setQuestionPdf] = useState<FileUpload | null>(null);
   const [answerPdf, setAnswerPdf] = useState<FileUpload | null>(null);
   const [isActive, setIsActive] = useState(true);
+
+const [availableSubjects, setAvailableSubjects] = useState<{name: string}[]>([]);
+const [selectedSubject, setSelectedSubject] = useState('');
 
   // Student assignment state
   const [selectedStudentsForAssignment, setSelectedStudentsForAssignment] = useState<string[]>([]);
@@ -138,18 +163,54 @@ export default function TeacherHandleTestScreen() {
   useEffect(() => {
     loadData();
     startEntranceAnimation();
-  }, [batchId]);
+  }, [batchId, subjectName]);
 
   const loadData = async () => {
     setIsLoading(true);
     await Promise.all([
-      fetchBatchTests(),
-      fetchAvailableStudents()
+      fetchBatchInfo(),
+      fetchBatchSubjectTests()
     ]);
     setIsLoading(false);
   };
 
-  const fetchBatchTests = async () => {
+  const fetchBatchInfo = async () => {
+  try {
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) {
+      Alert.alert('Error', 'No authentication token found');
+      return;
+    }
+
+    // Fetch teacher's subjects for this batch
+    const response = await fetch(`${API_BASE_URL}/tests/teacher/batch/${batchId}/subjects`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    
+    if (data.success) {
+      setBatchInfo(data.data.batch);
+      setAvailableSubjects(data.data.subjects);
+      
+      // If there's only one subject, auto-select it
+      if (data.data.subjects.length === 1) {
+        setSelectedSubject(data.data.subjects[0].name);
+      }
+    } else {
+      Alert.alert('Error', data.message || 'Failed to fetch batch info');
+    }
+  } catch (error) {
+    console.error('Error fetching batch info:', error);
+    Alert.alert('Error', 'Network error. Please check your connection.');
+  }
+};
+
+  const fetchBatchSubjectTests = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
       
@@ -158,7 +219,7 @@ export default function TeacherHandleTestScreen() {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/tests/batch/${batchId}`, {
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/batch/${batchId}/subject/${subjectName}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -179,13 +240,13 @@ export default function TeacherHandleTestScreen() {
     }
   };
 
-  const fetchAvailableStudents = async () => {
+  const fetchAvailableStudents = async (className: string) => {
     try {
       const token = await AsyncStorage.getItem('userToken');
       
       if (!token) return;
 
-      const response = await fetch(`${API_BASE_URL}/tests/batch/${batchId}/available-students`, {
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/batch/${batchId}/class/${className}/subject/${subjectName}/students`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -273,23 +334,25 @@ export default function TeacherHandleTestScreen() {
   const populateFormWithTestData = (test: Test) => {
     setTestTitle(test.testTitle);
     setFullMarks(test.fullMarks.toString());
+    setSelectedClass(test.className);
     setInstructions(test.instructions || '');
     setDueDate(test.dueDate ? new Date(test.dueDate).toISOString().split('T')[0] : '');
     setIsActive(test.isActive);
-    // Note: We can't populate file uploads as they're not returned from the API
     setQuestionPdf(null);
     setAnswerPdf(null);
   };
 
   const resetForm = () => {
-    setTestTitle('');
-    setFullMarks('');
-    setInstructions('');
-    setDueDate('');
-    setQuestionPdf(null);
-    setAnswerPdf(null);
-    setIsActive(true);
-  };
+  setTestTitle('');
+  setFullMarks('');
+  setSelectedClass('');
+  setSelectedSubject(availableSubjects.length === 1 ? availableSubjects[0].name : '');
+  setInstructions('');
+  setDueDate('');
+  setQuestionPdf(null);
+  setAnswerPdf(null);
+  setIsActive(true);
+};
 
   const handleCloseCreateModal = () => {
     resetForm();
@@ -302,9 +365,9 @@ export default function TeacherHandleTestScreen() {
     setShowEditModal(false);
   };
 
-  const handleAssignStudents = (test: Test) => {
+  const handleAssignStudents = async (test: Test) => {
     setSelectedTestForAssignment(test);
-    // Pre-select already assigned students
+    await fetchAvailableStudents(test.className);
     setSelectedStudentsForAssignment(test.assignedStudents.map(as => as.student._id));
     setShowAssignStudentsModal(true);
   };
@@ -312,6 +375,7 @@ export default function TeacherHandleTestScreen() {
   const handleCloseAssignStudentsModal = () => {
     setSelectedTestForAssignment(null);
     setSelectedStudentsForAssignment([]);
+    setAvailableStudents([]);
     setShowAssignStudentsModal(false);
   };
 
@@ -344,30 +408,39 @@ export default function TeacherHandleTestScreen() {
   };
 
   const validateForm = () => {
-    if (!testTitle.trim()) {
-      Alert.alert('Validation Error', 'Please enter test title');
-      return false;
-    }
+  if (!testTitle.trim()) {
+    Alert.alert('Validation Error', 'Please enter test title');
+    return false;
+  }
 
-    if (!fullMarks.trim()) {
-      Alert.alert('Validation Error', 'Please enter full marks');
-      return false;
-    }
+  if (!fullMarks.trim()) {
+    Alert.alert('Validation Error', 'Please enter full marks');
+    return false;
+  }
 
-    const marksNumber = Number(fullMarks);
-    if (isNaN(marksNumber) || marksNumber <= 0) {
-      Alert.alert('Validation Error', 'Please enter valid full marks (greater than 0)');
-      return false;
-    }
+  const marksNumber = Number(fullMarks);
+  if (isNaN(marksNumber) || marksNumber <= 0) {
+    Alert.alert('Validation Error', 'Please enter valid full marks (greater than 0)');
+    return false;
+  }
 
-    // Validate due date format if provided
-    if (dueDate.trim() && !isValidDate(dueDate)) {
-      Alert.alert('Validation Error', 'Please enter date in YYYY-MM-DD format');
-      return false;
-    }
+  if (!selectedClass.trim()) {
+    Alert.alert('Validation Error', 'Please select a class');
+    return false;
+  }
 
-    return true;
-  };
+  if (!selectedSubject.trim()) {
+    Alert.alert('Validation Error', 'Please select a subject');
+    return false;
+  }
+
+  if (dueDate.trim() && !isValidDate(dueDate)) {
+    Alert.alert('Validation Error', 'Please enter date in YYYY-MM-DD format');
+    return false;
+  }
+
+  return true;
+};
 
   const isValidDate = (dateString: string) => {
     const regex = /^\d{4}-\d{2}-\d{2}$/;
@@ -382,81 +455,83 @@ export default function TeacherHandleTestScreen() {
   };
 
   const handleCreateTestSubmit = async () => {
-    if (!validateForm()) return;
+  if (!validateForm()) return;
 
-    setIsCreating(true);
+  setIsCreating(true);
 
-    try {
-      const token = await AsyncStorage.getItem('userToken');
-      
-      if (!token) {
-        Alert.alert('Error', 'No authentication token found');
-        setIsCreating(false);
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('testTitle', testTitle.trim());
-      formData.append('fullMarks', fullMarks.trim());
-      formData.append('batchId', batchId);
-      formData.append('assignedStudents', JSON.stringify([]));
-      formData.append('isActive', isActive.toString());
-      
-      if (instructions.trim()) {
-        formData.append('instructions', instructions.trim());
-      }
-      
-      if (dueDate.trim()) {
-        formData.append('dueDate', dueDate.trim());
-      }
-
-      if (questionPdf) {
-        formData.append('questionPdf', {
-          uri: questionPdf.uri,
-          name: questionPdf.name,
-          type: questionPdf.type,
-        } as any);
-      }
-
-      if (answerPdf) {
-        formData.append('answerPdf', {
-          uri: answerPdf.uri,
-          name: answerPdf.name,
-          type: answerPdf.type,
-        } as any);
-      }
-
-      const response = await fetch(`${API_BASE_URL}/tests`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
-        },
-        body: formData,
-      });
-
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        Alert.alert('Success', 'Test created successfully! You can now assign students to this test.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              handleCloseCreateModal();
-              fetchBatchTests();
-            }
-          }
-        ]);
-      } else {
-        Alert.alert('Error', data.message || 'Failed to create test');
-      }
-    } catch (error) {
-      console.error('Error creating test:', error);
-      Alert.alert('Error', 'Network error. Please check your connection.');
-    } finally {
+  try {
+    const token = await AsyncStorage.getItem('userToken');
+    
+    if (!token) {
+      Alert.alert('Error', 'No authentication token found');
       setIsCreating(false);
+      return;
     }
-  };
+
+    const formData = new FormData();
+    formData.append('testTitle', testTitle.trim());
+    formData.append('fullMarks', fullMarks.trim());
+    formData.append('batchId', batchId);
+    formData.append('className', selectedClass);
+    formData.append('subjectName', selectedSubject); // Use selectedSubject instead of subjectName from params
+    formData.append('assignedStudents', JSON.stringify([]));
+    formData.append('isActive', isActive.toString());
+    
+    if (instructions.trim()) {
+      formData.append('instructions', instructions.trim());
+    }
+    
+    if (dueDate.trim()) {
+      formData.append('dueDate', dueDate.trim());
+    }
+
+    if (questionPdf) {
+      formData.append('questionPdf', {
+        uri: questionPdf.uri,
+        name: questionPdf.name,
+        type: questionPdf.type,
+      } as any);
+    }
+
+    if (answerPdf) {
+      formData.append('answerPdf', {
+        uri: answerPdf.uri,
+        name: answerPdf.name,
+        type: answerPdf.type,
+      } as any);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/tests/teacher/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+    
+    if (response.ok && data.success) {
+      Alert.alert('Success', 'Test created successfully! You can now assign students to this test.', [
+        {
+          text: 'OK',
+          onPress: () => {
+            handleCloseCreateModal();
+            fetchBatchSubjectTests();
+          }
+        }
+      ]);
+    } else {
+      Alert.alert('Error', data.message || 'Failed to create test');
+    }
+  } catch (error) {
+    console.error('Error creating test:', error);
+    Alert.alert('Error', 'Network error. Please check your connection.');
+  } finally {
+    setIsCreating(false);
+  }
+};
 
   const handleEditTestSubmit = async () => {
     if (!validateForm() || !selectedTestForEdit) return;
@@ -475,6 +550,8 @@ export default function TeacherHandleTestScreen() {
       const formData = new FormData();
       formData.append('testTitle', testTitle.trim());
       formData.append('fullMarks', fullMarks.trim());
+      formData.append('className', selectedClass);
+      formData.append('subjectName', subjectName);
       formData.append('isActive', isActive.toString());
       
       if (instructions.trim()) {
@@ -501,7 +578,7 @@ export default function TeacherHandleTestScreen() {
         } as any);
       }
 
-      const response = await fetch(`${API_BASE_URL}/tests/${selectedTestForEdit._id}`, {
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/${selectedTestForEdit._id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -518,7 +595,7 @@ export default function TeacherHandleTestScreen() {
             text: 'OK',
             onPress: () => {
               handleCloseEditModal();
-              fetchBatchTests();
+              fetchBatchSubjectTests();
             }
           }
         ]);
@@ -547,7 +624,7 @@ export default function TeacherHandleTestScreen() {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/tests/${selectedTestForAssignment._id}/assign-students`, {
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/${selectedTestForAssignment._id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -566,7 +643,7 @@ export default function TeacherHandleTestScreen() {
             text: 'OK',
             onPress: () => {
               handleCloseAssignStudentsModal();
-              fetchBatchTests();
+              fetchBatchSubjectTests();
             }
           }
         ]);
@@ -594,7 +671,7 @@ export default function TeacherHandleTestScreen() {
             try {
               const token = await AsyncStorage.getItem('userToken');
               
-              const response = await fetch(`${API_BASE_URL}/tests/${testId}`, {
+              const response = await fetch(`${API_BASE_URL}/tests/teacher/${testId}`, {
                 method: 'DELETE',
                 headers: {
                   'Authorization': `Bearer ${token}`,
@@ -605,7 +682,7 @@ export default function TeacherHandleTestScreen() {
               
               if (data.success) {
                 Alert.alert('Success', 'Test deleted successfully!');
-                await fetchBatchTests();
+                await fetchBatchSubjectTests();
               } else {
                 Alert.alert('Error', data.message || 'Failed to delete test');
               }
@@ -637,6 +714,13 @@ export default function TeacherHandleTestScreen() {
     }
   };
 
+  const handleClassSelectionChange = async (className: string) => {
+    setSelectedClass(className);
+    if (className && showAssignStudentsModal && selectedTestForAssignment) {
+      await fetchAvailableStudents(className);
+    }
+  };
+
   const renderTestCard = ({ item }: { item: Test }) => (
     <Animated.View 
       style={[
@@ -648,7 +732,10 @@ export default function TeacherHandleTestScreen() {
         <View style={styles.testInfo}>
           <Text style={styles.testTitle}>{item.testTitle}</Text>
           <Text style={styles.testSubtitle}>
-            Full Marks: {item.fullMarks} • {item.assignedStudents.length} Students Assigned
+            Full Marks: {item.fullMarks} • Class: {item.className}
+          </Text>
+          <Text style={styles.testSubtitle}>
+            {item.assignedStudents.length} Students Assigned
           </Text>
           <Text style={styles.testDate}>
             Created: {new Date(item.createdAt).toLocaleDateString()}
@@ -707,6 +794,21 @@ export default function TeacherHandleTestScreen() {
         </Text>
       )}
 
+      <View style={styles.testFiles}>
+        {item.hasQuestionPdf && (
+          <View style={styles.fileIndicator}>
+            <MaterialIcons name="description" size={16} color={BRAND.primaryColor} />
+            <Text style={styles.fileIndicatorText}>Question PDF</Text>
+          </View>
+        )}
+        {item.hasAnswerPdf && (
+          <View style={styles.fileIndicator}>
+            <MaterialIcons name="key" size={16} color={BRAND.primaryColor} />
+            <Text style={styles.fileIndicatorText}>Answer Key</Text>
+          </View>
+        )}
+      </View>
+
       {item.assignedStudents.length === 0 && (
         <View style={styles.noStudentsAssigned}>
           <Text style={styles.noStudentsText}>No students assigned yet</Text>
@@ -751,6 +853,27 @@ export default function TeacherHandleTestScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.inputGroup}>
+  <Text style={styles.inputLabel}>Subject *</Text>
+  <View style={styles.pickerContainer}>
+    <Picker
+      selectedValue={selectedSubject}
+      style={styles.picker}
+      onValueChange={setSelectedSubject}
+      dropdownIconColor="#fff"
+    >
+      <Picker.Item label="Select a subject" value="" />
+      {availableSubjects.map((subject) => (
+        <Picker.Item
+          key={subject.name}
+          label={subject.name}
+          value={subject.name}
+        />
+      ))}
+    </Picker>
+  </View>
+</View>
+
+            <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Test Title *</Text>
               <TextInput
                 style={styles.textInput}
@@ -771,6 +894,27 @@ export default function TeacherHandleTestScreen() {
                 placeholderTextColor="#888"
                 keyboardType="numeric"
               />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Class *</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={selectedClass}
+                  style={styles.picker}
+                  onValueChange={(itemValue: string) => handleClassSelectionChange(itemValue)}
+                  dropdownIconColor="#fff"
+                >
+                  <Picker.Item label="Select a class" value="" />
+                  {batchInfo?.classes.map((className) => (
+                    <Picker.Item
+                      key={className}
+                      label={className}
+                      value={className}
+                    />
+                  ))}
+                </Picker>
+              </View>
             </View>
 
             <View style={styles.inputGroup}>
@@ -810,128 +954,70 @@ export default function TeacherHandleTestScreen() {
                   <Text style={[
                     styles.statusButtonText,
                     isActive && styles.statusButtonTextActive
-                  ]}>
-                    Active
-                  </Text>
+                  ]}>Active</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
                     styles.statusButton,
-                    !isActive && styles.statusButtonInactive
+                    !isActive && styles.statusButtonActive
                   ]}
                   onPress={() => setIsActive(false)}
                 >
                   <Text style={[
                     styles.statusButtonText,
-                    !isActive && styles.statusButtonTextInactive
-                  ]}>
-                    Inactive
+                    !isActive && styles.statusButtonTextActive
+                  ]}>Inactive</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.fileSection}>
+              <Text style={styles.sectionTitle}>Files</Text>
+              
+              <View style={styles.fileGroup}>
+                <Text style={styles.inputLabel}>Question PDF</Text>
+                <TouchableOpacity
+                  style={styles.fileUploadButton}
+                  onPress={() => handleFileUpload('question')}
+                >
+                  <MaterialIcons name="upload-file" size={24} color={BRAND.primaryColor} />
+                  <Text style={styles.fileUploadText}>
+                    {questionPdf ? questionPdf.name : 'Upload Question PDF'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.fileGroup}>
+                <Text style={styles.inputLabel}>Answer PDF</Text>
+                <TouchableOpacity
+                  style={styles.fileUploadButton}
+                  onPress={() => handleFileUpload('answer')}
+                >
+                  <MaterialIcons name="upload-file" size={24} color={BRAND.primaryColor} />
+                  <Text style={styles.fileUploadText}>
+                    {answerPdf ? answerPdf.name : 'Upload Answer PDF'}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                Question Paper (PDF) {isEdit && '(Leave empty to keep existing)'}
-              </Text>
-              <TouchableOpacity
-                style={[
-                  styles.fileButton,
-                  questionPdf && styles.fileButtonActive
-                ]}
-                onPress={() => handleFileUpload('question')}
-              >
-                <MaterialIcons 
-                  name="attach-file" 
-                  size={20} 
-                  color={questionPdf ? BRAND.primaryColor : '#fff'} 
-                />
-                <Text style={[
-                  styles.fileButtonText,
-                  questionPdf && styles.fileButtonTextActive
-                ]}>
-                  {questionPdf ? questionPdf.name : 'Select Question Paper'}
-                </Text>
-                {questionPdf && (
-                  <TouchableOpacity
-                    style={styles.removeFileButton}
-                    onPress={() => setQuestionPdf(null)}
-                  >
-                    <MaterialIcons name="close" size={16} color="#ff6b6b" />
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                Answer Key (PDF) {isEdit && '(Leave empty to keep existing)'}
-              </Text>
-              <TouchableOpacity
-                style={[
-                  styles.fileButton,
-                  answerPdf && styles.fileButtonActive
-                ]}
-                onPress={() => handleFileUpload('answer')}
-              >
-                <MaterialIcons 
-                  name="attach-file" 
-                  size={20} 
-                  color={answerPdf ? BRAND.primaryColor : '#fff'} 
-                />
-                <Text style={[
-                  styles.fileButtonText,
-                  answerPdf && styles.fileButtonTextActive
-                ]}>
-                  {answerPdf ? answerPdf.name : 'Select Answer Key'}
-                </Text>
-                {answerPdf && (
-                  <TouchableOpacity
-                    style={styles.removeFileButton}
-                    onPress={() => setAnswerPdf(null)}
-                  >
-                    <MaterialIcons name="close" size={16} color="#ff6b6b" />
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.noteContainer}>
-              <MaterialIcons name="info" size={16} color={BRAND.primaryColor} />
-              <Text style={styles.noteText}>
-                {isEdit 
-                  ? 'Leave PDF fields empty to keep existing files. Only upload new files if you want to replace them.'
-                  : 'After creating the test, you can assign students by tapping the "Assign Students" button on the test card.'
-                }
-              </Text>
-            </View>
-          </ScrollView>
-
-          <View style={styles.actionContainer}>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={isEdit ? handleCloseEditModal : handleCloseCreateModal}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               style={[
-                styles.createButton,
-                (isEdit ? isEditing : isCreating) && styles.disabledButton
+                styles.submitButton,
+                (isCreating || isEditing) && styles.submitButtonDisabled
               ]}
               onPress={isEdit ? handleEditTestSubmit : handleCreateTestSubmit}
-              disabled={isEdit ? isEditing : isCreating}
+              disabled={isCreating || isEditing}
             >
-              {(isEdit ? isEditing : isCreating) ? (
+              {(isCreating || isEditing) ? (
                 <ActivityIndicator size="small" color="#000" />
-                ) : (
-                <Text style={styles.createButtonText}>
+              ) : (
+                <Text style={styles.submitButtonText}>
                   {isEdit ? 'Update Test' : 'Create Test'}
                 </Text>
               )}
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
@@ -956,79 +1042,77 @@ export default function TeacherHandleTestScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        <View style={styles.assignStudentsContainer}>
-          <View style={styles.assignStudentsHeader}>
-            <Text style={styles.assignStudentsTitle}>
-              {selectedTestForAssignment?.testTitle}
-            </Text>
-            <Text style={styles.assignStudentsSubtitle}>
-              Select students to assign this test
+        {selectedTestForAssignment && (
+          <View style={styles.testInfoBanner}>
+            <Text style={styles.testInfoTitle}>{selectedTestForAssignment.testTitle}</Text>
+            <Text style={styles.testInfoDetails}>
+              Class: {selectedTestForAssignment.className} • Full Marks: {selectedTestForAssignment.fullMarks}
             </Text>
           </View>
+        )}
 
-          <View style={styles.selectAllContainer}>
+        <View style={styles.studentListContainer}>
+          <View style={styles.studentListHeader}>
+            <Text style={styles.studentListTitle}>
+              Available Students ({availableStudents.length})
+            </Text>
             <TouchableOpacity
               style={styles.selectAllButton}
               onPress={handleSelectAllStudents}
             >
-              <MaterialIcons 
-                name={selectedStudentsForAssignment.length === availableStudents.length ? "check-box" : "check-box-outline-blank"} 
-                size={24} 
-                color={BRAND.primaryColor} 
-              />
-              <Text style={styles.selectAllText}>
+              <Text style={styles.selectAllButtonText}>
                 {selectedStudentsForAssignment.length === availableStudents.length ? 'Deselect All' : 'Select All'}
               </Text>
             </TouchableOpacity>
-            <Text style={styles.selectedCount}>
-              {selectedStudentsForAssignment.length} of {availableStudents.length} selected
-            </Text>
           </View>
 
           <FlatList
             data={availableStudents}
             keyExtractor={(item) => item._id}
+            showsVerticalScrollIndicator={false}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={[
-                  styles.studentItem,
-                  selectedStudentsForAssignment.includes(item._id) && styles.studentItemSelected
-                ]}
+                style={styles.studentItem}
                 onPress={() => handleStudentToggle(item._id)}
               >
                 <View style={styles.studentInfo}>
                   <Text style={styles.studentName}>{item.name}</Text>
                   <Text style={styles.studentEmail}>{item.email}</Text>
                 </View>
-                <MaterialIcons
-                  name={selectedStudentsForAssignment.includes(item._id) ? "check-box" : "check-box-outline-blank"}
-                  size={24}
-                  color={selectedStudentsForAssignment.includes(item._id) ? BRAND.primaryColor : '#666'}
-                />
+                <View style={[
+                  styles.checkbox,
+                  selectedStudentsForAssignment.includes(item._id) && styles.checkboxSelected
+                ]}>
+                  {selectedStudentsForAssignment.includes(item._id) && (
+                    <MaterialIcons name="check" size={16} color="#000" />
+                  )}
+                </View>
               </TouchableOpacity>
             )}
-            showsVerticalScrollIndicator={false}
-            style={styles.studentsList}
+            ListEmptyComponent={
+              <View style={styles.emptyStudentList}>
+                <MaterialIcons name="school" size={48} color="#666" />
+                <Text style={styles.emptyStudentText}>No students available for this class</Text>
+              </View>
+            }
           />
 
-          <View style={styles.actionContainer}>
+          <View style={styles.assignButtonContainer}>
+            <Text style={styles.selectedCount}>
+              {selectedStudentsForAssignment.length} students selected
+            </Text>
             <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={handleCloseAssignStudentsModal}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.createButton, isAssigning && styles.disabledButton]}
+              style={[
+                styles.assignSubmitButton,
+                isAssigning && styles.assignSubmitButtonDisabled
+              ]}
               onPress={handleAssignStudentsSubmit}
               disabled={isAssigning}
             >
               {isAssigning ? (
                 <ActivityIndicator size="small" color="#000" />
               ) : (
-                <Text style={styles.createButtonText}>
-                  Assign Students ({selectedStudentsForAssignment.length})
-                </Text>
+                <Text style={styles.assignSubmitButtonText}>Assign Students</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -1037,71 +1121,51 @@ export default function TeacherHandleTestScreen() {
     </Modal>
   );
 
-  const renderEmptyState = () => (
-    <Animated.View 
-      style={[
-        styles.emptyState,
-        { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] }
-      ]}
-    >
-      <MaterialIcons name="assignment" size={80} color="#333" />
-      <Text style={styles.emptyStateTitle}>No Tests Created</Text>
-      <Text style={styles.emptyStateSubtitle}>
-        Create your first test to get started with assessments
-      </Text>
-      <TouchableOpacity
-        style={styles.createFirstTestButton}
-        onPress={handleCreateTest}
-      >
-        <MaterialIcons name="add" size={24} color="#000" />
-        <Text style={styles.createFirstTestButtonText}>Create First Test</Text>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.loadingContainer}>
         <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={BRAND.primaryColor} />
-          <Text style={styles.loadingText}>Loading tests...</Text>
-        </View>
-      </SafeAreaView>
+        <ActivityIndicator size="large" color={BRAND.primaryColor} />
+        <Text style={styles.loadingText}>Loading tests...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
       
-      {/* Animated background glow */}
-      <Animated.View style={[ { opacity: glowOpacity }]} />
+      {/* Animated Background Glow */}
+      <Animated.View 
+        style={[
+          styles.backgroundGlow,
+          { opacity: glowOpacity }
+        ]}
+      />
 
       {/* Header */}
-      <Animated.View
+      <Animated.View 
         style={[
           styles.header,
           {
             opacity: headerOpacity,
-            transform: [{ translateY: headerTranslateY }],
-          },
+            transform: [{ translateY: headerTranslateY }]
+          }
         ]}
       >
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
+        
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Test Management</Text>
+          <Text style={styles.headerTitle}>Tests Management</Text>
           <Text style={styles.headerSubtitle}>
-            {tests.length} test{tests.length !== 1 ? 's' : ''} created
+            {batchInfo?.batchName} • {subjectName}
           </Text>
         </View>
-        <TouchableOpacity
-          style={styles.createTestButton}
+
+        <TouchableOpacity 
+          style={styles.createButton}
           onPress={handleCreateTest}
         >
           <MaterialIcons name="add" size={24} color="#000" />
@@ -1109,33 +1173,55 @@ export default function TeacherHandleTestScreen() {
       </Animated.View>
 
       {/* Content */}
-      <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
-        {tests.length === 0 ? (
-          renderEmptyState()
-        ) : (
-          <FlatList
-            data={tests}
-            keyExtractor={(item) => item._id}
-            renderItem={renderTestCard}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[BRAND.primaryColor]}
-                progressBackgroundColor={BRAND.accentColor}
-              />
-            }
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.listContent}
-          />
-        )}
+      <Animated.View 
+        style={[
+          styles.content,
+          { opacity: fadeAnim }
+        ]}
+      >
+        <FlatList
+          data={tests}
+          keyExtractor={(item) => item._id}
+          renderItem={renderTestCard}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[BRAND.primaryColor]}
+              tintColor={BRAND.primaryColor}
+            />
+          }
+          ListEmptyComponent={
+            <Animated.View 
+              style={[
+                styles.emptyState,
+                { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] }
+              ]}
+            >
+              <MaterialIcons name="quiz" size={80} color="#666" />
+              <Text style={styles.emptyStateTitle}>No Tests Created</Text>
+              <Text style={styles.emptyStateText}>
+                Create your first test for this subject to get started
+              </Text>
+              <TouchableOpacity 
+                style={styles.emptyStateButton}
+                onPress={handleCreateTest}
+              >
+                <MaterialIcons name="add" size={20} color="#000" />
+                <Text style={styles.emptyStateButtonText}>Create Test</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          }
+          contentContainerStyle={tests.length === 0 ? styles.emptyContentContainer : styles.contentContainer}
+        />
       </Animated.View>
 
       {/* Modals */}
       {renderTestModal(false)}
       {renderTestModal(true)}
       {renderAssignStudentsModal()}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1148,43 +1234,55 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: BRAND.backgroundColor,
   },
   loadingText: {
     color: '#fff',
     fontSize: 16,
     marginTop: 16,
   },
+  backgroundGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.4,
+    backgroundColor: BRAND.primaryColor,
+    opacity: 0.1,
+    borderRadius: height * 0.2,
+    transform: [{ scaleX: 2 }],
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 20,
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    paddingBottom: 20,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerContent: {
     flex: 1,
-    marginLeft: 16,
+    alignItems: 'center',
   },
   headerTitle: {
-    color: '#fff',
     fontSize: 20,
     fontWeight: 'bold',
+    color: '#fff',
   },
   headerSubtitle: {
-    color: '#ccc',
     fontSize: 14,
-    marginTop: 2,
+    color: '#ccc',
+    marginTop: 4,
   },
-  createTestButton: {
+  createButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -1195,40 +1293,47 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  listContent: {
-    padding: 20,
+  contentContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  emptyContentContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
   },
   testCard: {
     backgroundColor: BRAND.accentColor,
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   testCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   testInfo: {
     flex: 1,
+    marginRight: 12,
   },
   testTitle: {
-    color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+    color: '#fff',
     marginBottom: 4,
   },
   testSubtitle: {
-    color: '#ccc',
     fontSize: 14,
-    marginBottom: 4,
+    color: '#ccc',
+    marginBottom: 2,
   },
   testDate: {
-    color: '#999',
     fontSize: 12,
+    color: '#999',
+    marginTop: 4,
   },
   testActions: {
     flexDirection: 'row',
@@ -1238,7 +1343,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255, 165, 0, 0.2)',
+    backgroundColor: 'rgba(255,165,0,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1246,7 +1351,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: `rgba(${parseInt(BRAND.primaryColor.slice(1, 3), 16)}, ${parseInt(BRAND.primaryColor.slice(3, 5), 16)}, ${parseInt(BRAND.primaryColor.slice(5, 7), 16)}, 0.2)`,
+    backgroundColor: `rgba(0,255,136,0.2)`,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1254,90 +1359,113 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+    backgroundColor: 'rgba(255,107,107,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   testStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    justifyContent: 'space-around',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
   },
   statItem: {
     alignItems: 'center',
   },
   statLabel: {
-    color: '#999',
     fontSize: 12,
+    color: '#999',
     marginBottom: 4,
   },
   statValue: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+    color: '#fff',
   },
   testInstructions: {
-    color: '#ccc',
     fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
+    color: '#ccc',
+    fontStyle: 'italic',
+    marginBottom: 12,
+  },
+  testFiles: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 8,
+  },
+  fileIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,255,136,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  fileIndicatorText: {
+    fontSize: 12,
+    color: BRAND.primaryColor,
   },
   noStudentsAssigned: {
-    backgroundColor: 'rgba(255, 107, 107, 0.1)',
-    borderRadius: 8,
-    padding: 12,
     alignItems: 'center',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    marginTop: 8,
   },
   noStudentsText: {
-    color: '#ff6b6b',
     fontSize: 14,
+    color: '#999',
     marginBottom: 8,
   },
   assignNowButton: {
     backgroundColor: BRAND.primaryColor,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
   assignNowButtonText: {
-    color: '#000',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
+    color: '#000',
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    paddingVertical: 60,
   },
   emptyStateTitle: {
-    color: '#fff',
     fontSize: 24,
     fontWeight: 'bold',
-    marginTop: 20,
+    color: '#fff',
+    marginTop: 16,
     marginBottom: 8,
   },
-  emptyStateSubtitle: {
-    color: '#ccc',
+  emptyStateText: {
     fontSize: 16,
+    color: '#ccc',
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
+    paddingHorizontal: 40,
   },
-  createFirstTestButton: {
+  emptyStateButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: BRAND.primaryColor,
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 24,
     gap: 8,
   },
-  createFirstTestButtonText: {
-    color: '#000',
+  emptyStateButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
+    color: '#000',
   },
-  // Modal styles
+  // Modal Styles
   modalContainer: {
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
@@ -1348,17 +1476,17 @@ const styles = StyleSheet.create({
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 20,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingBottom: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   modalTitle: {
-    flex: 1,
-    color: '#fff',
     fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
+    color: '#fff',
   },
   headerSpacer: {
     width: 40,
@@ -1371,23 +1499,43 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   inputLabel: {
-    color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    color: '#fff',
     marginBottom: 8,
   },
   textInput: {
     backgroundColor: BRAND.accentColor,
-    borderRadius: 12,
-    padding: 16,
-    color: '#fff',
-    fontSize: 16,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#fff',
   },
   multilineInput: {
     height: 100,
     textAlignVertical: 'top',
+  },
+  readOnlyInput: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    padding: 12,
+  },
+  readOnlyInputText: {
+    fontSize: 16,
+    color: '#ccc',
+  },
+  pickerContainer: {
+    backgroundColor: BRAND.accentColor,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  picker: {
+    color: '#fff',
+    backgroundColor: 'transparent',
   },
   statusContainer: {
     flexDirection: 'row',
@@ -1395,171 +1543,182 @@ const styles = StyleSheet.create({
   },
   statusButton: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: BRAND.accentColor,
-    borderWidth: 1,
-    borderColor: '#333',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
   },
   statusButtonActive: {
-    backgroundColor: BRAND.primaryColor,
     borderColor: BRAND.primaryColor,
-  },
-  statusButtonInactive: {
-    backgroundColor: '#ff6b6b',
-    borderColor: '#ff6b6b',
+    backgroundColor: `rgba(0,255,136,0.2)`,
   },
   statusButtonText: {
-    color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    color: '#ccc',
   },
   statusButtonTextActive: {
-    color: '#000',
+    color: BRAND.primaryColor,
   },
-  statusButtonTextInactive: {
+  fileSection: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 16,
   },
-  fileButton: {
+  fileGroup: {
+    marginBottom: 16,
+  },
+  fileUploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: BRAND.accentColor,
-    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(0,255,136,0.3)',
+    borderStyle: 'dashed',
+    borderRadius: 8,
     padding: 16,
-    borderWidth: 1,
-    borderColor: '#333',
     gap: 12,
   },
-  fileButtonActive: {
-    borderColor: BRAND.primaryColor,
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
-  },
-  fileButtonText: {
-    flex: 1,
-    color: '#fff',
+  fileUploadText: {
     fontSize: 16,
-  },
-  fileButtonTextActive: {
-    color: BRAND.primaryColor,
-  },
-  removeFileButton: {
-    padding: 4,
-  },
-  noteContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    gap: 12,
-  },
-  noteText: {
-    flex: 1,
-    color: BRAND.primaryColor,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  actionContainer: {
-    flexDirection: 'row',
-    gap: 16,
-    padding: 20,
-    paddingTop: 0,
-  },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-  },
-  cancelButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  createButton: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
+  },
+  submitButton: {
     backgroundColor: BRAND.primaryColor,
+    borderRadius: 8,
+    padding: 16,
     alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 40,
   },
-  createButtonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  disabledButton: {
+  submitButtonDisabled: {
     opacity: 0.6,
   },
-  // Assign Students Modal styles
-  assignStudentsContainer: {
-    flex: 1,
-  },
-  assignStudentsHeader: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  assignStudentsTitle: {
-    color: '#fff',
+  submitButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: '#000',
+  },
+  // Assign Students Modal Styles
+  testInfoBanner: {
+    backgroundColor: BRAND.accentColor,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  testInfoTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
     marginBottom: 4,
   },
-  assignStudentsSubtitle: {
-    color: '#ccc',
+  testInfoDetails: {
     fontSize: 14,
+    color: '#ccc',
   },
-  selectAllContainer: {
+  studentListContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  studentListHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    marginBottom: 16,
+  },
+  studentListTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   selectAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    backgroundColor: 'rgba(0,255,136,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
-  selectAllText: {
-    color: BRAND.primaryColor,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  selectedCount: {
-    color: '#ccc',
+  selectAllButtonText: {
     fontSize: 14,
-  },
-  studentsList: {
-    flex: 1,
+    fontWeight: '600',
+    color: BRAND.primaryColor,
   },
   studentItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  studentItemSelected: {
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    justifyContent: 'space-between',
+    backgroundColor: BRAND.accentColor,
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   studentInfo: {
     flex: 1,
+    marginRight: 12,
   },
   studentName: {
-    color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 4,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 2,
   },
   studentEmail: {
-    color: '#ccc',
     fontSize: 14,
+    color: '#ccc',
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: BRAND.primaryColor,
+    borderColor: BRAND.primaryColor,
+  },
+  emptyStudentList: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyStudentText: {
+    fontSize: 16,
+    color: '#999',
+    marginTop: 16,
+  },
+  assignButtonContainer: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    paddingTop: 16,
+    marginTop: 16,
+  },
+  selectedCount: {
+    fontSize: 14,
+    color: '#ccc',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  assignSubmitButton: {
+    backgroundColor: BRAND.primaryColor,
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
+  assignSubmitButtonDisabled: {
+    opacity: 0.6,
+  },
+  assignSubmitButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
   },
 });

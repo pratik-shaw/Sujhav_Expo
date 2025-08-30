@@ -3,51 +3,115 @@ const Batch = require('../models/Batch');
 const User = require('../models/User');
 const multer = require('multer');
 
-// Configure multer for file uploads (store in memory)
+// Configure multer for file uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed'), false);
-    }
+    cb(file.mimetype === 'application/pdf' ? null : new Error('Only PDF files allowed'), 
+       file.mimetype === 'application/pdf');
   }
 }).fields([
   { name: 'questionPdf', maxCount: 1 },
   { name: 'answerPdf', maxCount: 1 }
 ]);
 
-// Create a new test (Teacher only)
+// Helper function to validate teacher access to batch/subject
+const validateTeacherAccess = async (teacherId, batchId, subjectName) => {
+  try {
+    console.log('Validating teacher access:', { teacherId, batchId, subjectName });
+    
+    const batch = await Batch.findById(batchId).populate('subjects.teacher');
+    if (!batch) {
+      console.log('Batch not found:', batchId);
+      return { valid: false, message: 'Batch not found' };
+    }
+    
+    console.log('Batch found:', batch.batchName);
+    console.log('Batch subjects:', batch.subjects);
+    
+    // More robust subject finding with detailed logging
+    const subject = batch.subjects.find(s => {
+      console.log('Checking subject:', {
+        subjectName: s.name,
+        teacherId: s.teacher ? s.teacher._id || s.teacher : null,
+        requestedSubject: subjectName,
+        requestedTeacher: teacherId
+      });
+      
+      const teacherIdMatch = s.teacher && 
+        (s.teacher._id ? s.teacher._id.toString() : s.teacher.toString()) === teacherId.toString();
+      
+      const subjectNameMatch = s.name === subjectName;
+      
+      console.log('Match results:', { teacherIdMatch, subjectNameMatch });
+      
+      return subjectNameMatch && teacherIdMatch;
+    });
+    
+    if (!subject) {
+      console.log('Subject not found or teacher not assigned');
+      console.log('Available subjects for this teacher:', 
+        batch.subjects
+          .filter(s => s.teacher && 
+            (s.teacher._id ? s.teacher._id.toString() : s.teacher.toString()) === teacherId.toString())
+          .map(s => s.name)
+      );
+      
+      return { 
+        valid: false, 
+        message: 'You are not assigned to this subject in this batch',
+        availableSubjects: batch.subjects
+          .filter(s => s.teacher && 
+            (s.teacher._id ? s.teacher._id.toString() : s.teacher.toString()) === teacherId.toString())
+          .map(s => s.name)
+      };
+    }
+    
+    console.log('Teacher access validated successfully');
+    return { valid: true, batch, subject };
+  } catch (error) {
+    console.error('Error validating teacher access:', error);
+    return { valid: false, message: 'Error validating access' };
+  }
+};
+
+// Helper function to get eligible students for a class/subject
+const getEligibleStudentsForTest = (batch, className, subjectName) => {
+  console.log('Getting eligible students for:', { className, subjectName });
+  console.log('Batch student assignments:', batch.studentAssignments);
+  
+  const eligibleStudents = batch.studentAssignments.filter(assignment => {
+    const hasClass = assignment.assignedClasses.includes(className);
+    const hasSubject = assignment.assignedSubjects.some(s => s.subjectName === subjectName);
+    
+    console.log(`Student ${assignment.student}: hasClass=${hasClass}, hasSubject=${hasSubject}`);
+    return hasClass && hasSubject;
+  }).map(assignment => assignment.student);
+  
+  console.log('Eligible student IDs:', eligibleStudents);
+  return eligibleStudents;
+};
+
+// Create test with class and subject selection
 const createTest = async (req, res) => {
   try {
-    console.log('Creating test with body:', req.body);
-    console.log('User creating test:', req.user);
-    console.log('Files:', req.files);
-
     const {
-      testTitle,
-      fullMarks,
-      batchId,
-      assignedStudents,
-      dueDate,
-      instructions
+      testTitle, fullMarks, batchId, className, subjectName,
+      assignedStudents, dueDate, instructions, isActive
     } = req.body;
 
     // Validate required fields
-    if (!testTitle || !fullMarks || !batchId) {
+    if (!testTitle?.trim() || !fullMarks || !batchId || !className || !subjectName) {
       return res.status(400).json({
         success: false,
-        message: 'Test title, full marks, and batch ID are required'
+        message: 'Test title, marks, batch, class, and subject are required'
       });
     }
 
-    // Validate batch exists
-    const batch = await Batch.findById(batchId);
+    // Simple teacher access validation - check if teacher is assigned to this batch/subject
+    const batch = await Batch.findById(batchId).populate('subjects.teacher');
     if (!batch) {
       return res.status(404).json({
         success: false,
@@ -55,46 +119,48 @@ const createTest = async (req, res) => {
       });
     }
 
-    // Check if teacher is assigned to this batch
-    const isTeacherAssigned = batch.teachers.some(
-      teacherId => teacherId.toString() === req.user.id
+    // Check if teacher is assigned to the subject in this batch
+    const teacherSubject = batch.subjects.find(s => 
+      s.name === subjectName && 
+      s.teacher && 
+      s.teacher._id.toString() === req.user.id
     );
 
-    if (!isTeacherAssigned) {
+    if (!teacherSubject) {
+      // Get available subjects for this teacher in this batch
+      const availableSubjects = batch.subjects
+        .filter(s => s.teacher && s.teacher._id.toString() === req.user.id)
+        .map(s => s.name);
+      
       return res.status(403).json({
         success: false,
-        message: 'You are not assigned to this batch'
+        message: `You are not assigned to teach ${subjectName} in this batch. Available subjects: ${availableSubjects.join(', ') || 'None'}`,
+        availableSubjects
       });
     }
 
-    // Validate assigned students if provided
-    let validatedStudents = [];
-    if (assignedStudents && assignedStudents.length > 0) {
-      const studentIds = typeof assignedStudents === 'string' 
-        ? JSON.parse(assignedStudents) 
-        : assignedStudents;
-
-      // Check if all students are in the batch
-      const batchStudentIds = batch.students.map(s => s.toString());
-      const invalidStudents = studentIds.filter(id => !batchStudentIds.includes(id));
-      
-      if (invalidStudents.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Some selected students are not in this batch'
-        });
-      }
-
-      // Validate student users exist and have correct role
-      const studentUsers = await User.find({
-        _id: { $in: studentIds },
-        role: 'user'
+    // Validate class exists in batch
+    if (!batch.classes.includes(className)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected class is not available in this batch',
+        availableClasses: batch.classes
       });
+    }
 
-      if (studentUsers.length !== studentIds.length) {
+    // Get eligible students for this class/subject
+    const eligibleStudents = getEligibleStudentsForTest(batch, className, subjectName);
+    let validatedStudents = [];
+
+    if (assignedStudents?.length) {
+      const studentIds = Array.isArray(assignedStudents) ? assignedStudents : JSON.parse(assignedStudents);
+      const eligibleIds = eligibleStudents.map(s => s.toString());
+      
+      const invalidStudents = studentIds.filter(id => !eligibleIds.includes(id));
+      if (invalidStudents.length) {
         return res.status(400).json({
           success: false,
-          message: 'All selected students must have valid user accounts'
+          message: 'Some students are not eligible for this class/subject'
         });
       }
 
@@ -112,54 +178,47 @@ const createTest = async (req, res) => {
       fullMarks: parseInt(fullMarks),
       createdBy: req.user.id,
       batch: batchId,
+      className,
+      subjectName,
       assignedStudents: validatedStudents,
-      instructions: instructions ? instructions.trim() : '',
-      dueDate: dueDate ? new Date(dueDate) : null
+      instructions: instructions?.trim() || '',
+      dueDate: dueDate ? new Date(dueDate) : null,
+      isActive: isActive !== undefined ? isActive : true
     };
 
-    // Handle question PDF upload
-    if (req.files && req.files.questionPdf) {
-      const questionFile = req.files.questionPdf[0];
-      testData.questionPdf = {
-        fileName: questionFile.originalname,
-        fileData: questionFile.buffer,
-        mimeType: questionFile.mimetype,
-        fileSize: questionFile.size
-      };
-    }
+    // Handle file uploads
+    ['questionPdf', 'answerPdf'].forEach(fileType => {
+      if (req.files?.[fileType]) {
+        const file = req.files[fileType][0];
+        testData[fileType] = {
+          fileName: file.originalname,
+          fileData: file.buffer,
+          mimeType: file.mimetype,
+          fileSize: file.size
+        };
+      }
+    });
 
-    // Handle answer PDF upload
-    if (req.files && req.files.answerPdf) {
-      const answerFile = req.files.answerPdf[0];
-      testData.answerPdf = {
-        fileName: answerFile.originalname,
-        fileData: answerFile.buffer,
-        mimeType: answerFile.mimetype,
-        fileSize: answerFile.size
-      };
-    }
-
-    // Create and save test
-    const newTest = new Test(testData);
-    const savedTest = await newTest.save();
-
-    // Populate the saved test with user and batch details
+    const savedTest = await new Test(testData).save();
     const populatedTest = await Test.findById(savedTest._id)
       .populate('createdBy', 'name email')
       .populate('batch', 'batchName category')
       .populate('assignedStudents.student', 'name email')
-      .select('-questionPdf.fileData -answerPdf.fileData'); // Exclude file data from response
+      .select('-questionPdf.fileData -answerPdf.fileData');
 
-    console.log('Test created successfully:', populatedTest);
+    // Add file existence flags
+    if (populatedTest) {
+      populatedTest._doc.hasQuestionPdf = !!savedTest.questionPdf;
+      populatedTest._doc.hasAnswerPdf = !!savedTest.answerPdf;
+    }
 
     res.status(201).json({
       success: true,
       message: 'Test created successfully',
       data: populatedTest
     });
-
   } catch (error) {
-    console.error('Error creating test:', error);
+    console.error('Test creation error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -168,21 +227,41 @@ const createTest = async (req, res) => {
   }
 };
 
-// Get all tests created by the teacher
+// Get teacher's tests (filtered by their assigned subjects)
 const getTeacherTests = async (req, res) => {
   try {
-    const tests = await Test.find({ createdBy: req.user.id })
+    const teacherBatches = await Batch.find({
+      'subjects.teacher': req.user.id,
+      isActive: true
+    }).select('_id subjects');
+
+    const teacherSubjects = [];
+    teacherBatches.forEach(batch => {
+      batch.subjects.forEach(subject => {
+        if (subject.teacher?.toString() === req.user.id) {
+          teacherSubjects.push({
+            batchId: batch._id,
+            subjectName: subject.name
+          });
+        }
+      });
+    });
+
+    const batchSubjectPairs = teacherSubjects.map(ts => ({
+      batch: ts.batchId,
+      subjectName: ts.subjectName
+    }));
+
+    const tests = await Test.find({
+      $or: batchSubjectPairs
+    })
       .populate('createdBy', 'name email')
       .populate('batch', 'batchName category')
       .populate('assignedStudents.student', 'name email')
       .select('-questionPdf.fileData -answerPdf.fileData')
       .sort({ createdAt: -1 });
 
-    res.json({
-      success: true,
-      data: tests,
-      count: tests.length
-    });
+    res.json({ success: true, data: tests, count: tests.length });
   } catch (error) {
     console.error('Error fetching teacher tests:', error);
     res.status(500).json({
@@ -193,43 +272,73 @@ const getTeacherTests = async (req, res) => {
   }
 };
 
-// Get all tests for a specific batch (Teacher only for their batches)
-const getBatchTests = async (req, res) => {
+// Get tests for specific batch/subject (Teacher only)
+const getBatchSubjectTests = async (req, res) => {
   try {
-    const { batchId } = req.params;
+    const { batchId, subjectName } = req.params;
+    
+    // Fix: Handle string 'undefined' from URL params
+    const actualSubjectName = subjectName === 'undefined' ? undefined : subjectName;
+    
+    // Skip validation if no subject name provided - just fetch all teacher's tests for the batch
+    if (!actualSubjectName) {
+      // Get all teacher's subjects for this batch
+      const teacherBatches = await Batch.find({
+        _id: batchId,
+        'subjects.teacher': req.user.id,
+        isActive: true
+      }).select('_id subjects');
 
-    // Validate batch exists and teacher is assigned
-    const batch = await Batch.findById(batchId);
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
+      if (!teacherBatches.length) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'You are not assigned to any subjects in this batch' 
+        });
+      }
+
+      const batch = teacherBatches[0];
+      const teacherSubjects = batch.subjects
+        .filter(s => s.teacher && s.teacher.toString() === req.user.id)
+        .map(s => s.name);
+
+      if (!teacherSubjects.length) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'You are not assigned to any subjects in this batch' 
+        });
+      }
+
+      // Fetch tests for all teacher's subjects in this batch
+      const tests = await Test.find({ 
+        batch: batchId, 
+        subjectName: { $in: teacherSubjects }
+      })
+        .populate('createdBy', 'name email')
+        .populate('batch', 'batchName category')
+        .populate('assignedStudents.student', 'name email')
+        .select('-questionPdf.fileData -answerPdf.fileData')
+        .sort({ createdAt: -1 });
+
+      return res.json({ success: true, data: tests, count: tests.length });
+    }
+    
+    // Original validation for specific subject
+    const { valid, message } = await validateTeacherAccess(req.user.id, batchId, actualSubjectName);
+    if (!valid) {
+      return res.status(403).json({ success: false, message });
     }
 
-    const isTeacherAssigned = batch.teachers.some(
-      teacherId => teacherId.toString() === req.user.id
-    );
-
-    if (!isTeacherAssigned) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not assigned to this batch'
-      });
-    }
-
-    const tests = await Test.find({ batch: batchId })
+    const tests = await Test.find({ 
+      batch: batchId, 
+      subjectName: actualSubjectName 
+    })
       .populate('createdBy', 'name email')
       .populate('batch', 'batchName category')
       .populate('assignedStudents.student', 'name email')
       .select('-questionPdf.fileData -answerPdf.fileData')
       .sort({ createdAt: -1 });
 
-    res.json({
-      success: true,
-      data: tests,
-      count: tests.length
-    });
+    res.json({ success: true, data: tests, count: tests.length });
   } catch (error) {
     console.error('Error fetching batch tests:', error);
     res.status(500).json({
@@ -240,103 +349,125 @@ const getBatchTests = async (req, res) => {
   }
 };
 
-// Get test by ID (Teacher only for their batches)
-const getTestById = async (req, res) => {
+// Get available students for test creation (filtered by class/subject)
+const getAvailableStudentsForTest = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { batchId, className, subjectName } = req.params;
+    
+    console.log('Fetching students for:', { batchId, className, subjectName });
+    
+    // Validate teacher access
+    const { valid, message, batch } = await validateTeacherAccess(req.user.id, batchId, subjectName);
+    if (!valid) {
+      return res.status(403).json({ success: false, message });
+    }
 
-    const test = await Test.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('batch', 'batchName category')
-      .populate('assignedStudents.student', 'name email')
-      .select('-questionPdf.fileData -answerPdf.fileData');
-
-    if (!test) {
-      return res.status(404).json({
+    // Validate that the class exists in the batch
+    if (!batch.classes.includes(className)) {
+      return res.status(400).json({
         success: false,
-        message: 'Test not found'
+        message: `Class "${className}" is not available in this batch`,
+        availableClasses: batch.classes
       });
     }
 
-    // Check if teacher is assigned to this batch
-    const batch = await Batch.findById(test.batch._id);
-    const isTeacherAssigned = batch.teachers.some(
-      teacherId => teacherId.toString() === req.user.id
-    );
-
-    if (!isTeacherAssigned) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not assigned to this batch'
+    const eligibleStudentIds = getEligibleStudentsForTest(batch, className, subjectName);
+    
+    if (eligibleStudentIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        message: `No students found assigned to both "${className}" class and "${subjectName}" subject`
       });
     }
+
+    const populatedStudents = await User.find({
+      _id: { $in: eligibleStudentIds },
+      role: 'student'
+    }).select('name email');
+
+    console.log('Found students:', populatedStudents);
 
     res.json({
       success: true,
-      data: test
+      data: populatedStudents,
+      count: populatedStudents.length
     });
   } catch (error) {
-    console.error('Error fetching test:', error);
+    console.error('Error fetching available students:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch test',
+      message: 'Failed to fetch available students',
       error: error.message
     });
   }
 };
 
-// Update test (Teacher only for their own tests)
+// Update test (with class/subject validation)
 const updateTest = async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      testTitle,
-      fullMarks,
-      assignedStudents,
-      dueDate,
-      instructions,
-      isActive
+      testTitle, fullMarks, className, subjectName,
+      assignedStudents, dueDate, instructions, isActive
     } = req.body;
 
-    // Find test and verify ownership
     const test = await Test.findById(id);
-    if (!test) {
+    if (!test || test.createdBy.toString() !== req.user.id) {
       return res.status(404).json({
         success: false,
-        message: 'Test not found'
+        message: 'Test not found or unauthorized'
       });
     }
 
-    if (test.createdBy.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only update your own tests'
-      });
-    }
-
-    // Validate assigned students if provided
-    let validatedStudents = test.assignedStudents;
-    if (assignedStudents && assignedStudents.length > 0) {
-      const studentIds = typeof assignedStudents === 'string' 
-        ? JSON.parse(assignedStudents) 
-        : assignedStudents;
-
-      // Get batch info
-      const batch = await Batch.findById(test.batch);
-      const batchStudentIds = batch.students.map(s => s.toString());
-      const invalidStudents = studentIds.filter(id => !batchStudentIds.includes(id));
+    // If class/subject is being changed, validate access
+    if (className || subjectName) {
+      const targetClass = className || test.className;
+      const targetSubject = subjectName || test.subjectName;
       
-      if (invalidStudents.length > 0) {
+      const { valid, message, batch } = await validateTeacherAccess(
+        req.user.id, test.batch, targetSubject
+      );
+      if (!valid) {
+        return res.status(403).json({ success: false, message });
+      }
+
+      if (!batch.classes.includes(targetClass)) {
         return res.status(400).json({
           success: false,
-          message: 'Some selected students are not in this batch'
+          message: 'Selected class is not available in this batch'
+        });
+      }
+    }
+
+    // Handle student assignment updates
+    let validatedStudents = test.assignedStudents;
+    if (assignedStudents) {
+      const batch = await Batch.findById(test.batch);
+      const eligibleStudents = getEligibleStudentsForTest(
+        batch, 
+        className || test.className, 
+        subjectName || test.subjectName
+      );
+      
+      const studentIds = Array.isArray(assignedStudents) ? 
+        assignedStudents : JSON.parse(assignedStudents);
+      
+      const eligibleIds = eligibleStudents.map(s => s.toString());
+      const invalidStudents = studentIds.filter(id => !eligibleIds.includes(id));
+      
+      if (invalidStudents.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'Some students are not eligible for this class/subject'
         });
       }
 
-      // Preserve existing marks for students who were already assigned
-      const existingStudentData = {};
+      // Preserve existing data
+      const existingData = {};
       test.assignedStudents.forEach(s => {
-        existingStudentData[s.student.toString()] = {
+        existingData[s.student.toString()] = {
           marksScored: s.marksScored,
           submittedAt: s.submittedAt,
           evaluatedAt: s.evaluatedAt
@@ -345,9 +476,7 @@ const updateTest = async (req, res) => {
 
       validatedStudents = studentIds.map(id => ({
         student: id,
-        marksScored: existingStudentData[id]?.marksScored || null,
-        submittedAt: existingStudentData[id]?.submittedAt || null,
-        evaluatedAt: existingStudentData[id]?.evaluatedAt || null
+        ...existingData[id] || { marksScored: null, submittedAt: null, evaluatedAt: null }
       }));
     }
 
@@ -355,38 +484,30 @@ const updateTest = async (req, res) => {
     const updateData = {};
     if (testTitle) updateData.testTitle = testTitle.trim();
     if (fullMarks) updateData.fullMarks = parseInt(fullMarks);
+    if (className) updateData.className = className;
+    if (subjectName) updateData.subjectName = subjectName;
     if (assignedStudents) updateData.assignedStudents = validatedStudents;
     if (instructions !== undefined) updateData.instructions = instructions.trim();
     if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null;
     if (isActive !== undefined) updateData.isActive = isActive;
 
     // Handle file uploads
-    if (req.files && req.files.questionPdf) {
-      const questionFile = req.files.questionPdf[0];
-      updateData.questionPdf = {
-        fileName: questionFile.originalname,
-        fileData: questionFile.buffer,
-        mimeType: questionFile.mimetype,
-        fileSize: questionFile.size
-      };
-    }
+    ['questionPdf', 'answerPdf'].forEach(fileType => {
+      if (req.files?.[fileType]) {
+        const file = req.files[fileType][0];
+        updateData[fileType] = {
+          fileName: file.originalname,
+          fileData: file.buffer,
+          mimeType: file.mimetype,
+          fileSize: file.size
+        };
+      }
+    });
 
-    if (req.files && req.files.answerPdf) {
-      const answerFile = req.files.answerPdf[0];
-      updateData.answerPdf = {
-        fileName: answerFile.originalname,
-        fileData: answerFile.buffer,
-        mimeType: answerFile.mimetype,
-        fileSize: answerFile.size
-      };
-    }
-
-    // Update test
-    const updatedTest = await Test.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    )
+    const updatedTest = await Test.findByIdAndUpdate(id, updateData, { 
+      new: true, 
+      runValidators: true 
+    })
       .populate('createdBy', 'name email')
       .populate('batch', 'batchName category')
       .populate('assignedStudents.student', 'name email')
@@ -397,7 +518,6 @@ const updateTest = async (req, res) => {
       message: 'Test updated successfully',
       data: updatedTest
     });
-
   } catch (error) {
     console.error('Error updating test:', error);
     res.status(500).json({
@@ -408,33 +528,240 @@ const updateTest = async (req, res) => {
   }
 };
 
-// Delete test (Teacher only for their own tests)
-const deleteTest = async (req, res) => {
+// Student Reports - Subject-wise performance
+const getStudentSubjectReports = async (req, res) => {
   try {
-    const { id } = req.params;
+    const studentId = req.user.id;
+    const { subjectName, batchId } = req.query;
+    
+    // Build query filters
+    const query = {
+      'assignedStudents.student': studentId,
+      isActive: true
+    };
+    
+    if (subjectName) query.subjectName = subjectName;
+    if (batchId) query.batch = batchId;
 
-    const test = await Test.findById(id);
-    if (!test) {
-      return res.status(404).json({
-        success: false,
-        message: 'Test not found'
-      });
-    }
+    const tests = await Test.find(query)
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: -1 });
 
-    if (test.createdBy.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only delete your own tests'
-      });
-    }
+    // Group by subject
+    const subjectReports = {};
+    
+    tests.forEach(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === studentId
+      );
+      
+      if (!subjectReports[test.subjectName]) {
+        subjectReports[test.subjectName] = {
+          subjectName: test.subjectName,
+          tests: [],
+          totalTests: 0,
+          evaluatedTests: 0,
+          averagePercentage: 0,
+          totalMarks: 0,
+          totalFullMarks: 0
+        };
+      }
+      
+      const testData = {
+        testId: test._id,
+        testTitle: test.testTitle,
+        fullMarks: test.fullMarks,
+        marksScored: studentData.marksScored,
+        className: test.className,
+        createdAt: test.createdAt,
+        evaluatedAt: studentData.evaluatedAt,
+        batch: test.batch,
+        percentage: studentData.marksScored ? 
+          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null
+      };
+      
+      subjectReports[test.subjectName].tests.push(testData);
+      subjectReports[test.subjectName].totalTests++;
+      
+      if (studentData.marksScored !== null) {
+        subjectReports[test.subjectName].evaluatedTests++;
+        subjectReports[test.subjectName].totalMarks += studentData.marksScored;
+        subjectReports[test.subjectName].totalFullMarks += test.fullMarks;
+      }
+    });
 
-    await Test.findByIdAndDelete(id);
+    // Calculate averages
+    Object.values(subjectReports).forEach(report => {
+      if (report.totalFullMarks > 0) {
+        report.averagePercentage = parseFloat(
+          ((report.totalMarks / report.totalFullMarks) * 100).toFixed(2)
+        );
+      }
+    });
 
     res.json({
       success: true,
-      message: 'Test deleted successfully'
+      data: Object.values(subjectReports),
+      count: Object.keys(subjectReports).length
+    });
+  } catch (error) {
+    console.error('Error fetching student reports:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch student reports',
+      error: error.message
+    });
+  }
+};
+
+// Get student's comprehensive reports with batch/subject breakdown
+const getComprehensiveUserReports = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Check batch assignments
+    const batches = await Batch.find({
+      'studentAssignments.student': userId
+    })
+      .populate('subjects.teacher', 'name email')
+      .select('batchName category classes subjects studentAssignments');
+
+    if (!batches.length) {
+      return res.json({
+        success: true,
+        isAssigned: false,
+        message: 'User is not assigned to any batch',
+        data: { batches: [], tests: [], totalTests: 0, totalBatches: 0 }
+      });
+    }
+
+    // Get user's class and subject assignments
+    const userAssignments = [];
+    batches.forEach(batch => {
+      const assignment = batch.studentAssignments.find(
+        a => a.student.toString() === userId
+      );
+      if (assignment) {
+        assignment.assignedSubjects.forEach(subjectAssignment => {
+          userAssignments.push({
+            batchId: batch._id,
+            batchName: batch.batchName,
+            category: batch.category,
+            subjectName: subjectAssignment.subjectName,
+            classes: assignment.assignedClasses
+          });
+        });
+      }
     });
 
+    // Find tests for user's assigned subjects
+    const subjectQueries = userAssignments.map(assignment => ({
+      batch: assignment.batchId,
+      subjectName: assignment.subjectName,
+      'assignedStudents.student': userId
+    }));
+
+    const tests = await Test.find({
+      $or: subjectQueries,
+      isActive: true
+    })
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: -1 });
+
+    // Format test data with subject context
+    const studentReports = tests.map(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === userId
+      );
+      
+      const assignment = userAssignments.find(
+        a => a.batchId.toString() === test.batch._id.toString() && 
+             a.subjectName === test.subjectName
+      );
+      
+      return {
+        testId: test._id,
+        testTitle: test.testTitle,
+        fullMarks: test.fullMarks,
+        marksScored: studentData.marksScored,
+        className: test.className,
+        subjectName: test.subjectName,
+        createdAt: test.createdAt,
+        evaluatedAt: studentData.evaluatedAt,
+        batch: test.batch,
+        assignment: assignment,
+        percentage: studentData.marksScored ? 
+          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null,
+        status: studentData.marksScored !== null ? 'evaluated' : 'pending',
+        hasQuestionPdf: !!test.questionPdf,
+        hasAnswerPdf: !!test.answerPdf
+      };
+    });
+
+    // Calculate statistics
+    const evaluatedTests = studentReports.filter(test => test.marksScored !== null);
+    const totalPercentage = evaluatedTests.reduce(
+      (sum, test) => sum + parseFloat(test.percentage || '0'), 0
+    );
+
+    res.json({
+      success: true,
+      isAssigned: true,
+      data: {
+        batches: batches.map(batch => ({
+          _id: batch._id,
+          batchName: batch.batchName,
+          category: batch.category,
+          classes: batch.classes,
+          subjects: batch.subjects,
+          userAssignment: batch.studentAssignments.find(
+            a => a.student.toString() === userId
+          )
+        })),
+        tests: studentReports,
+        userAssignments,
+        statistics: {
+          totalTests: studentReports.length,
+          evaluatedTests: evaluatedTests.length,
+          pendingTests: studentReports.length - evaluatedTests.length,
+          averagePercentage: evaluatedTests.length > 0 ? 
+            (totalPercentage / evaluatedTests.length).toFixed(2) : '0',
+          totalMarksScored: evaluatedTests.reduce(
+            (sum, test) => sum + (test.marksScored || 0), 0
+          ),
+          totalFullMarks: evaluatedTests.reduce(
+            (sum, test) => sum + test.fullMarks, 0
+          )
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching comprehensive reports:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch comprehensive reports',
+      error: error.message
+    });
+  }
+};
+
+// Reuse other functions with minimal changes
+const deleteTest = async (req, res) => {
+  try {
+    const test = await Test.findById(req.params.id);
+    if (!test || test.createdBy.toString() !== req.user.id) {
+      return res.status(404).json({
+        success: false,
+        message: 'Test not found or unauthorized'
+      });
+    }
+
+    await Test.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Test deleted successfully' });
   } catch (error) {
     console.error('Error deleting test:', error);
     res.status(500).json({
@@ -445,7 +772,6 @@ const deleteTest = async (req, res) => {
   }
 };
 
-// Update student marks (Teacher only)
 const updateStudentMarks = async (req, res) => {
   try {
     const { id } = req.params;
@@ -454,22 +780,15 @@ const updateStudentMarks = async (req, res) => {
     if (!studentId || marksScored === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Student ID and marks scored are required'
+        message: 'Student ID and marks are required'
       });
     }
 
     const test = await Test.findById(id);
-    if (!test) {
+    if (!test || test.createdBy.toString() !== req.user.id) {
       return res.status(404).json({
         success: false,
-        message: 'Test not found'
-      });
-    }
-
-    if (test.createdBy.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only update marks for your own tests'
+        message: 'Test not found or unauthorized'
       });
     }
 
@@ -480,7 +799,6 @@ const updateStudentMarks = async (req, res) => {
       });
     }
 
-    // Find and update student marks
     const studentIndex = test.assignedStudents.findIndex(
       s => s.student.toString() === studentId
     );
@@ -494,7 +812,6 @@ const updateStudentMarks = async (req, res) => {
 
     test.assignedStudents[studentIndex].marksScored = marksScored;
     test.assignedStudents[studentIndex].evaluatedAt = new Date();
-
     await test.save();
 
     const updatedTest = await Test.findById(id)
@@ -505,101 +822,49 @@ const updateStudentMarks = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Student marks updated successfully',
+      message: 'Marks updated successfully',
       data: updatedTest
     });
-
   } catch (error) {
-    console.error('Error updating student marks:', error);
+    console.error('Error updating marks:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update student marks',
+      message: 'Failed to update marks',
       error: error.message
     });
   }
 };
 
-// Get available students for a test (students in the batch)
-const getAvailableStudentsForTest = async (req, res) => {
-  try {
-    const { batchId } = req.params;
-
-    // Validate batch exists and teacher is assigned
-    const batch = await Batch.findById(batchId)
-      .populate('students', 'name email')
-      .populate('teachers', 'name email');
-
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    const isTeacherAssigned = batch.teachers.some(
-      teacher => teacher._id.toString() === req.user.id
-    );
-
-    if (!isTeacherAssigned) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not assigned to this batch'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: batch.students,
-      count: batch.students.length
-    });
-
-  } catch (error) {
-    console.error('Error fetching available students:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch available students',
-      error: error.message
-    });
-  }
-};
-
-// Download PDF files
+// Download PDF functions (unchanged)
 const downloadPdf = async (req, res) => {
   try {
     const { id, type } = req.params;
-
+    
     if (!['question', 'answer'].includes(type)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid PDF type. Must be "question" or "answer"'
+        message: 'Invalid PDF type'
       });
     }
 
     const test = await Test.findById(id);
     if (!test) {
-      return res.status(404).json({
-        success: false,
-        message: 'Test not found'
-      });
+      return res.status(404).json({ success: false, message: 'Test not found' });
     }
 
-    // Check if teacher is assigned to this batch
-    const batch = await Batch.findById(test.batch);
-    const isTeacherAssigned = batch.teachers.some(
-      teacherId => teacherId.toString() === req.user.id
-    );
-
-    if (!isTeacherAssigned) {
+    // Validate access
+    const { valid } = await validateTeacherAccess(req.user.id, test.batch, test.subjectName);
+    if (!valid) {
       return res.status(403).json({
         success: false,
-        message: 'You are not assigned to this batch'
+        message: 'Access denied'
       });
     }
 
-    const pdfField = type === 'question' ? 'questionPdf' : 'answerPdf';
+    const pdfField = `${type}Pdf`;
     const pdf = test[pdfField];
 
-    if (!pdf || !pdf.fileData) {
+    if (!pdf?.fileData) {
       return res.status(404).json({
         success: false,
         message: `${type} PDF not found`
@@ -613,7 +878,6 @@ const downloadPdf = async (req, res) => {
     });
 
     res.send(pdf.fileData);
-
   } catch (error) {
     console.error('Error downloading PDF:', error);
     res.status(500).json({
@@ -624,461 +888,6 @@ const downloadPdf = async (req, res) => {
   }
 };
 
-// Add this function to your testController.js file
-
-// Assign students to test (Teacher only)
-const assignStudentsToTest = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { assignedStudents } = req.body;
-
-    console.log('Assigning students to test:', id);
-    console.log('Students to assign:', assignedStudents);
-
-    // Validate input
-    if (!Array.isArray(assignedStudents)) {
-      return res.status(400).json({
-        success: false,
-        message: 'assignedStudents must be an array of student IDs'
-      });
-    }
-
-    // Find test and verify ownership
-    const test = await Test.findById(id);
-    if (!test) {
-      return res.status(404).json({
-        success: false,
-        message: 'Test not found'
-      });
-    }
-
-    if (test.createdBy.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only assign students to your own tests'
-      });
-    }
-
-    // Get batch info to validate students
-    const batch = await Batch.findById(test.batch);
-    if (!batch) {
-      return res.status(404).json({
-        success: false,
-        message: 'Batch not found'
-      });
-    }
-
-    // Check if teacher is assigned to this batch
-    const isTeacherAssigned = batch.teachers.some(
-      teacherId => teacherId.toString() === req.user.id
-    );
-
-    if (!isTeacherAssigned) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not assigned to this batch'
-      });
-    }
-
-    // Validate all student IDs are in the batch
-    const batchStudentIds = batch.students.map(s => s.toString());
-    const invalidStudents = assignedStudents.filter(id => !batchStudentIds.includes(id));
-    
-    if (invalidStudents.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Some selected students are not in this batch'
-      });
-    }
-
-    // Validate student users exist and have correct role
-    if (assignedStudents.length > 0) {
-      const studentUsers = await User.find({
-        _id: { $in: assignedStudents },
-        role: 'user'
-      });
-
-      if (studentUsers.length !== assignedStudents.length) {
-        return res.status(400).json({
-          success: false,
-          message: 'All selected students must have valid user accounts'
-        });
-      }
-    }
-
-    // Preserve existing marks and submission data for students who were already assigned
-    const existingStudentData = {};
-    test.assignedStudents.forEach(s => {
-      existingStudentData[s.student.toString()] = {
-        marksScored: s.marksScored,
-        submittedAt: s.submittedAt,
-        evaluatedAt: s.evaluatedAt
-      };
-    });
-
-    // Create new assignment array
-    const newAssignedStudents = assignedStudents.map(studentId => ({
-      student: studentId,
-      marksScored: existingStudentData[studentId]?.marksScored || null,
-      submittedAt: existingStudentData[studentId]?.submittedAt || null,
-      evaluatedAt: existingStudentData[studentId]?.evaluatedAt || null
-    }));
-
-    // Update test with new assignments
-    test.assignedStudents = newAssignedStudents;
-    await test.save();
-
-    // Return updated test with populated data
-    const updatedTest = await Test.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('batch', 'batchName category')
-      .populate('assignedStudents.student', 'name email')
-      .select('-questionPdf.fileData -answerPdf.fileData');
-
-    console.log('Students assigned successfully:', updatedTest.assignedStudents.length);
-
-    res.json({
-      success: true,
-      message: assignedStudents.length === 0 
-        ? 'All students unassigned successfully' 
-        : `${assignedStudents.length} students assigned successfully`,
-      data: updatedTest
-    });
-
-  } catch (error) {
-    console.error('Error assigning students to test:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign students to test',
-      error: error.message
-    });
-  }
-};
-
-// student reports controllers 
-
-
-
-const getStudentReports = async (req, res) => {
-  try {
-    const studentId = req.user.id; // Assuming middleware sets user from token
-    
-    // Find all tests where the student is assigned
-    const tests = await Test.find({
-      'assignedStudents.student': studentId,
-      isActive: true
-    })
-      .populate('createdBy', 'name email')
-      .populate('batch', 'batchName category')
-      .select('-questionPdf.fileData -answerPdf.fileData')
-      .sort({ createdAt: -1 });
-
-    // Filter and format the data for the specific student
-    const studentReports = tests.map(test => {
-      const studentData = test.assignedStudents.find(
-        s => s.student.toString() === studentId
-      );
-      
-      return {
-        testId: test._id,
-        testTitle: test.testTitle,
-        fullMarks: test.fullMarks,
-        marksScored: studentData.marksScored,
-        submittedAt: studentData.submittedAt,
-        evaluatedAt: studentData.evaluatedAt,
-        createdAt: test.createdAt,
-        dueDate: test.dueDate,
-        batch: test.batch,
-        createdBy: test.createdBy,
-        instructions: test.instructions,
-        percentage: studentData.marksScored ? 
-          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null
-      };
-    });
-
-    res.json({
-      success: true,
-      data: studentReports,
-      count: studentReports.length
-    });
-
-  } catch (error) {
-    console.error('Error fetching student reports:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch student reports',
-      error: error.message
-    });
-  }
-};
-
-// Get student's monthly test analytics
-const getStudentMonthlyAnalytics = async (req, res) => {
-  try {
-    const studentId = req.user.id;
-    const { year } = req.query; // Optional year filter, defaults to current year
-    
-    const targetYear = year ? parseInt(year) : new Date().getFullYear();
-    
-    // Find all evaluated tests for the student in the target year
-    const tests = await Test.find({
-      'assignedStudents.student': studentId,
-      'assignedStudents.marksScored': { $ne: null },
-      isActive: true,
-      createdAt: {
-        $gte: new Date(targetYear, 0, 1), // Start of year
-        $lt: new Date(targetYear + 1, 0, 1) // Start of next year
-      }
-    })
-      .populate('batch', 'batchName category')
-      .select('-questionPdf.fileData -answerPdf.fileData')
-      .sort({ createdAt: 1 });
-
-    // Process monthly data
-    const monthlyData = {};
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-
-    // Initialize all months
-    for (let i = 0; i < 12; i++) {
-      monthlyData[monthNames[i]] = {
-        month: monthNames[i],
-        monthNumber: i + 1,
-        tests: [],
-        totalTests: 0,
-        averagePercentage: 0,
-        totalMarksScored: 0,
-        totalFullMarks: 0
-      };
-    }
-
-    // Process each test
-    tests.forEach(test => {
-      const studentData = test.assignedStudents.find(
-        s => s.student.toString() === studentId
-      );
-      
-      if (studentData && studentData.marksScored !== null) {
-        const testMonth = new Date(test.createdAt).getMonth();
-        const monthName = monthNames[testMonth];
-        
-        const percentage = (studentData.marksScored / test.fullMarks) * 100;
-        
-        monthlyData[monthName].tests.push({
-          testId: test._id,
-          testTitle: test.testTitle,
-          fullMarks: test.fullMarks,
-          marksScored: studentData.marksScored,
-          percentage: parseFloat(percentage.toFixed(2)),
-          createdAt: test.createdAt,
-          evaluatedAt: studentData.evaluatedAt,
-          batch: test.batch
-        });
-        
-        monthlyData[monthName].totalTests++;
-        monthlyData[monthName].totalMarksScored += studentData.marksScored;
-        monthlyData[monthName].totalFullMarks += test.fullMarks;
-      }
-    });
-
-    // Calculate averages for each month
-    Object.keys(monthlyData).forEach(month => {
-      const data = monthlyData[month];
-      if (data.totalTests > 0) {
-        // Calculate average percentage (normalized to 100)
-        data.averagePercentage = parseFloat(
-          ((data.totalMarksScored / data.totalFullMarks) * 100).toFixed(2)
-        );
-      }
-    });
-
-    // Calculate overall statistics
-    const allTests = Object.values(monthlyData).flatMap(month => month.tests);
-    const totalTests = allTests.length;
-    const overallAverage = totalTests > 0 ? 
-      parseFloat((allTests.reduce((sum, test) => sum + test.percentage, 0) / totalTests).toFixed(2)) : 0;
-    
-    // Get best and worst performance
-    const bestTest = allTests.length > 0 ? 
-      allTests.reduce((best, current) => current.percentage > best.percentage ? current : best) : null;
-    const worstTest = allTests.length > 0 ? 
-      allTests.reduce((worst, current) => current.percentage < worst.percentage ? current : worst) : null;
-
-    res.json({
-      success: true,
-      data: {
-        year: targetYear,
-        monthlyData: Object.values(monthlyData),
-        summary: {
-          totalTests,
-          overallAverage,
-          bestPerformance: bestTest,
-          worstPerformance: worstTest,
-          totalMarksScored: allTests.reduce((sum, test) => sum + test.marksScored, 0),
-          totalFullMarks: allTests.reduce((sum, test) => sum + test.fullMarks, 0)
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching student monthly analytics:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch monthly analytics',
-      error: error.message
-    });
-  }
-};
-
-// Get student's test details by ID (only if assigned to the student)
-const getStudentTestById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const studentId = req.user.id;
-
-    const test = await Test.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('batch', 'batchName category')
-      .select('-questionPdf.fileData -answerPdf.fileData');
-
-    if (!test) {
-      return res.status(404).json({
-        success: false,
-        message: 'Test not found'
-      });
-    }
-
-    // Check if student is assigned to this test
-    const studentAssignment = test.assignedStudents.find(
-      s => s.student.toString() === studentId
-    );
-
-    if (!studentAssignment) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not assigned to this test'
-      });
-    }
-
-    // Format response with student-specific data
-    const studentTestData = {
-      testId: test._id,
-      testTitle: test.testTitle,
-      fullMarks: test.fullMarks,
-      marksScored: studentAssignment.marksScored,
-      submittedAt: studentAssignment.submittedAt,
-      evaluatedAt: studentAssignment.evaluatedAt,
-      createdAt: test.createdAt,
-      dueDate: test.dueDate,
-      batch: test.batch,
-      createdBy: test.createdBy,
-      instructions: test.instructions,
-      percentage: studentAssignment.marksScored ? 
-        ((studentAssignment.marksScored / test.fullMarks) * 100).toFixed(2) : null,
-      hasQuestionPdf: !!test.questionPdf,
-      hasAnswerPdf: !!test.answerPdf
-    };
-
-    res.json({
-      success: true,
-      data: studentTestData
-    });
-
-  } catch (error) {
-    console.error('Error fetching student test:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch test details',
-      error: error.message
-    });
-  }
-};
-
-// Get student's batch-wise test performance
-const getStudentBatchPerformance = async (req, res) => {
-  try {
-    const studentId = req.user.id;
-    
-    // Find all tests where the student is assigned
-    const tests = await Test.find({
-      'assignedStudents.student': studentId,
-      isActive: true
-    })
-      .populate('batch', 'batchName category')
-      .select('-questionPdf.fileData -answerPdf.fileData')
-      .sort({ createdAt: -1 });
-
-    // Group by batch
-    const batchPerformance = {};
-    
-    tests.forEach(test => {
-      const batchId = test.batch._id.toString();
-      const studentData = test.assignedStudents.find(
-        s => s.student.toString() === studentId
-      );
-      
-      if (!batchPerformance[batchId]) {
-        batchPerformance[batchId] = {
-          batch: test.batch,
-          tests: [],
-          totalTests: 0,
-          evaluatedTests: 0,
-          totalMarksScored: 0,
-          totalFullMarks: 0,
-          averagePercentage: 0
-        };
-      }
-      
-      const testData = {
-        testId: test._id,
-        testTitle: test.testTitle,
-        fullMarks: test.fullMarks,
-        marksScored: studentData.marksScored,
-        createdAt: test.createdAt,
-        evaluatedAt: studentData.evaluatedAt,
-        percentage: studentData.marksScored ? 
-          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null
-      };
-      
-      batchPerformance[batchId].tests.push(testData);
-      batchPerformance[batchId].totalTests++;
-      
-      if (studentData.marksScored !== null) {
-        batchPerformance[batchId].evaluatedTests++;
-        batchPerformance[batchId].totalMarksScored += studentData.marksScored;
-        batchPerformance[batchId].totalFullMarks += test.fullMarks;
-      }
-    });
-
-    // Calculate averages for each batch
-    Object.keys(batchPerformance).forEach(batchId => {
-      const data = batchPerformance[batchId];
-      if (data.totalFullMarks > 0) {
-        data.averagePercentage = parseFloat(
-          ((data.totalMarksScored / data.totalFullMarks) * 100).toFixed(2)
-        );
-      }
-    });
-
-    res.json({
-      success: true,
-      data: Object.values(batchPerformance),
-      count: Object.keys(batchPerformance).length
-    });
-
-  } catch (error) {
-    console.error('Error fetching batch performance:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch batch performance',
-      error: error.message
-    });
-  }
-};
-
-// Download question PDF for student (only if assigned to the test)
 const downloadQuestionPdfForStudent = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1086,13 +895,9 @@ const downloadQuestionPdfForStudent = async (req, res) => {
 
     const test = await Test.findById(id);
     if (!test) {
-      return res.status(404).json({
-        success: false,
-        message: 'Test not found'
-      });
+      return res.status(404).json({ success: false, message: 'Test not found' });
     }
 
-    // Check if student is assigned to this test
     const studentAssignment = test.assignedStudents.find(
       s => s.student.toString() === studentId
     );
@@ -1105,7 +910,7 @@ const downloadQuestionPdfForStudent = async (req, res) => {
     }
 
     const pdf = test.questionPdf;
-    if (!pdf || !pdf.fileData) {
+    if (!pdf?.fileData) {
       return res.status(404).json({
         success: false,
         message: 'Question PDF not found'
@@ -1119,7 +924,6 @@ const downloadQuestionPdfForStudent = async (req, res) => {
     });
 
     res.send(pdf.fileData);
-
   } catch (error) {
     console.error('Error downloading question PDF:', error);
     res.status(500).json({
@@ -1130,157 +934,6 @@ const downloadQuestionPdfForStudent = async (req, res) => {
   }
 };
 
-
-// Add these new functions to your testController.js
-
-// Check if user is assigned to any batch
-const checkUserBatchAssignment = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    
-    // Find all batches where the user is assigned as a student
-    const batches = await Batch.find({
-      students: userId
-    })
-      .populate('teachers', 'name email')
-      .select('batchName category teachers');
-
-    if (batches.length === 0) {
-      return res.json({
-        success: true,
-        isAssigned: false,
-        message: 'User is not assigned to any batch',
-        data: {
-          batches: [],
-          totalBatches: 0
-        }
-      });
-    }
-
-    res.json({
-      success: true,
-      isAssigned: true,
-      message: 'User is assigned to batches',
-      data: {
-        batches: batches,
-        totalBatches: batches.length
-      }
-    });
-
-  } catch (error) {
-    console.error('Error checking user batch assignment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to check batch assignment',
-      error: error.message
-    });
-  }
-};
-
-// Get comprehensive user reports with batch information
-
-// Updated getComprehensiveUserReports function with PDF download access
-const getComprehensiveUserReports = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    
-    // First check if user is assigned to any batch
-    const batches = await Batch.find({
-      students: userId
-    })
-      .populate('teachers', 'name email')
-      .select('batchName category teachers');
-
-    if (batches.length === 0) {
-      return res.json({
-        success: true,
-        isAssigned: false,
-        message: 'User is not assigned to any batch',
-        data: {
-          batches: [],
-          tests: [],
-          totalTests: 0,
-          totalBatches: 0
-        }
-      });
-    }
-
-    // Find all tests where the user is assigned
-    const tests = await Test.find({
-      'assignedStudents.student': userId,
-      isActive: true
-    })
-      .populate('createdBy', 'name email')
-      .populate('batch', 'batchName category')
-      .select('-questionPdf.fileData -answerPdf.fileData')
-      .sort({ createdAt: -1 });
-
-    // Format the test data for the specific student
-    const studentReports = tests.map(test => {
-      const studentData = test.assignedStudents.find(
-        s => s.student.toString() === userId
-      );
-      
-      return {
-        testId: test._id,
-        testTitle: test.testTitle,
-        fullMarks: test.fullMarks,
-        marksScored: studentData.marksScored,
-        submittedAt: studentData.submittedAt,
-        evaluatedAt: studentData.evaluatedAt,
-        createdAt: test.createdAt,
-        dueDate: test.dueDate,
-        batch: test.batch,
-        createdBy: test.createdBy,
-        instructions: test.instructions,
-        percentage: studentData.marksScored ? 
-          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2) : null,
-        status: studentData.marksScored !== null ? 'evaluated' : 
-                studentData.submittedAt ? 'submitted' : 'pending',
-        // PDF availability flags
-        hasQuestionPdf: !!test.questionPdf,
-        hasAnswerPdf: !!test.answerPdf,
-        // PDF download URLs (for frontend reference)
-        questionPdfUrl: test.questionPdf ? `/api/tests/student/test/${test._id}/question-pdf` : null,
-        answerPdfUrl: test.answerPdf ? `/api/tests/student/test/${test._id}/answer-pdf` : null
-      };
-    });
-
-    // Calculate statistics
-    const evaluatedTests = studentReports.filter(test => test.marksScored !== null);
-    const totalPercentage = evaluatedTests.reduce((sum, test) => sum + parseFloat(test.percentage || '0'), 0);
-    const averagePercentage = evaluatedTests.length > 0 ? (totalPercentage / evaluatedTests.length).toFixed(2) : '0';
-
-    res.json({
-      success: true,
-      isAssigned: true,
-      data: {
-        batches: batches,
-        tests: studentReports,
-        totalTests: studentReports.length,
-        totalBatches: batches.length,
-        statistics: {
-          totalTests: studentReports.length,
-          evaluatedTests: evaluatedTests.length,
-          pendingTests: studentReports.length - evaluatedTests.length,
-          averagePercentage: parseFloat(averagePercentage),
-          totalMarksScored: evaluatedTests.reduce((sum, test) => sum + (test.marksScored || 0), 0),
-          totalFullMarks: evaluatedTests.reduce((sum, test) => sum + test.fullMarks, 0)
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching comprehensive user reports:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch user reports',
-      error: error.message
-    });
-  }
-};
-
-// Download answer PDF for student (only if assigned to the test)
 const downloadAnswerPdfForStudent = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1288,13 +941,9 @@ const downloadAnswerPdfForStudent = async (req, res) => {
 
     const test = await Test.findById(id);
     if (!test) {
-      return res.status(404).json({
-        success: false,
-        message: 'Test not found'
-      });
+      return res.status(404).json({ success: false, message: 'Test not found' });
     }
 
-    // Check if student is assigned to this test
     const studentAssignment = test.assignedStudents.find(
       s => s.student.toString() === studentId
     );
@@ -1307,7 +956,7 @@ const downloadAnswerPdfForStudent = async (req, res) => {
     }
 
     const pdf = test.answerPdf;
-    if (!pdf || !pdf.fileData) {
+    if (!pdf?.fileData) {
       return res.status(404).json({
         success: false,
         message: 'Answer PDF not found'
@@ -1321,7 +970,6 @@ const downloadAnswerPdfForStudent = async (req, res) => {
     });
 
     res.send(pdf.fileData);
-
   } catch (error) {
     console.error('Error downloading answer PDF:', error);
     res.status(500).json({
@@ -1331,27 +979,62 @@ const downloadAnswerPdfForStudent = async (req, res) => {
     });
   }
 };
+const getTeacherSubjectsForBatch = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const teacherId = req.user.id;
+
+    const batch = await Batch.findById(batchId).populate('subjects.teacher', 'name email');
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Batch not found'
+      });
+    }
+
+    // Get subjects assigned to this teacher
+    const teacherSubjects = batch.subjects
+      .filter(s => s.teacher && s.teacher._id.toString() === teacherId)
+      .map(s => ({
+        name: s.name,
+        teacher: s.teacher
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        batch: {
+          _id: batch._id,
+          batchName: batch.batchName,
+          category: batch.category,
+          classes: batch.classes
+        },
+        subjects: teacherSubjects
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching teacher subjects:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch teacher subjects',
+      error: error.message
+    });
+  }
+};
 
 module.exports = {
   upload,
   createTest,
   getTeacherTests,
-  getBatchTests,
-  getTestById,
+  getBatchSubjectTests,
+  getAvailableStudentsForTest,
   updateTest,
   deleteTest,
   updateStudentMarks,
-  assignStudentsToTest,
-  getAvailableStudentsForTest,
   downloadPdf,
-
-  getStudentReports,
-  getStudentMonthlyAnalytics,
-  getStudentTestById,
-  getStudentBatchPerformance,
+  getStudentSubjectReports,
+  getComprehensiveUserReports,
   downloadQuestionPdfForStudent,
   downloadAnswerPdfForStudent,
-
-  checkUserBatchAssignment,
-  getComprehensiveUserReports,
+  getTeacherSubjectsForBatch
 };

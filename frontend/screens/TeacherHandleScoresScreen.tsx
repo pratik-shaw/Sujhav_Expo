@@ -49,7 +49,7 @@ const BRAND = {
 
 const API_BASE_URL = API_BASE;
 
-// Student assignment interface
+// Student assignment interface (updated to match backend)
 interface StudentAssignment {
   _id: string;
   student: {
@@ -62,7 +62,7 @@ interface StudentAssignment {
   evaluatedAt: Date | null;
 }
 
-// Test interface
+// Test interface (updated to match backend structure)
 interface Test {
   _id: string;
   testTitle: string;
@@ -72,6 +72,8 @@ interface Test {
     batchName: string;
     category: string;
   };
+  className: string;
+  subjectName: string;
   assignedStudents: StudentAssignment[];
   createdBy: {
     _id: string;
@@ -138,7 +140,8 @@ export default function TeacherHandleScoresScreen() {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/tests/${testId}`, {
+      // Updated endpoint to match backend routes - using teacher route for test details
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/test-details/${testId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -276,10 +279,11 @@ export default function TeacherHandleScoresScreen() {
       };
 
       console.log('Making API call to update marks:');
-      console.log('URL:', `http://192.168.29.148:5000/api/tests/${testId}/marks`);
+      console.log('URL:', `${API_BASE_URL}/tests/teacher/${testId}/marks`);
       console.log('Request body:', JSON.stringify(requestBody));
 
-      const response = await fetch(`http://192.168.29.148:5000/api/tests/${testId}/marks`, {
+      // Updated endpoint to match backend routes - using teacher marks route
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/${testId}/marks`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -319,7 +323,7 @@ export default function TeacherHandleScoresScreen() {
       }
     } catch (error) {
       console.error('Network Error updating marks:', error);
-      Alert.alert('Error', `Network error: `);
+      Alert.alert('Error', `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUpdating(false);
     }
@@ -377,7 +381,8 @@ export default function TeacherHandleScoresScreen() {
       const results = [];
       for (const update of updates) {
         try {
-          const response = await fetch(`http://192.168.29.148:5000/api/tests/${testId}/marks`, {
+          // Using updated teacher marks endpoint
+          const response = await fetch(`${API_BASE_URL}/tests/teacher/${testId}/marks`, {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -396,7 +401,11 @@ export default function TeacherHandleScoresScreen() {
           }
         } catch (error) {
           console.error(`Network Error for student ${update.studentId}:`, error);
-          results.push({ success: false, studentId: update.studentId,  });
+          results.push({ 
+            success: false, 
+            studentId: update.studentId, 
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
         }
       }
 
@@ -429,7 +438,7 @@ export default function TeacherHandleScoresScreen() {
       }
     } catch (error) {
       console.error('Error updating bulk marks:', error);
-      Alert.alert('Error', `Network error: `);
+      Alert.alert('Error', `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsBulkUpdating(false);
     }
@@ -804,8 +813,13 @@ export default function TeacherHandleScoresScreen() {
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>Student Scores</Text>
           <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {testTitle}
+            {test?.testTitle || testTitle}
           </Text>
+          {test?.subjectName && test?.className && (
+            <Text style={styles.headerMeta}>
+              {test.subjectName} • Class {test.className}
+            </Text>
+          )}
         </View>
         <TouchableOpacity
           style={styles.bulkUpdateButton}
@@ -856,34 +870,42 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#fff',
-    fontSize: 16,
-    marginTop: 16,
-  },
   backgroundGlow: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     height: height * 0.3,
+    backgroundColor: BRAND.primaryColor,
+    opacity: 0.05,
+    borderRadius: width,
+    transform: [{ scaleX: 2 }],
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 16,
+    marginTop: 15,
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: '#222',
   },
   backButton: {
     padding: 8,
-    marginRight: 12,
+    borderRadius: 8,
+    backgroundColor: BRAND.accentColor,
+    marginRight: 15,
   },
   headerContent: {
     flex: 1,
@@ -895,56 +917,65 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#aaa',
+    color: BRAND.primaryColor,
+    marginTop: 2,
+  },
+  headerMeta: {
+    fontSize: 12,
+    color: '#888',
     marginTop: 2,
   },
   bulkUpdateButton: {
-    backgroundColor: BRAND.primaryColor,
-    padding: 12,
+    padding: 10,
     borderRadius: 8,
-    marginLeft: 12,
+    backgroundColor: BRAND.primaryColor,
+    marginLeft: 10,
   },
   statsContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-around',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    paddingVertical: 15,
+    marginHorizontal: 20,
+    marginVertical: 10,
+    backgroundColor: BRAND.accentColor,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#333',
   },
   statItem: {
-    flex: 1,
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
     color: BRAND.primaryColor,
   },
   statLabel: {
     fontSize: 12,
-    color: '#aaa',
-    marginTop: 4,
+    color: '#888',
+    marginTop: 2,
   },
   filterContainer: {
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    marginBottom: 10,
   },
   filterButton: {
-    backgroundColor: '#333',
     paddingHorizontal: 16,
     paddingVertical: 8,
+    marginRight: 10,
     borderRadius: 20,
-    marginRight: 12,
+    backgroundColor: BRAND.accentColor,
+    borderWidth: 1,
+    borderColor: '#333',
   },
   filterButtonActive: {
     backgroundColor: BRAND.primaryColor,
+    borderColor: BRAND.primaryColor,
   },
   filterButtonText: {
-    color: '#fff',
     fontSize: 14,
-    fontWeight: '500',
+    color: '#888',
   },
   filterButtonTextActive: {
     color: '#000',
@@ -955,18 +986,19 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingBottom: 20,
   },
   studentCard: {
     backgroundColor: BRAND.accentColor,
-    marginBottom: 16,
-    padding: 16,
     borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#333',
   },
   studentHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
   },
@@ -974,14 +1006,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   studentName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 4,
   },
   studentEmail: {
     fontSize: 14,
-    color: '#aaa',
+    color: '#888',
+    marginTop: 2,
   },
   studentStatus: {
     alignItems: 'flex-end',
@@ -989,29 +1021,24 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
   },
   studentDetails: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   detailItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 4,
+    marginBottom: 6,
   },
   detailLabel: {
     fontSize: 14,
-    color: '#aaa',
-    flex: 1,
+    color: '#888',
   },
   detailValue: {
     fontSize: 14,
     color: '#fff',
     fontWeight: '500',
-    textAlign: 'right',
-    flex: 1,
   },
   studentActions: {
     flexDirection: 'row',
@@ -1019,33 +1046,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   updateButton: {
-    backgroundColor: BRAND.primaryColor,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    backgroundColor: BRAND.primaryColor,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
-    flex: 1,
-    marginRight: 12,
   },
   updateButtonText: {
     color: '#000',
     fontSize: 14,
     fontWeight: '600',
-    marginLeft: 8,
-  },
-  disabledButton: {
-    backgroundColor: '#333',
-    opacity: 0.6,
-  },
-  disabledButtonText: {
-    color: '#666',
+    marginLeft: 6,
   },
   percentageContainer: {
     backgroundColor: '#333',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
   },
   percentageText: {
     color: BRAND.primaryColor,
@@ -1059,15 +1077,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   emptyStateTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
-    marginTop: 24,
-    marginBottom: 8,
+    marginTop: 20,
+    marginBottom: 10,
   },
   emptyStateSubtitle: {
     fontSize: 16,
-    color: '#aaa',
+    color: '#888',
     textAlign: 'center',
     lineHeight: 24,
   },
@@ -1083,63 +1101,62 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   updateModalContainer: {
-    backgroundColor: BRAND.accentColor,
     width: width * 0.9,
-    maxWidth: 400,
+    backgroundColor: BRAND.accentColor,
     borderRadius: 16,
+    maxWidth: 400,
     borderWidth: 1,
     borderColor: '#333',
-    overflow: 'hidden',
   },
   updateModalHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    alignItems: 'center',
+    padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
   updateModalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
   },
   closeButton: {
-    padding: 8,
+    padding: 4,
   },
   updateModalContent: {
     padding: 20,
   },
   studentNameModal: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 4,
   },
   studentEmailModal: {
     fontSize: 14,
-    color: '#aaa',
+    color: '#888',
     marginBottom: 20,
   },
   marksInputContainer: {
     marginBottom: 24,
   },
   marksLabel: {
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 12,
+    fontSize: 14,
+    color: '#888',
+    marginBottom: 8,
   },
   marksInput: {
     backgroundColor: '#333',
-    borderWidth: 1,
-    borderColor: '#555',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
     color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
     textAlign: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#444',
   },
   updateModalActions: {
     flexDirection: 'row',
@@ -1154,7 +1171,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButtonText: {
-    color: '#fff',
+    color: '#888',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -1168,7 +1185,10 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: '#000',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   modalContainer: {
     flex: 1,
@@ -1178,36 +1198,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
   modalTitle: {
-    fontSize: 20,
+    flex: 1,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    flex: 1,
     textAlign: 'center',
+    marginLeft: -24, // Compensate for back button width
   },
   headerSpacer: {
-    width: 40,
+    width: 24, // Same as back button width
   },
   bulkUpdateContent: {
     flex: 1,
     paddingHorizontal: 20,
   },
   bulkUpdateSubtitle: {
-    fontSize: 16,
-    color: '#aaa',
+    fontSize: 14,
+    color: '#888',
+    marginVertical: 16,
     textAlign: 'center',
-    marginVertical: 20,
   },
   bulkUpdateItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: BRAND.accentColor,
-    padding: 16,
     borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#333',
@@ -1219,44 +1240,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 4,
   },
   bulkStudentEmail: {
     fontSize: 14,
-    color: '#aaa',
-    marginBottom: 4,
+    color: '#888',
+    marginTop: 2,
   },
   bulkStudentStatus: {
     fontSize: 12,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    marginTop: 4,
   },
   bulkMarksInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#333',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minWidth: 80,
+    marginLeft: 16,
   },
   bulkMarksLabel: {
-    color: '#aaa',
     fontSize: 16,
-    marginRight: 4,
+    color: '#888',
+    marginRight: 8,
   },
   bulkMarksInput: {
+    backgroundColor: '#333',
     color: '#fff',
     fontSize: 16,
+    fontWeight: 'bold',
     textAlign: 'center',
-    minWidth: 40,
-  },
-  disabledInput: {
-    color: '#666',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#444',
+    width: 60,
   },
   actionContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderTopWidth: 1,
@@ -1266,13 +1286,13 @@ const styles = StyleSheet.create({
   createButton: {
     flex: 1,
     backgroundColor: BRAND.primaryColor,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
   createButtonText: {
     color: '#000',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
 });

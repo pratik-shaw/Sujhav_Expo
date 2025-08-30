@@ -43,13 +43,34 @@ const BRAND = {
 
 const API_BASE_URL = API_BASE;
 
-
-// Student interface
+// Student interface - updated to match backend
 interface Student {
   _id: string;
   name: string;
   email: string;
-  createdAt: string;
+}
+
+// Student assignment interface - matches backend structure
+interface StudentAssignment {
+  student: Student;
+  assignedClasses: string[];
+  assignedSubjects: {
+    subjectName: string;
+    teacher?: string;
+  }[];
+  enrolledAt: string;
+  _id: string;
+}
+
+// Subject interface
+interface Subject {
+  _id: string;
+  name: string;
+  teacher?: {
+    _id: string;
+    name: string;
+    email: string;
+  };
 }
 
 // Teacher interface
@@ -59,14 +80,14 @@ interface Teacher {
   email: string;
 }
 
-// Batch interface
+// Batch interface - updated to match backend
 interface Batch {
   _id: string;
   batchName: string;
   classes: string[];
   category: string;
-  students: Student[];
-  teachers: Teacher[];
+  studentAssignments: StudentAssignment[];
+  subjects: Subject[];
   createdBy: {
     _id: string;
     name: string;
@@ -200,7 +221,7 @@ export default function TeacherBatchDetailsScreen() {
     }, 600);
   };
 
-  const renderStudentCard = ({ item }: { item: Student }) => (
+  const renderStudentCard = ({ item }: { item: StudentAssignment }) => (
     <Animated.View 
       style={[
         styles.studentCard,
@@ -212,11 +233,21 @@ export default function TeacherBatchDetailsScreen() {
           <MaterialIcons name="person" size={24} color={BRAND.primaryColor} />
         </View>
         <View style={styles.studentInfo}>
-          <Text style={styles.studentName}>{item.name}</Text>
-          <Text style={styles.studentEmail}>{item.email}</Text>
+          <Text style={styles.studentName}>{item.student.name}</Text>
+          <Text style={styles.studentEmail}>{item.student.email}</Text>
           <Text style={styles.studentJoinDate}>
-            Joined: {new Date(item.createdAt).toLocaleDateString()}
+            Joined: {new Date(item.enrolledAt).toLocaleDateString()}
           </Text>
+          {item.assignedClasses.length > 0 && (
+            <Text style={styles.studentClasses}>
+              Classes: {item.assignedClasses.join(', ')}
+            </Text>
+          )}
+          {item.assignedSubjects.length > 0 && (
+            <Text style={styles.studentSubjects}>
+              Subjects: {item.assignedSubjects.map(s => s.subjectName).join(', ')}
+            </Text>
+          )}
         </View>
         <View style={styles.studentActions}>
           <TouchableOpacity style={styles.actionButton}>
@@ -228,84 +259,84 @@ export default function TeacherBatchDetailsScreen() {
   );
 
   const renderTestReportsSection = () => (
-  <Animated.View 
-    style={[
-      styles.reportsContainer,
-      { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] }
-    ]}
-  >
-    <ScrollView 
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.reportsContent}
+    <Animated.View 
+      style={[
+        styles.reportsContainer,
+        { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] }
+      ]}
     >
-      {/* Test Management Section */}
-      <View style={styles.reportsSection}>
-        <Text style={styles.sectionTitle}>Test Management</Text>
-        <TouchableOpacity 
-          style={styles.reportActionCard}
-          onPress={() => navigation.navigate('TeacherHandleTestScreen', { batchId })}
-        >
-          <View style={styles.reportActionContent}>
-            <View style={styles.reportActionIcon}>
-              <MaterialIcons name="quiz" size={28} color={BRAND.primaryColor} />
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.reportsContent}
+      >
+        {/* Test Management Section */}
+        <View style={styles.reportsSection}>
+          <Text style={styles.sectionTitle}>Test Management</Text>
+          <TouchableOpacity 
+            style={styles.reportActionCard}
+            onPress={() => navigation.navigate('TeacherHandleTestScreen', { batchId })}
+          >
+            <View style={styles.reportActionContent}>
+              <View style={styles.reportActionIcon}>
+                <MaterialIcons name="quiz" size={28} color={BRAND.primaryColor} />
+              </View>
+              <View style={styles.reportActionText}>
+                <Text style={styles.reportActionTitle}>Create & Manage Tests</Text>
+                <Text style={styles.reportActionDescription}>
+                  Create new tests, edit existing ones, and manage test schedules
+                </Text>
+              </View>
+              <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
             </View>
-            <View style={styles.reportActionText}>
-              <Text style={styles.reportActionTitle}>Create & Manage Tests</Text>
-              <Text style={styles.reportActionDescription}>
-                Create new tests, edit existing ones, and manage test schedules
-              </Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
-          </View>
-        </TouchableOpacity>
-      </View>
+          </TouchableOpacity>
+        </View>
 
-      {/* Reports Section */}
-      <View style={styles.reportsSection}>
-        <Text style={styles.sectionTitle}>Reports & Analytics</Text>
-        <TouchableOpacity 
-          style={styles.reportActionCard}
-          onPress={() => navigation.navigate('TeacherHandleReportsScreen', { batchId })}
-        >
-          <View style={styles.reportActionContent}>
-            <View style={styles.reportActionIcon}>
-              <MaterialIcons name="assessment" size={28} color={BRAND.primaryColor} />
+        {/* Reports Section */}
+        <View style={styles.reportsSection}>
+          <Text style={styles.sectionTitle}>Reports & Analytics</Text>
+          <TouchableOpacity 
+            style={styles.reportActionCard}
+            onPress={() => navigation.navigate('TeacherHandleReportsScreen', { batchId })}
+          >
+            <View style={styles.reportActionContent}>
+              <View style={styles.reportActionIcon}>
+                <MaterialIcons name="assessment" size={28} color={BRAND.primaryColor} />
+              </View>
+              <View style={styles.reportActionText}>
+                <Text style={styles.reportActionTitle}>View Test Reports</Text>
+                <Text style={styles.reportActionDescription}>
+                  Analyze student performance and generate detailed reports
+                </Text>
+              </View>
+              <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
             </View>
-            <View style={styles.reportActionText}>
-              <Text style={styles.reportActionTitle}>View Test Reports</Text>
-              <Text style={styles.reportActionDescription}>
-                Analyze student performance and generate detailed reports
-              </Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
-          </View>
-        </TouchableOpacity>
-      </View>
+          </TouchableOpacity>
+        </View>
 
-      {/* Test Scores Section - Updated */}
-      <View style={styles.reportsSection}>
-        <Text style={styles.sectionTitle}>Test Scores</Text>
-        <TouchableOpacity 
-          style={styles.reportActionCard}
-          onPress={() => navigation.navigate('TeacherTestListScreen', { batchId })}
-        >
-          <View style={styles.reportActionContent}>
-            <View style={styles.reportActionIcon}>
-              <MaterialIcons name="quiz" size={28} color={BRAND.primaryColor} />
+        {/* Test Scores Section - Updated */}
+        <View style={styles.reportsSection}>
+          <Text style={styles.sectionTitle}>Test Scores</Text>
+          <TouchableOpacity 
+            style={styles.reportActionCard}
+            onPress={() => navigation.navigate('TeacherTestListScreen', { batchId })}
+          >
+            <View style={styles.reportActionContent}>
+              <View style={styles.reportActionIcon}>
+                <MaterialIcons name="quiz" size={28} color={BRAND.primaryColor} />
+              </View>
+              <View style={styles.reportActionText}>
+                <Text style={styles.reportActionTitle}>Score Students Tests</Text>
+                <Text style={styles.reportActionDescription}>
+                  Grade students for the tests you have created and assigned 
+                </Text>
+              </View>
+              <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
             </View>
-            <View style={styles.reportActionText}>
-              <Text style={styles.reportActionTitle}>Score Students Tests</Text>
-              <Text style={styles.reportActionDescription}>
-                Grade students for the tests you have created and assigned 
-              </Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={20} color="#666" />
-          </View>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
-  </Animated.View>
-);
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </Animated.View>
+  );
 
   const renderBatchDetails = () => (
     <Animated.View 
@@ -355,17 +386,41 @@ export default function TeacherBatchDetailsScreen() {
           </View>
         )}
 
+        {/* Subjects */}
+        <View style={styles.detailSection}>
+          <Text style={styles.sectionTitle}>Your Subjects</Text>
+          {batch?.subjects && batch.subjects.length > 0 ? (
+            batch.subjects.map((subject, index) => (
+              <View key={subject._id || index} style={styles.subjectItem}>
+                <View style={styles.subjectIcon}>
+                  <MaterialIcons name="book" size={20} color={BRAND.primaryColor} />
+                </View>
+                <View style={styles.subjectInfo}>
+                  <Text style={styles.subjectName}>{subject.name}</Text>
+                  {subject.teacher && (
+                    <Text style={styles.subjectTeacher}>
+                      Teacher: {subject.teacher.name}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noSubjectsText}>No subjects assigned</Text>
+          )}
+        </View>
+
         {/* Statistics */}
         <View style={styles.detailSection}>
           <Text style={styles.sectionTitle}>Statistics</Text>
           <View style={styles.statsGrid}>
             <View style={styles.statBox}>
-              <Text style={styles.statNumber}>{batch?.students.length || 0}</Text>
+              <Text style={styles.statNumber}>{batch?.studentAssignments.length || 0}</Text>
               <Text style={styles.statLabel}>Students</Text>
             </View>
             <View style={styles.statBox}>
-              <Text style={styles.statNumber}>{batch?.teachers.length || 0}</Text>
-              <Text style={styles.statLabel}>Teachers</Text>
+              <Text style={styles.statNumber}>{batch?.subjects.length || 0}</Text>
+              <Text style={styles.statLabel}>Subjects</Text>
             </View>
             <View style={styles.statBox}>
               <Text style={styles.statNumber}>{batch?.classes.length || 0}</Text>
@@ -539,9 +594,9 @@ export default function TeacherBatchDetailsScreen() {
         ]}
       >
         {activeTab === 'students' ? (
-          batch?.students.length ? (
+          batch?.studentAssignments.length ? (
             <FlatList
-              data={batch.students}
+              data={batch.studentAssignments}
               renderItem={renderStudentCard}
               keyExtractor={(item) => item._id}
               contentContainerStyle={styles.studentsList}
@@ -916,4 +971,52 @@ const styles = StyleSheet.create({
     color: '#aaa',
     lineHeight: 18,
   },
+  // Add these missing styles to your existing StyleSheet.create({}) object:
+
+studentClasses: {
+  fontSize: 12,
+  color: '#888',
+  marginTop: 2,
+},
+studentSubjects: {
+  fontSize: 12,
+  color: '#888',
+  marginTop: 2,
+},
+subjectItem: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingVertical: 12,
+  borderBottomWidth: 1,
+  borderBottomColor: BRAND.primaryColor + '10',
+},
+subjectIcon: {
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  backgroundColor: BRAND.primaryColor + '20',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 12,
+},
+subjectInfo: {
+  flex: 1,
+},
+subjectName: {
+  fontSize: 16,
+  fontWeight: 'bold',
+  color: '#fff',
+  marginBottom: 2,
+},
+subjectTeacher: {
+  fontSize: 14,
+  color: '#aaa',
+},
+noSubjectsText: {
+  fontSize: 14,
+  color: '#888',
+  textAlign: 'center',
+  fontStyle: 'italic',
+  paddingVertical: 20,
+},
 });
