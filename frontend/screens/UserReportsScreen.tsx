@@ -62,11 +62,21 @@ interface Batch {
   _id: string;
   batchName: string;
   category: string;
-  teachers: Array<{
-    _id: string;
-    name: string;
-    email: string;
+  classes: string[];
+  subjects: Array<{
+    name?: string;
+    teacher?: {
+      _id?: string;
+      name?: string;
+      email?: string;
+    };
   }>;
+  userAssignment?: {
+    assignedClasses: string[];
+    assignedSubjects: Array<{
+      subjectName?: string;
+    }>;
+  };
 }
 
 interface TestReport {
@@ -78,27 +88,35 @@ interface TestReport {
   evaluatedAt: string | null;
   createdAt: string;
   dueDate: string | null;
+  className: string;
+  subjectName: string;
   batch: {
     _id: string;
-    batchName: string;
-    category: string;
+    batchName?: string;
+    category?: string;
   };
   createdBy: {
     _id: string;
-    name: string;
-    email: string;
+    name?: string;
+    email?: string;
   };
   instructions: string;
   percentage: string | null;
   status: 'pending' | 'submitted' | 'evaluated';
   hasQuestionPdf?: boolean;
+  hasAnswerPdf?: boolean;
 }
 
 interface UserReportsData {
   batches: Batch[];
   tests: TestReport[];
-  totalTests: number;
-  totalBatches: number;
+  userAssignments: Array<{
+    batchId: string;
+    batchName: string;
+    category: string;
+    subjectName: string;
+    classes: string[];
+  }>;
   statistics: {
     totalTests: number;
     evaluatedTests: number;
@@ -196,7 +214,7 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
     }
   };
 
-  // Download question PDF using Expo FileSystem
+  // Download question PDF using new student endpoint
   const downloadQuestionPdf = async (testId: string, testTitle: string) => {
     try {
       if (!userData) {
@@ -210,6 +228,7 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
       const fileName = `${sanitizedTitle}_Questions.pdf`;
       const fileUri = FileSystem.documentDirectory + fileName;
 
+      // Updated endpoint path for student question PDF download
       const downloadResult = await FileSystem.downloadAsync(
         `${API_BASE}/tests/student/test/${testId}/question-pdf`,
         fileUri,
@@ -251,13 +270,14 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
         handleDownloadError(downloadResult.status, 'question');
       }
     } catch (error) {
+      console.error('Download error:', error);
       handleDownloadError(null, 'question');
     } finally {
       setDownloadingPdf(null);
     }
   };
 
-  // Download answer PDF (only for evaluated tests)
+  // Download answer PDF using new student endpoint
   const downloadAnswerPdf = async (testId: string, testTitle: string) => {
     try {
       if (!userData) {
@@ -271,6 +291,7 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
       const fileName = `${sanitizedTitle}_Answers.pdf`;
       const fileUri = FileSystem.documentDirectory + fileName;
 
+      // Updated endpoint path for student answer PDF download
       const downloadResult = await FileSystem.downloadAsync(
         `${API_BASE}/tests/student/test/${testId}/answer-pdf`,
         fileUri,
@@ -312,57 +333,107 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
         handleDownloadError(downloadResult.status, 'answer');
       }
     } catch (error) {
+      console.error('Download error:', error);
       handleDownloadError(null, 'answer');
     } finally {
       setDownloadingPdf(null);
     }
   };
 
-  // Fetch user reports
+  // Fetch user reports using new endpoint structure
   const fetchUserReports = async () => {
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
+    
+    const currentUserData = await checkAuthStatus();
+    if (!currentUserData) {
+      setLoading(false);
+      return;
+    }
+
+    const response = await fetch(`${API_BASE}/tests/user/comprehensive-reports`, {
+      headers: {
+        'Authorization': `Bearer ${currentUserData.token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('User reports response:', data);
       
-      const currentUserData = await checkAuthStatus();
-      if (!currentUserData) {
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch(`${API_BASE}/tests/user/comprehensive-reports`, {
-        headers: {
-          'Authorization': `Bearer ${currentUserData.token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('User reports response:', data);
+      if (data.success) {
+        setIsAssignedToBatch(data.isAssigned);
         
-        if (data.success) {
-          setIsAssignedToBatch(data.isAssigned);
-          
-          if (data.isAssigned) {
-            setReportsData(data.data);
-          } else {
-            setReportsData(null);
-          }
+        if (data.isAssigned) {
+          // Transform the data with comprehensive null safety
+          const transformedData = {
+            batches: (data.data?.batches || []).map((batch: any) => ({
+              ...batch,
+              batchName: batch?.batchName || 'Unknown Batch',
+              category: batch?.category || 'Unknown Category',
+              classes: batch?.classes || [],
+              subjects: (batch?.subjects || []).map((subject: any) => ({
+                name: subject?.name || 'Unknown Subject',
+                teacher: {
+                  _id: subject?.teacher?._id || '',
+                  name: subject?.teacher?.name || 'Unknown Teacher',
+                  email: subject?.teacher?.email || '',
+                }
+              })),
+              userAssignment: batch?.userAssignment ? {
+                assignedClasses: batch.userAssignment.assignedClasses || [],
+                assignedSubjects: (batch.userAssignment.assignedSubjects || []).map((s: any) => ({
+                  subjectName: s?.subjectName || 'Unknown Subject'
+                }))
+              } : undefined
+            })),
+            tests: (data.data?.tests || []).map((test: any) => ({
+              ...test,
+              testTitle: test?.testTitle || 'Untitled Test',
+              batch: {
+                _id: test?.batch?._id || '',
+                batchName: test?.batch?.batchName || 'Unknown Batch',
+                category: test?.batch?.category || 'Unknown Category',
+              },
+              createdBy: {
+                _id: test?.createdBy?._id || '',
+                name: test?.createdBy?.name || 'Unknown Teacher',
+                email: test?.createdBy?.email || '',
+              },
+              className: test?.className || 'Unknown Class',
+              subjectName: test?.subjectName || 'Unknown Subject',
+              percentage: test?.percentage || null,
+            })),
+            userAssignments: data.data?.userAssignments || [],
+            statistics: {
+              totalTests: data.data?.statistics?.totalTests || 0,
+              evaluatedTests: data.data?.statistics?.evaluatedTests || 0,
+              pendingTests: data.data?.statistics?.pendingTests || 0,
+              averagePercentage: parseFloat(data.data?.statistics?.averagePercentage || '0'),
+              totalMarksScored: data.data?.statistics?.totalMarksScored || 0,
+              totalFullMarks: data.data?.statistics?.totalFullMarks || 0,
+            }
+          };
+          setReportsData(transformedData);
         } else {
-          console.error('Failed to fetch user reports:', data.message);
-          Alert.alert('Error', data.message || 'Failed to fetch reports');
+          setReportsData(null);
         }
       } else {
-        console.error('Failed to fetch user reports:', response.status);
-        Alert.alert('Error', 'Failed to fetch reports. Please try again.');
+        console.error('Failed to fetch user reports:', data.message);
+        Alert.alert('Error', data.message || 'Failed to fetch reports');
       }
-    } catch (error) {
-      console.error('Error fetching user reports:', error);
-      Alert.alert('Error', 'Network error. Please check your connection.');
-    } finally {
-      setLoading(false);
+    } else {
+      console.error('Failed to fetch user reports:', response.status);
+      Alert.alert('Error', 'Failed to fetch reports. Please try again.');
     }
-  };
+  } catch (error) {
+    console.error('Error fetching user reports:', error);
+    Alert.alert('Error', 'Network error. Please check your connection.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Handle refresh
   const onRefresh = async () => {
@@ -614,82 +685,105 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
     </Animated.View>
   );
 
-  // Test Card Component
+  // Test Card Component with enhanced information
   const TestCard = ({ item }: { item: TestReport }) => (
-    <Animated.View
-      style={[
-        styles.testCard,
-        {
-          opacity: fadeAnim,
-          transform: [{ scale: Animated.multiply(contentScale, pulseScale) }],
-        },
-      ]}
-    >
-      <View style={styles.testCardContent}>
-        <View style={styles.testHeader}>
-          <Text style={styles.testTitle}>{item.testTitle}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
-            <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-              {item.status.toUpperCase()}
-            </Text>
-          </View>
+  <Animated.View
+    style={[
+      styles.testCard,
+      {
+        opacity: fadeAnim,
+        transform: [{ scale: Animated.multiply(contentScale, pulseScale) }],
+      },
+    ]}
+  >
+    <View style={styles.testCardContent}>
+      <View style={styles.testHeader}>
+        <Text style={styles.testTitle}>{item.testTitle || 'Untitled Test'}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
+          <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
+            {item.status?.toUpperCase() || 'UNKNOWN'}
+          </Text>
+        </View>
+      </View>
+      
+      <View style={styles.testDetails}>
+        <View style={styles.testInfoRow}>
+          <MaterialIcons name="group" size={14} color={BRAND.textSecondary} />
+          <Text style={styles.testInfoText}>
+            Batch: {safeGetBatchName(item.batch)}
+          </Text>
+        </View>
+        <View style={styles.testInfoRow}>
+          <MaterialIcons name="class" size={14} color={BRAND.textSecondary} />
+          <Text style={styles.testInfoText}>Class: {item.className || 'Unknown Class'}</Text>
+        </View>
+        <View style={styles.testInfoRow}>
+          <MaterialIcons name="subject" size={14} color={BRAND.textSecondary} />
+          <Text style={styles.testInfoText}>Subject: {item.subjectName || 'Unknown Subject'}</Text>
+        </View>
+        <View style={styles.testInfoRow}>
+          <MaterialIcons name="person" size={14} color={BRAND.textSecondary} />
+          <Text style={styles.testInfoText}>
+            Teacher: {safeGetCreatorName(item.createdBy)}
+          </Text>
+        </View>
+        <View style={styles.testInfoRow}>
+          <MaterialIcons name="calendar-today" size={14} color={BRAND.textSecondary} />
+          <Text style={styles.testInfoText}>
+            Created: {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'Unknown Date'}
+          </Text>
         </View>
         
-        <View style={styles.testDetails}>
+        {item.dueDate && (
           <View style={styles.testInfoRow}>
-            <MaterialIcons name="group" size={14} color={BRAND.textSecondary} />
-            <Text style={styles.testInfoText}>Batch: {item.batch.batchName}</Text>
-          </View>
-          <View style={styles.testInfoRow}>
-            <MaterialIcons name="person" size={14} color={BRAND.textSecondary} />
-            <Text style={styles.testInfoText}>Teacher: {item.createdBy.name}</Text>
-          </View>
-          <View style={styles.testInfoRow}>
-            <MaterialIcons name="calendar-today" size={14} color={BRAND.textSecondary} />
-            <Text style={styles.testInfoText}>
-              Created: {new Date(item.createdAt).toLocaleDateString()}
+            <MaterialIcons name="schedule" size={14} color={BRAND.warningColor} />
+            <Text style={[styles.testInfoText, { color: BRAND.warningColor }]}>
+              Due: {new Date(item.dueDate).toLocaleDateString()}
             </Text>
           </View>
-          
-          {item.dueDate && (
-            <View style={styles.testInfoRow}>
-              <MaterialIcons name="schedule" size={14} color={BRAND.warningColor} />
-              <Text style={[styles.testInfoText, { color: BRAND.warningColor }]}>
-                Due: {new Date(item.dueDate).toLocaleDateString()}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.marksContainer}>
-          <Text style={styles.marksLabel}>Marks:</Text>
-          {item.marksScored !== null ? (
-            <View style={styles.marksInfo}>
-              <Text style={styles.marksValue}>
-                {item.marksScored}/{item.fullMarks}
-              </Text>
-              <Text style={[styles.percentage, { color: BRAND.successColor }]}>
-                {item.percentage}%
-              </Text>
-              <Text style={[styles.grade, { color: BRAND.successColor }]}>
-                ({getGrade(parseFloat(item.percentage || '0'))})
-              </Text>
-            </View>
-          ) : (
-            <Text style={[styles.marksValue, { color: BRAND.textSecondary }]}>
-              Not Evaluated
+        )}
+        
+        {item.evaluatedAt && (
+          <View style={styles.testInfoRow}>
+            <MaterialIcons name="check-circle" size={14} color={BRAND.successColor} />
+            <Text style={[styles.testInfoText, { color: BRAND.successColor }]}>
+              Evaluated: {new Date(item.evaluatedAt).toLocaleDateString()}
             </Text>
-          )}
-        </View>
+          </View>
+        )}
+      </View>
 
-        {/* Download Buttons */}
-        <View style={styles.actionButtons}>
+      <View style={styles.marksContainer}>
+        <Text style={styles.marksLabel}>Marks:</Text>
+        {item.marksScored !== null && item.marksScored !== undefined ? (
+          <View style={styles.marksInfo}>
+            <Text style={styles.marksValue}>
+              {item.marksScored}/{item.fullMarks || 0}
+            </Text>
+            <Text style={[styles.percentage, { color: BRAND.successColor }]}>
+              {item.percentage || '0'}%
+            </Text>
+            <Text style={[styles.grade, { color: BRAND.successColor }]}>
+              ({getGrade(parseFloat(item.percentage || '0'))})
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.marksValue, { color: BRAND.textSecondary }]}>
+            Not Evaluated
+          </Text>
+        )}
+      </View>
+
+      {/* Download Buttons */}
+      <View style={styles.actionButtons}>
+        {/* Question PDF button - always show if available */}
+        {item.hasQuestionPdf && (
           <TouchableOpacity
             style={[
               styles.downloadButton,
               downloadingPdf === item.testId && styles.downloadButtonDisabled
             ]}
-            onPress={() => downloadQuestionPdf(item.testId, item.testTitle)}
+            onPress={() => downloadQuestionPdf(item.testId, item.testTitle || 'test')}
             disabled={downloadingPdf === item.testId}
           >
             {downloadingPdf === item.testId ? (
@@ -701,32 +795,151 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
               </>
             )}
           </TouchableOpacity>
+        )}
 
-          {/* Answer PDF button - only show for evaluated tests */}
-          {item.status === 'evaluated' && (
-            <TouchableOpacity
-              style={[
-                styles.downloadButton,
-                styles.answerButton,
-                downloadingPdf === item.testId + '_answer' && styles.downloadButtonDisabled
-              ]}
-              onPress={() => downloadAnswerPdf(item.testId, item.testTitle)}
-              disabled={downloadingPdf === item.testId + '_answer'}
-            >
-              {downloadingPdf === item.testId + '_answer' ? (
-                <ActivityIndicator size="small" color={BRAND.textPrimary} />
-              ) : (
-                <>
-                  <MaterialIcons name="assignment" size={16} color={BRAND.textPrimary} />
-                  <Text style={styles.downloadButtonText}>Answers</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
+        {/* Answer PDF button - only show for evaluated tests with answer PDF */}
+        {item.status === 'evaluated' && item.hasAnswerPdf && (
+          <TouchableOpacity
+            style={[
+              styles.downloadButton,
+              styles.answerButton,
+              downloadingPdf === item.testId + '_answer' && styles.downloadButtonDisabled
+            ]}
+            onPress={() => downloadAnswerPdf(item.testId, item.testTitle || 'test')}
+            disabled={downloadingPdf === item.testId + '_answer'}
+          >
+            {downloadingPdf === item.testId + '_answer' ? (
+              <ActivityIndicator size="small" color={BRAND.textPrimary} />
+            ) : (
+              <>
+                <MaterialIcons name="assignment" size={16} color={BRAND.textPrimary} />
+                <Text style={styles.downloadButtonText}>Answers</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
-    </Animated.View>
-  );
+    </View>
+  </Animated.View>
+);
+
+  // Enhanced Batch Card Component
+  // Enhanced Batch Card Component with null safety
+// Updated TypeScript interfaces with optional properties
+interface Batch {
+  _id: string;
+  batchName: string;
+  category: string;
+  classes: string[];
+  subjects: Array<{
+    name?: string;
+    teacher?: {
+      _id?: string;
+      name?: string;
+      email?: string;
+    };
+  }>;
+  userAssignment?: {
+    assignedClasses: string[];
+    assignedSubjects: Array<{
+      subjectName?: string;
+    }>;
+  };
+}
+
+interface TestReport {
+  testId: string;
+  testTitle: string;
+  fullMarks: number;
+  marksScored: number | null;
+  submittedAt: string | null;
+  evaluatedAt: string | null;
+  createdAt: string;
+  dueDate: string | null;
+  className: string;
+  subjectName: string;
+  batch: {
+    _id: string;
+    batchName?: string;
+    category?: string;
+  };
+  createdBy: {
+    _id: string;
+    name?: string;
+    email?: string;
+  };
+  instructions: string;
+  percentage: string | null;
+  status: 'pending' | 'submitted' | 'evaluated';
+  hasQuestionPdf?: boolean;
+  hasAnswerPdf?: boolean;
+}
+
+// Safe data access helpers
+const safeGetTeacherName = (teacher: any): string => {
+  return teacher?.name || 'Unknown Teacher';
+};
+
+const safeGetBatchName = (batch: any): string => {
+  return batch?.batchName || 'Unknown Batch';
+};
+
+const safeGetCreatorName = (creator: any): string => {
+  return creator?.name || 'Unknown Creator';
+};
+
+// Enhanced Batch Card Component with comprehensive null safety
+const BatchCard = ({ batch }: { batch: Batch }) => (
+  <Animated.View style={[styles.batchCard, { opacity: fadeAnim }]}>
+    <Text style={styles.batchName}>{batch.batchName || 'Unknown Batch'}</Text>
+    <Text style={styles.batchCategory}>{batch.category || 'Unknown Category'}</Text>
+    
+    {/* Show user's assigned classes */}
+    {batch.userAssignment?.assignedClasses && batch.userAssignment.assignedClasses.length > 0 && (
+      <View style={styles.assignmentInfo}>
+        <Text style={styles.assignmentLabel}>Your Classes:</Text>
+        <Text style={styles.assignmentValue}>
+          {batch.userAssignment.assignedClasses.join(', ')}
+        </Text>
+      </View>
+    )}
+    
+    {/* Show user's assigned subjects */}
+    {batch.userAssignment?.assignedSubjects && batch.userAssignment.assignedSubjects.length > 0 && (
+      <View style={styles.assignmentInfo}>
+        <Text style={styles.assignmentLabel}>Your Subjects:</Text>
+        <Text style={styles.assignmentValue}>
+          {batch.userAssignment.assignedSubjects
+            .map(s => s?.subjectName || 'Unknown Subject')
+            .filter(name => name !== 'Unknown Subject')
+            .join(', ') || 'No subjects assigned'
+          }
+        </Text>
+      </View>
+    )}
+    
+    {/* Show available subjects with teachers - with comprehensive null safety */}
+    {batch.subjects && batch.subjects.length > 0 && (
+      <View style={styles.subjectsContainer}>
+        <Text style={styles.subjectsLabel}>All Subjects:</Text>
+        {batch.subjects
+          .filter(subject => subject && subject.name) // Filter out invalid subjects
+          .map((subject, index) => (
+            <View key={index} style={styles.subjectItem}>
+              <Text style={styles.subjectName}>
+                {subject.name || 'Unknown Subject'}
+              </Text>
+              <Text style={styles.teacherName}>
+                by {safeGetTeacherName(subject.teacher)}
+              </Text>
+            </View>
+          ))
+        }
+      </View>
+    )}
+  </Animated.View>
+);
+
 
   // Filter Buttons Component
   const FilterButtons = () => (
@@ -786,9 +999,10 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
           />
         </Animated.View>
 
-        <Text style={styles.welcomeTitle}>My Reports Dashboard</Text>
-        <Text style={styles.welcomeSubtitle}>
-          Sign in to view your test reports and academic performance
+        <Text style={styles.welcomeTitle}>Welcome to {BRAND.name}</Text>
+        <Text style={styles.welcomeSubtitle}>{BRAND.subtitle}</Text>
+        <Text style={styles.welcomeSubtext}>
+          Please sign in to view your academic reports and progress.
         </Text>
       </Animated.View>
 
@@ -812,71 +1026,106 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
               { opacity: Animated.multiply(glowOpacity, 0.6) }
             ]}
           />
-          <Text style={styles.signInButtonText}>Sign in to continue</Text>
+          <Text style={styles.signInButtonText}>Sign In</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
   );
 
-  // Render empty state for no tests
-  const renderEmptyTestsState = () => (
-    <Animated.View style={[styles.emptyState, { opacity: fadeAnim }]}>
-      <MaterialIcons name="assignment" size={60} color="#444" />
-      <Text style={styles.emptyStateTitle}>No Tests Found</Text>
-      <Text style={styles.emptyStateSubtitle}>
-        {selectedFilter === 'all' 
-          ? "You haven't taken any tests yet."
-          : `No ${selectedFilter} tests found.`}
-      </Text>
-    </Animated.View>
-  );
+  // Render authenticated content (student assigned to batch)
+  const renderAuthenticatedContent = () => {
+    if (!reportsData) return null;
 
-  // Loading state
-  if (isLoggedIn === null || loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <ScrollView 
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[BRAND.primaryColor]}
+            progressBackgroundColor={BRAND.cardBackground}
+          />
+        }
+      >
+        {/* Statistics Section */}
+        <StatisticsCard statistics={reportsData.statistics} />
+
+        {/* Batches Section */}
+        {reportsData.batches.length > 0 && (
+          <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
+            <Text style={styles.sectionTitle}>Your Batches</Text>
+            {reportsData.batches.map((batch, index) => (
+              <BatchCard key={batch._id} batch={batch} />
+            ))}
+          </Animated.View>
+        )}
+
+        {/* Tests Section */}
+        {reportsData.tests.length > 0 && (
+          <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
+            <Text style={styles.sectionTitle}>Test Reports</Text>
+            
+            {/* Filter Buttons */}
+            <FilterButtons />
+            
+            <FlatList
+              data={getFilteredTests()}
+              renderItem={({ item }) => <TestCard item={item} />}
+              keyExtractor={(item) => item.testId}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+            />
+          </Animated.View>
+        )}
+
+        {/* No Tests Message */}
+        {getFilteredTests().length === 0 && (
+          <Animated.View style={[styles.noDataContainer, { opacity: fadeAnim }]}>
+            <MaterialIcons name="assignment" size={48} color={BRAND.textSecondary} />
+            <Text style={styles.noDataText}>No tests found</Text>
+            <Text style={styles.noDataSubtext}>
+              {selectedFilter === 'all' 
+                ? 'No tests have been assigned yet'
+                : `No ${selectedFilter} tests found`
+              }
+            </Text>
+          </Animated.View>
+        )}
+      </ScrollView>
+    );
+  };
+
+  // Loading screen
+  if (loading && isLoggedIn === null) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
         <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
-        <View style={styles.loadingContainer}>
+        <View style={styles.loadingContent}>
           <ActivityIndicator size="large" color={BRAND.primaryColor} />
-          <Text style={styles.loadingText}>Loading your reports...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.mainContainer}>
       <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
       
-      {/* Animated Background Elements */}
-      <View style={styles.backgroundElements}>
-        <Animated.View 
-          style={[
-            styles.glowCircle,
-            styles.glowCircle1,
-            { opacity: Animated.multiply(glowOpacity, 0.08) }
-          ]} 
-        />
-        <Animated.View 
-          style={[
-            styles.glowCircle,
-            styles.glowCircle2,
-            { opacity: Animated.multiply(glowOpacity, 0.06) }
-          ]} 
-        />
-        <Animated.View 
-          style={[
-            styles.glowCircle,
-            styles.glowCircle3,
-            { opacity: Animated.multiply(glowOpacity, 0.04) }
-          ]} 
-        />
-      </View>
+      {/* Animated Background Glow */}
+      <Animated.View
+        style={[
+          styles.backgroundGlow,
+          { opacity: glowOpacity }
+        ]}
+      />
 
       {/* Header */}
-      <Animated.View 
+      <Animated.View
         style={[
-          styles.headerSection,
+          styles.header,
           {
             opacity: headerOpacity,
             transform: [{ translateY: headerTranslateY }],
@@ -886,142 +1135,78 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
         <View style={styles.headerContent}>
           <Image
             source={require('../assets/images/logo-sujhav.png')}
-            style={styles.headerLogo}
+            style={styles.headerLogoImage}
             resizeMode="contain"
           />
-          <Text style={styles.brandTitle}>My Reports</Text>
+          <Text style={styles.headerTitle}>Reports</Text>
         </View>
       </Animated.View>
 
-      {/* Content Container */}
-      <View style={styles.contentContainer}>
-        {!isLoggedIn ? (
-          renderUnauthenticatedContent()
-        ) : !isAssignedToBatch ? (
-          <EmptyState />
-        ) : (
-          <ScrollView
-            style={styles.scrollView}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[BRAND.primaryColor]}
-              tintColor={BRAND.primaryColor}
-              progressBackgroundColor={BRAND.cardBackground}
-            />
-            }
-          >
-            {/* Statistics Section */}
-            {reportsData?.statistics && (
-              <StatisticsCard statistics={reportsData.statistics} />
-            )}
+      {/* Content based on authentication and batch assignment */}
+      {isLoggedIn === false ? (
+        renderUnauthenticatedContent()
+      ) : !isAssignedToBatch ? (
+        <EmptyState />
+      ) : loading ? (
+        <View style={styles.loadingContent}>
+          <ActivityIndicator size="large" color={BRAND.primaryColor} />
+          <Text style={styles.loadingText}>Loading Reports...</Text>
+        </View>
+      ) : (
+        renderAuthenticatedContent()
+      )}
 
-            {/* Batches Section */}
-            {reportsData?.batches && reportsData.batches.length > 0 && (
-              <Animated.View style={[styles.batchesSection, { opacity: fadeAnim }]}>
-                <Text style={styles.sectionTitle}>Your Batches</Text>
-                <View style={styles.batchesContainer}>
-                  {reportsData.batches.map((batch) => (
-                    <View key={batch._id} style={styles.batchCard}>
-                      <Text style={styles.batchName}>{batch.batchName}</Text>
-                      <Text style={styles.batchCategory}>{batch.category}</Text>
-                      <Text style={styles.batchTeachers}>
-                        Teachers: {batch.teachers.map(t => t.name).join(', ')}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </Animated.View>
-            )}
-
-            {/* Filter Buttons */}
-            <FilterButtons />
-
-            {/* Tests Section */}
-            <Animated.View style={[styles.testsSection, { opacity: fadeAnim }]}>
-              <Text style={styles.sectionTitle}>
-                Test Reports ({getFilteredTests().length})
-              </Text>
-              
-              {getFilteredTests().length === 0 ? (
-                renderEmptyTestsState()
-              ) : (
-                <FlatList
-                  data={getFilteredTests()}
-                  keyExtractor={(item) => item.testId}
-                  renderItem={({ item }) => <TestCard item={item} />}
-                  showsVerticalScrollIndicator={false}
-                  scrollEnabled={false}
-                  ItemSeparatorComponent={() => <View style={styles.separator} />}
-                />
-              )}
-            </Animated.View>
-          </ScrollView>
-        )}
-      </View>
 
       {/* Bottom Navigation */}
-      <BottomNavigation navigation={navigation} activeTab="reports" />
-
-      
+      <BottomNavigation navigation={navigation} activeTab="Reports" />
     </SafeAreaView>
   );
 };
 
+// Styles
 const styles = StyleSheet.create({
+  mainContainer: {
+    flex: 1,
+    backgroundColor: BRAND.backgroundColor,
+  },
   container: {
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
   },
+  scrollContent: {
+    paddingBottom: 100,
+  },
   loadingContainer: {
     flex: 1,
+    backgroundColor: BRAND.backgroundColor,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: BRAND.backgroundColor,
+  },
+  loadingContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
   },
   loadingText: {
     color: BRAND.textPrimary,
     fontSize: 16,
-    marginTop: 20,
+    marginTop: 12,
     fontWeight: '500',
   },
-  backgroundElements: {
+  backgroundGlow: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    pointerEvents: 'none',
-  },
-  glowCircle: {
-    position: 'absolute',
-    borderRadius: 1000,
     backgroundColor: BRAND.primaryColor,
+    opacity: 0.05,
   },
-  glowCircle1: {
-    width: 200,
-    height: 200,
-    top: -100,
-    right: -100,
-  },
-  glowCircle2: {
-    width: 150,
-    height: 150,
-    top: height * 0.3,
-    left: -75,
-  },
-  glowCircle3: {
-    width: 100,
-    height: 100,
-    bottom: 100,
-    right: 50,
-  },
-  headerSection: {
+  header: {
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 20,
+    paddingTop: Platform.OS === 'ios' ? 10 : 20,
+    paddingBottom: 15,
+    backgroundColor: BRAND.backgroundColor,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.borderColor,
   },
@@ -1030,65 +1215,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerLogo: {
-     width: 30,
-    height: 30,
-    marginRight: 10,
+  headerLogoImage: {
+    width: 32,
+    height: 32,
+    marginRight: 12,
   },
-  brandTitle: {
+  headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: BRAND.primaryColor,
-  },
-  contentContainer: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-    paddingHorizontal: 20,
+    color: BRAND.textPrimary,
+    letterSpacing: 0.5,
   },
   unauthenticatedContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 30,
+    backgroundColor: BRAND.backgroundColor,
   },
   welcomeSection: {
     alignItems: 'center',
-    marginBottom: 50,
+    marginBottom: 40,
   },
   logoContainer: {
     position: 'relative',
     marginBottom: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   logoGlow: {
     position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: BRAND.primaryColor,
-    top: -10,
-    left: -10,
-    zIndex: 0,
-  },
-  headerLogoImage: {
-    width: 100,
-    height: 100,
-    zIndex: 1,
+    opacity: 0.3,
   },
   welcomeTitle: {
     fontSize: 28,
     fontWeight: 'bold',
     color: BRAND.textPrimary,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
+    letterSpacing: 0.5,
   },
   welcomeSubtitle: {
     fontSize: 16,
     color: BRAND.textSecondary,
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 8,
+    marginBottom: 12,
+    lineHeight: 24,
   },
   welcomeSubtext: {
     fontSize: 14,
@@ -1102,146 +1278,187 @@ const styles = StyleSheet.create({
   },
   signInButton: {
     backgroundColor: BRAND.primaryColor,
+    paddingVertical: 16,
     paddingHorizontal: 40,
-    paddingVertical: 15,
     borderRadius: 25,
     position: 'relative',
     overflow: 'hidden',
+    elevation: 5,
+    shadowColor: BRAND.primaryColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   buttonGlow: {
     position: 'absolute',
-    top: -5,
-    left: -5,
-    right: -5,
-    bottom: -5,
+    top: -10,
+    left: -10,
+    right: -10,
+    bottom: -10,
     backgroundColor: BRAND.primaryColor,
-    borderRadius: 30,
-    zIndex: 0,
+    borderRadius: 35,
+    opacity: 0.2,
   },
   signInButtonText: {
     color: BRAND.secondaryColor,
-    fontSize: 16,
-    fontWeight: 'bold',
-    zIndex: 1,
-  },
-  statisticsCard: {
-    backgroundColor: BRAND.cardBackground,
-    marginTop: 20,
-    borderRadius: 15,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
-  },
-  cardTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
-    marginBottom: 15,
+    letterSpacing: 0.5,
   },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  statItem: {
-    width: '48%',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: BRAND.primaryColor,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: BRAND.textSecondary,
-    marginTop: 5,
-  },
-  batchesSection: {
-    marginTop: 25,
+  section: {
+    marginBottom: 25,
+    paddingHorizontal: 20,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: BRAND.textPrimary,
     marginBottom: 15,
+    letterSpacing: 0.3,
   },
-  batchesContainer: {
+  statisticsCard: {
+    backgroundColor: BRAND.cardBackground,
+    margin: 20,
+    padding: 20,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: BRAND.borderColor,
+    elevation: 3,
+    shadowColor: BRAND.primaryColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: BRAND.textPrimary,
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  statsGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+  },
+  statItem: {
+    alignItems: 'center',
+    minWidth: '22%',
+    marginBottom: 10,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: BRAND.primaryColor,
+    marginBottom: 5,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: BRAND.textSecondary,
+    textAlign: 'center',
   },
   batchCard: {
     backgroundColor: BRAND.cardBackground,
-    borderRadius: 10,
-    padding: 15,
-    width: '48%',
-    marginBottom: 10,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: BRAND.borderColor,
   },
   batchName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: BRAND.textPrimary,
-    marginBottom: 5,
+    marginBottom: 4,
   },
   batchCategory: {
     fontSize: 14,
     color: BRAND.primaryColor,
-    marginBottom: 5,
+    marginBottom: 12,
+    fontWeight: '500',
   },
-  batchTeachers: {
+  assignmentInfo: {
+    marginBottom: 8,
+  },
+  assignmentLabel: {
     fontSize: 12,
     color: BRAND.textSecondary,
-    lineHeight: 16,
+    marginBottom: 2,
+  },
+  assignmentValue: {
+    fontSize: 14,
+    color: BRAND.textPrimary,
+    fontWeight: '500',
+  },
+  subjectsContainer: {
+    marginTop: 8,
+  },
+  subjectsLabel: {
+    fontSize: 12,
+    color: BRAND.textSecondary,
+    marginBottom: 6,
+  },
+  subjectItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  subjectName: {
+    fontSize: 13,
+    color: BRAND.textPrimary,
+    flex: 1,
+  },
+  teacherName: {
+    fontSize: 11,
+    color: BRAND.textSecondary,
+    fontStyle: 'italic',
   },
   filterContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    marginVertical: 20,
-    backgroundColor: BRAND.cardBackground,
-    borderRadius: 25,
-    padding: 5,
-    marginHorizontal: 20,
+    marginBottom: 15,
+    backgroundColor: BRAND.accentColor,
+    borderRadius: 10,
+    padding: 4,
   },
   filterTab: {
     flex: 1,
     paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
     alignItems: 'center',
+    borderRadius: 8,
   },
   activeFilterTab: {
     backgroundColor: BRAND.primaryColor,
   },
   filterTabText: {
     fontSize: 14,
-    fontWeight: '600',
     color: BRAND.textSecondary,
+    fontWeight: '600',
   },
   activeFilterTabText: {
     color: BRAND.secondaryColor,
   },
-  testsSection: {
-    marginBottom: 100,
-  },
   testCard: {
     backgroundColor: BRAND.cardBackground,
-    borderRadius: 15,
+    marginBottom: 15,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: BRAND.borderColor,
     overflow: 'hidden',
+    elevation: 2,
+    shadowColor: BRAND.primaryColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
   testCardContent: {
-    padding: 20,
+    padding: 16,
   },
   testHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   testTitle: {
     fontSize: 16,
@@ -1249,75 +1466,84 @@ const styles = StyleSheet.create({
     color: BRAND.textPrimary,
     flex: 1,
     marginRight: 10,
+    lineHeight: 22,
   },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 6,
   },
   statusText: {
     fontSize: 10,
     fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
   testDetails: {
-    marginBottom: 15,
+    marginBottom: 12,
   },
   testInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   testInfoText: {
-    fontSize: 12,
+    fontSize: 13,
     color: BRAND.textSecondary,
     marginLeft: 8,
+    flex: 1,
   },
   marksContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: BRAND.borderColor,
   },
   marksLabel: {
     fontSize: 14,
     color: BRAND.textSecondary,
+    marginRight: 10,
   },
   marksInfo: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   marksValue: {
     fontSize: 16,
     fontWeight: 'bold',
     color: BRAND.textPrimary,
+    marginRight: 8,
   },
   percentage: {
     fontSize: 14,
     fontWeight: '600',
-    marginLeft: 10,
+    marginRight: 6,
   },
   grade: {
     fontSize: 14,
     fontWeight: 'bold',
-    marginLeft: 5,
   },
   actionButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: 10,
   },
   downloadButton: {
-    flex: 1,
+    backgroundColor: BRAND.accentColor,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: BRAND.primaryColor,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: BRAND.borderColor,
+    flex: 1,
+    justifyContent: 'center',
   },
   answerButton: {
-    backgroundColor: BRAND.warningColor,
+    backgroundColor: BRAND.primaryColor + '20',
+    borderColor: BRAND.primaryColor,
   },
   downloadButtonDisabled: {
     opacity: 0.6,
@@ -1326,27 +1552,25 @@ const styles = StyleSheet.create({
     color: BRAND.textPrimary,
     fontSize: 12,
     fontWeight: '600',
-    marginLeft: 5,
+    marginLeft: 4,
   },
-  separator: {
-    height: 15,
-  },
-  emptyState: {
+  noDataContainer: {
     alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 40,
+    paddingHorizontal: 20,
   },
-  emptyStateTitle: {
+  noDataText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: BRAND.textSecondary,
-    marginTop: 15,
-    marginBottom: 5,
+    marginTop: 12,
+    textAlign: 'center',
   },
-  emptyStateSubtitle: {
+  noDataSubtext: {
     fontSize: 14,
     color: BRAND.textSecondary,
     textAlign: 'center',
+    marginTop: 8,
     lineHeight: 20,
   },
 });
