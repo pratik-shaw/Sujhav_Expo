@@ -131,6 +131,7 @@ export default function TeacherHandleScoresScreen() {
     setIsLoading(false);
   };
 
+  // Updated fetchTestDetails to fetch test from getTeacherTests and filter by ID
   const fetchTestDetails = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
@@ -140,8 +141,8 @@ export default function TeacherHandleScoresScreen() {
         return;
       }
 
-      // Updated endpoint to match backend routes - using teacher route for test details
-      const response = await fetch(`${API_BASE_URL}/tests/teacher/test-details/${testId}`, {
+      // Fetch all teacher tests and find the specific one
+      const response = await fetch(`${API_BASE_URL}/tests/teacher/my-tests`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -152,12 +153,20 @@ export default function TeacherHandleScoresScreen() {
       const data = await response.json();
       
       if (data.success) {
-        setTest(data.data);
-        setStudentsAssignments(data.data.assignedStudents);
+        // Find the specific test by ID
+        const specificTest = data.data.find((t: Test) => t._id === testId);
+        
+        if (!specificTest) {
+          Alert.alert('Error', 'Test not found');
+          return;
+        }
+
+        setTest(specificTest);
+        setStudentsAssignments(specificTest.assignedStudents);
         
         // Initialize bulk marks updates with current marks
         const bulkUpdates: { [key: string]: string } = {};
-        data.data.assignedStudents.forEach((assignment: StudentAssignment) => {
+        specificTest.assignedStudents.forEach((assignment: StudentAssignment) => {
           bulkUpdates[assignment.student._id] = assignment.marksScored?.toString() || '';
         });
         setBulkMarksUpdates(bulkUpdates);
@@ -282,7 +291,7 @@ export default function TeacherHandleScoresScreen() {
       console.log('URL:', `${API_BASE_URL}/tests/teacher/${testId}/marks`);
       console.log('Request body:', JSON.stringify(requestBody));
 
-      // Updated endpoint to match backend routes - using teacher marks route
+      // Using the correct teacher marks endpoint
       const response = await fetch(`${API_BASE_URL}/tests/teacher/${testId}/marks`, {
         method: 'PUT',
         headers: {

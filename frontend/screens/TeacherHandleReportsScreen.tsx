@@ -31,35 +31,59 @@ interface Student {
 }
 
 interface StudentAssignment {
-  _id: string; student: Student;
-  marksScored: number | null; submittedAt: Date | null; evaluatedAt: Date | null;
+  _id?: string; 
+  student: Student;
+  marksScored: number | null; 
+  submittedAt: Date | null; 
+  evaluatedAt: Date | null;
 }
 
 interface Test {
-  _id: string; testTitle: string; fullMarks: number;
-  assignedStudents: StudentAssignment[]; createdAt: string;
-  dueDate: Date | null; instructions: string; isActive: boolean;
-  className: string; subjectName: string;
+  _id: string; 
+  testTitle: string; 
+  fullMarks: number;
+  assignedStudents: StudentAssignment[]; 
+  createdAt: string;
+  dueDate: Date | null; 
+  instructions: string; 
+  isActive: boolean;
+  className: string; 
+  subjectName: string;
   batch: { _id: string; batchName: string; category: string; };
   createdBy: { _id: string; name: string; email: string; };
-  hasQuestionPdf?: boolean; hasAnswerPdf?: boolean;
+  hasQuestionPdf?: boolean; 
+  hasAnswerPdf?: boolean;
 }
 
 interface StudentReport {
-  studentId: string; studentName: string; studentEmail: string;
+  studentId: string; 
+  studentName: string; 
+  studentEmail: string;
   tests: Array<{
-    testId: string; testTitle: string; fullMarks: number;
-    marksScored: number | null; percentage: number | null;
-    submittedAt: Date | null; evaluatedAt: Date | null; createdAt: string;
+    testId: string; 
+    testTitle: string; 
+    fullMarks: number;
+    marksScored: number | null; 
+    percentage: number | null;
+    submittedAt: Date | null; 
+    evaluatedAt: Date | null; 
+    createdAt: string;
   }>;
-  totalTests: number; evaluatedTests: number; averagePercentage: number;
-  totalMarksScored: number; totalFullMarks: number;
+  totalTests: number; 
+  evaluatedTests: number; 
+  averagePercentage: number;
+  totalMarksScored: number; 
+  totalFullMarks: number;
 }
 
 interface BatchAnalytics {
-  totalTests: number; totalStudents: number; overallAveragePercentage: number;
-  highestScore: number; lowestScore: number;
-  totalSubmissions: number; pendingEvaluations: number;
+  totalTests: number; 
+  totalStudents: number; 
+  overallAveragePercentage: number;
+  highestScore: number; 
+  lowestScore: number;
+  totalSubmissions: number; 
+  pendingEvaluations: number;
 }
 
 export default function TeacherHandleReportsScreen() {
@@ -77,6 +101,7 @@ export default function TeacherHandleReportsScreen() {
   const [showStudentModal, setShowStudentModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'percentage' | 'tests'>('name');
+  const [error, setError] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(0)).current;
@@ -92,6 +117,7 @@ export default function TeacherHandleReportsScreen() {
 
   const loadReportData = async () => {
     setIsLoading(true);
+    setError(null);
     await fetchBatchTests();
     setIsLoading(false);
   };
@@ -100,12 +126,18 @@ export default function TeacherHandleReportsScreen() {
     try {
       const token = await AsyncStorage.getItem('userToken');
       if (!token) {
-        Alert.alert('Error', 'No authentication token found');
+        setError('No authentication token found');
+        Alert.alert('Error', 'Please log in again');
         return;
       }
 
-      // Updated API endpoint to use the new route structure
-      const response = await fetch(`${API_BASE_URL}/tests/teacher/batch/${batchId}/subject/${subjectName}`, {
+      console.log('Fetching tests for:', { batchId, subjectName });
+
+      // Updated API endpoint to match backend routes
+      const endpoint = `${API_BASE_URL}/tests/teacher/batch/${batchId}/subject/${encodeURIComponent(subjectName)}`;
+      console.log('API Endpoint:', endpoint);
+
+      const response = await fetch(endpoint, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -114,51 +146,75 @@ export default function TeacherHandleReportsScreen() {
       });
 
       const data = await response.json();
+      console.log('API Response:', data);
       
-      if (data.success) {
-        setTests(data.data);
-        processStudentReports(data.data);
-        calculateBatchAnalytics(data.data);
+      if (response.ok && data.success) {
+        setTests(data.data || []);
+        processStudentReports(data.data || []);
+        calculateBatchAnalytics(data.data || []);
       } else {
-        Alert.alert('Error', data.message || 'Failed to fetch batch tests');
+        const errorMessage = data.message || `HTTP ${response.status}: Failed to fetch batch tests`;
+        console.error('API Error:', errorMessage);
+        setError(errorMessage);
+        Alert.alert('Error', errorMessage);
       }
     } catch (error) {
-      console.error('Error fetching batch tests:', error);
-      Alert.alert('Error', 'Network error. Please check your connection.');
+      console.error('Network error fetching batch tests:', error);
+      const errorMessage = 'Network error. Please check your connection.';
+      setError(errorMessage);
+      Alert.alert('Error', errorMessage);
     }
   };
 
   const processStudentReports = (testsData: Test[]) => {
+    if (!testsData || testsData.length === 0) {
+      setStudentReports([]);
+      return;
+    }
+
     const studentReportsMap = new Map<string, StudentReport>();
 
     testsData.forEach(test => {
+      if (!test.assignedStudents || !Array.isArray(test.assignedStudents)) return;
+
       test.assignedStudents.forEach(assignment => {
+        if (!assignment.student || !assignment.student._id) return;
+
         const studentId = assignment.student._id;
         
         if (!studentReportsMap.has(studentId)) {
           studentReportsMap.set(studentId, {
-            studentId, studentName: assignment.student.name,
-            studentEmail: assignment.student.email, tests: [],
-            totalTests: 0, evaluatedTests: 0, averagePercentage: 0,
-            totalMarksScored: 0, totalFullMarks: 0,
+            studentId,
+            studentName: assignment.student.name || 'Unknown Student',
+            studentEmail: assignment.student.email || '',
+            tests: [],
+            totalTests: 0,
+            evaluatedTests: 0,
+            averagePercentage: 0,
+            totalMarksScored: 0,
+            totalFullMarks: 0,
           });
         }
 
         const studentReport = studentReportsMap.get(studentId)!;
-        const percentage = assignment.marksScored ? 
+        const percentage = assignment.marksScored !== null && assignment.marksScored !== undefined ? 
           (assignment.marksScored / test.fullMarks) * 100 : null;
 
         studentReport.tests.push({
-          testId: test._id, testTitle: test.testTitle,
-          fullMarks: test.fullMarks, marksScored: assignment.marksScored,
-          percentage, submittedAt: assignment.submittedAt,
-          evaluatedAt: assignment.evaluatedAt, createdAt: test.createdAt,
+          testId: test._id,
+          testTitle: test.testTitle,
+          fullMarks: test.fullMarks,
+          marksScored: assignment.marksScored,
+          percentage,
+          submittedAt: assignment.submittedAt,
+          evaluatedAt: assignment.evaluatedAt,
+          createdAt: test.createdAt,
         });
 
         studentReport.totalTests++;
         studentReport.totalFullMarks += test.fullMarks;
 
-        if (assignment.marksScored !== null) {
+        if (assignment.marksScored !== null && assignment.marksScored !== undefined) {
           studentReport.evaluatedTests++;
           studentReport.totalMarksScored += assignment.marksScored;
         }
@@ -171,22 +227,41 @@ export default function TeacherHandleReportsScreen() {
         (report.totalMarksScored / report.totalFullMarks) * 100 : 0,
     }));
 
+    console.log('Processed student reports:', reports.length);
     setStudentReports(reports);
   };
 
   const calculateBatchAnalytics = (testsData: Test[]) => {
-    let totalSubmissions = 0, pendingEvaluations = 0;
+    if (!testsData || testsData.length === 0) {
+      setBatchAnalytics({
+        totalTests: 0,
+        totalStudents: 0,
+        overallAveragePercentage: 0,
+        highestScore: 0,
+        lowestScore: 0,
+        totalSubmissions: 0,
+        pendingEvaluations: 0,
+      });
+      return;
+    }
+
+    let totalSubmissions = 0;
+    let pendingEvaluations = 0;
     let allPercentages: number[] = [];
     const uniqueStudents = new Set<string>();
 
     testsData.forEach(test => {
+      if (!test.assignedStudents || !Array.isArray(test.assignedStudents)) return;
+
       test.assignedStudents.forEach(assignment => {
+        if (!assignment.student || !assignment.student._id) return;
+
         uniqueStudents.add(assignment.student._id);
         
         if (assignment.submittedAt) totalSubmissions++;
         if (assignment.submittedAt && !assignment.evaluatedAt) pendingEvaluations++;
         
-        if (assignment.marksScored !== null) {
+        if (assignment.marksScored !== null && assignment.marksScored !== undefined) {
           const percentage = (assignment.marksScored / test.fullMarks) * 100;
           allPercentages.push(percentage);
         }
@@ -200,8 +275,13 @@ export default function TeacherHandleReportsScreen() {
     const lowestScore = allPercentages.length > 0 ? Math.min(...allPercentages) : 0;
 
     setBatchAnalytics({
-      totalTests: testsData.length, totalStudents, overallAveragePercentage,
-      highestScore, lowestScore, totalSubmissions, pendingEvaluations,
+      totalTests: testsData.length,
+      totalStudents,
+      overallAveragePercentage,
+      highestScore,
+      lowestScore,
+      totalSubmissions,
+      pendingEvaluations,
     });
   };
 
@@ -273,20 +353,26 @@ export default function TeacherHandleReportsScreen() {
   };
 
   const handleEditMarks = async (testId: string, studentId: string, currentMarks: number | null) => {
+    const student = studentReports.find(s => s.studentId === studentId);
+    const test = tests.find(t => t._id === testId);
+    
+    if (!student || !test) {
+      Alert.alert('Error', 'Student or test not found');
+      return;
+    }
+
     Alert.prompt(
       'Update Marks',
-      `Enter new marks for ${studentReports.find(s => s.studentId === studentId)?.studentName || 'student'}:`,
+      `Enter new marks for ${student.studentName}:\nTest: ${test.testTitle}\nMax Marks: ${test.fullMarks}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Update',
           onPress: async (newMarks) => {
-            if (newMarks === undefined) return;
+            if (newMarks === undefined || newMarks === null) return;
             
-            const marks = parseInt(newMarks);
-            const test = tests.find(t => t._id === testId);
+            const marks = parseFloat(newMarks);
             
-            if (!test) return;
             if (isNaN(marks) || marks < 0 || marks > test.fullMarks) {
               Alert.alert('Error', `Marks must be between 0 and ${test.fullMarks}`);
               return;
@@ -294,25 +380,47 @@ export default function TeacherHandleReportsScreen() {
 
             try {
               const token = await AsyncStorage.getItem('userToken');
+              if (!token) {
+                Alert.alert('Error', 'Please log in again');
+                return;
+              }
+
+              console.log('Updating marks:', { testId, studentId, marks });
+
+              // Updated API endpoint to match backend routes
               const response = await fetch(`${API_BASE_URL}/tests/teacher/${testId}/marks`, {
                 method: 'PUT',
                 headers: {
                   'Authorization': `Bearer ${token}`,
                   'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ studentId, marksScored: marks }),
+                body: JSON.stringify({ 
+                  studentId, 
+                  marksScored: marks 
+                }),
               });
 
               const data = await response.json();
+              console.log('Update marks response:', data);
               
-              if (data.success) {
+              if (response.ok && data.success) {
                 Alert.alert('Success', 'Marks updated successfully');
-                await loadReportData();
+                await loadReportData(); // Refresh all data
+                setShowStudentModal(false); // Close modal and reopen with updated data
+                setTimeout(() => {
+                  const updatedStudent = studentReports.find(s => s.studentId === studentId);
+                  if (updatedStudent) {
+                    setSelectedStudent(updatedStudent);
+                    setShowStudentModal(true);
+                  }
+                }, 500);
               } else {
-                Alert.alert('Error', data.message || 'Failed to update marks');
+                const errorMessage = data.message || `HTTP ${response.status}: Failed to update marks`;
+                Alert.alert('Error', errorMessage);
               }
             } catch (error) {
-              Alert.alert('Error', 'Network error occurred');
+              console.error('Error updating marks:', error);
+              Alert.alert('Error', 'Network error occurred while updating marks');
             }
           }
         }
