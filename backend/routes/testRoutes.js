@@ -78,5 +78,4 @@ router.get('/batch/:batchId/students/:className/:subjectName', verifyTeacher, ge
 
 // Also keep the existing pattern for backward compatibility
 router.get('/batch/:batchId/class/:className/subject/:subjectName/students', verifyTeacher, getAvailableStudentsForTest);
-
 module.exports = router;

@@ -240,29 +240,42 @@ const [selectedSubject, setSelectedSubject] = useState('');
     }
   };
 
-  const fetchAvailableStudents = async (className: string) => {
-    try {
-      const token = await AsyncStorage.getItem('userToken');
-      
-      if (!token) return;
-
-      const response = await fetch(`${API_BASE_URL}/tests/teacher/batch/${batchId}/class/${className}/subject/${subjectName}/students`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        setAvailableStudents(data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching available students:', error);
+  const fetchAvailableStudents = async (className: string, subject?: string) => {
+  try {
+    const token = await AsyncStorage.getItem('userToken');
+    
+    if (!token) {
+      console.log('No token found');
+      return;
     }
-  };
+
+    const targetSubject = subject || selectedSubject;
+    console.log('Fetching students for:', { batchId, className, targetSubject });
+    
+    const response = await fetch(`${API_BASE_URL}/tests/batch/${batchId}/class/${className}/subject/${targetSubject}/students`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    console.log('Students API response:', data);
+    
+    if (data.success) {
+      console.log('Setting available students:', data.data);
+      setAvailableStudents(data.data || []);
+    } else {
+      console.log('API error:', data.message);
+      Alert.alert('Error', data.message || 'Failed to fetch students');
+      setAvailableStudents([]);
+    }
+  } catch (error) {
+    console.error('Error fetching available students:', error);
+    setAvailableStudents([]);
+  }
+};
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -366,11 +379,23 @@ const [selectedSubject, setSelectedSubject] = useState('');
   };
 
   const handleAssignStudents = async (test: Test) => {
-    setSelectedTestForAssignment(test);
-    await fetchAvailableStudents(test.className);
-    setSelectedStudentsForAssignment(test.assignedStudents.map(as => as.student._id));
-    setShowAssignStudentsModal(true);
-  };
+  setSelectedTestForAssignment(test);
+  setSelectedStudentsForAssignment(test.assignedStudents.map(as => as.student._id));
+  
+  // Clear students first
+  setAvailableStudents([]);
+  
+  // Then fetch students for this specific test
+  if (test.className && test.subjectName) {
+    console.log('Fetching students for test assignment:', { 
+      className: test.className, 
+      subjectName: test.subjectName 
+    });
+    await fetchAvailableStudents(test.className, test.subjectName);
+  }
+  
+  setShowAssignStudentsModal(true);
+};
 
   const handleCloseAssignStudentsModal = () => {
     setSelectedTestForAssignment(null);
@@ -715,11 +740,11 @@ const [selectedSubject, setSelectedSubject] = useState('');
   };
 
   const handleClassSelectionChange = async (className: string) => {
-    setSelectedClass(className);
-    if (className && showAssignStudentsModal && selectedTestForAssignment) {
-      await fetchAvailableStudents(className);
-    }
-  };
+  setSelectedClass(className);
+  if (className && showAssignStudentsModal && selectedTestForAssignment) {
+    await fetchAvailableStudents(className, selectedTestForAssignment.subjectName);
+  }
+};
 
   const renderTestCard = ({ item }: { item: Test }) => (
     <Animated.View 
@@ -1024,38 +1049,39 @@ const [selectedSubject, setSelectedSubject] = useState('');
   );
 
   const renderAssignStudentsModal = () => (
-    <Modal
-      visible={showAssignStudentsModal}
-      animationType="slide"
-      transparent={false}
-      onRequestClose={handleCloseAssignStudentsModal}
-    >
-      <SafeAreaView style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={handleCloseAssignStudentsModal}
-          >
-            <MaterialIcons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Assign Students</Text>
-          <View style={styles.headerSpacer} />
+  <Modal
+    visible={showAssignStudentsModal}
+    animationType="slide"
+    transparent={false}
+    onRequestClose={handleCloseAssignStudentsModal}
+  >
+    <SafeAreaView style={styles.modalContainer}>
+      <View style={styles.modalHeader}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={handleCloseAssignStudentsModal}
+        >
+          <MaterialIcons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.modalTitle}>Assign Students</Text>
+        <View style={styles.headerSpacer} />
+      </View>
+
+      {selectedTestForAssignment && (
+        <View style={styles.testInfoBanner}>
+          <Text style={styles.testInfoTitle}>{selectedTestForAssignment.testTitle}</Text>
+          <Text style={styles.testInfoDetails}>
+            Class: {selectedTestForAssignment.className} • Subject: {selectedTestForAssignment.subjectName} • Full Marks: {selectedTestForAssignment.fullMarks}
+          </Text>
         </View>
+      )}
 
-        {selectedTestForAssignment && (
-          <View style={styles.testInfoBanner}>
-            <Text style={styles.testInfoTitle}>{selectedTestForAssignment.testTitle}</Text>
-            <Text style={styles.testInfoDetails}>
-              Class: {selectedTestForAssignment.className} • Full Marks: {selectedTestForAssignment.fullMarks}
-            </Text>
-          </View>
-        )}
-
-        <View style={styles.studentListContainer}>
-          <View style={styles.studentListHeader}>
-            <Text style={styles.studentListTitle}>
-              Available Students ({availableStudents.length})
-            </Text>
+      <View style={styles.studentListContainer}>
+        <View style={styles.studentListHeader}>
+          <Text style={styles.studentListTitle}>
+            Available Students ({availableStudents.length})
+          </Text>
+          {availableStudents.length > 0 && (
             <TouchableOpacity
               style={styles.selectAllButton}
               onPress={handleSelectAllStudents}
@@ -1064,62 +1090,80 @@ const [selectedSubject, setSelectedSubject] = useState('');
                 {selectedStudentsForAssignment.length === availableStudents.length ? 'Deselect All' : 'Select All'}
               </Text>
             </TouchableOpacity>
-          </View>
-
-          <FlatList
-            data={availableStudents}
-            keyExtractor={(item) => item._id}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.studentItem}
-                onPress={() => handleStudentToggle(item._id)}
-              >
-                <View style={styles.studentInfo}>
-                  <Text style={styles.studentName}>{item.name}</Text>
-                  <Text style={styles.studentEmail}>{item.email}</Text>
-                </View>
-                <View style={[
-                  styles.checkbox,
-                  selectedStudentsForAssignment.includes(item._id) && styles.checkboxSelected
-                ]}>
-                  {selectedStudentsForAssignment.includes(item._id) && (
-                    <MaterialIcons name="check" size={16} color="#000" />
-                  )}
-                </View>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyStudentList}>
-                <MaterialIcons name="school" size={48} color="#666" />
-                <Text style={styles.emptyStudentText}>No students available for this class</Text>
-              </View>
-            }
-          />
-
-          <View style={styles.assignButtonContainer}>
-            <Text style={styles.selectedCount}>
-              {selectedStudentsForAssignment.length} students selected
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.assignSubmitButton,
-                isAssigning && styles.assignSubmitButtonDisabled
-              ]}
-              onPress={handleAssignStudentsSubmit}
-              disabled={isAssigning}
-            >
-              {isAssigning ? (
-                <ActivityIndicator size="small" color="#000" />
-              ) : (
-                <Text style={styles.assignSubmitButtonText}>Assign Students</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          )}
         </View>
-      </SafeAreaView>
-    </Modal>
-  );
+
+        {/* Debug info - remove in production */}
+        <Text style={{ color: '#fff', padding: 10, fontSize: 12 }}>
+          Debug: Found {availableStudents.length} students
+        </Text>
+
+        <FlatList
+          data={availableStudents}
+          keyExtractor={(item) => item._id}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.studentItem}
+              onPress={() => handleStudentToggle(item._id)}
+            >
+              <View style={styles.studentInfo}>
+                <Text style={styles.studentName}>{item.name}</Text>
+                <Text style={styles.studentEmail}>{item.email}</Text>
+              </View>
+              <View style={[
+                styles.checkbox,
+                selectedStudentsForAssignment.includes(item._id) && styles.checkboxSelected
+              ]}>
+                {selectedStudentsForAssignment.includes(item._id) && (
+                  <MaterialIcons name="check" size={16} color="#000" />
+                )}
+              </View>
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyStudentList}>
+              <MaterialIcons name="school" size={48} color="#666" />
+              <Text style={styles.emptyStudentText}>
+                No students available for Class: {selectedTestForAssignment?.className}, Subject: {selectedTestForAssignment?.subjectName}
+              </Text>
+              <TouchableOpacity
+                style={{ marginTop: 10, padding: 10, backgroundColor: '#333', borderRadius: 5 }}
+                onPress={() => {
+                  if (selectedTestForAssignment) {
+                    fetchAvailableStudents(selectedTestForAssignment.className, selectedTestForAssignment.subjectName);
+                  }
+                }}
+              >
+                <Text style={{ color: '#fff' }}>Retry Fetch</Text>
+              </TouchableOpacity>
+            </View>
+          }
+        />
+
+        <View style={styles.assignButtonContainer}>
+          <Text style={styles.selectedCount}>
+            {selectedStudentsForAssignment.length} students selected
+          </Text>
+          <TouchableOpacity
+            style={[
+              styles.assignSubmitButton,
+              isAssigning && styles.assignSubmitButtonDisabled
+            ]}
+            onPress={handleAssignStudentsSubmit}
+            disabled={isAssigning}
+          >
+            {isAssigning ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : (
+              <Text style={styles.assignSubmitButtonText}>Assign Students</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </SafeAreaView>
+  </Modal>
+);
 
   if (isLoading) {
     return (

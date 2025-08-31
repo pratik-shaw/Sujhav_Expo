@@ -80,11 +80,12 @@ const validateTeacherAccess = async (teacherId, batchId, subjectName) => {
 // Helper function to get eligible students for a class/subject
 const getEligibleStudentsForTest = (batch, className, subjectName) => {
   console.log('Getting eligible students for:', { className, subjectName });
-  console.log('Batch student assignments:', batch.studentAssignments);
   
   const eligibleStudents = batch.studentAssignments.filter(assignment => {
     const hasClass = assignment.assignedClasses.includes(className);
-    const hasSubject = assignment.assignedSubjects.some(s => s.subjectName === subjectName);
+    const hasSubject = assignment.assignedSubjects.some(s => 
+      s.subjectName === subjectName && s.subjectName.trim() === subjectName.trim()
+    );
     
     console.log(`Student ${assignment.student}: hasClass=${hasClass}, hasSubject=${hasSubject}`);
     return hasClass && hasSubject;
@@ -356,13 +357,11 @@ const getAvailableStudentsForTest = async (req, res) => {
     
     console.log('Fetching students for:', { batchId, className, subjectName });
     
-    // Validate teacher access
     const { valid, message, batch } = await validateTeacherAccess(req.user.id, batchId, subjectName);
     if (!valid) {
       return res.status(403).json({ success: false, message });
     }
 
-    // Validate that the class exists in the batch
     if (!batch.classes.includes(className)) {
       return res.status(400).json({
         success: false,
@@ -372,6 +371,7 @@ const getAvailableStudentsForTest = async (req, res) => {
     }
 
     const eligibleStudentIds = getEligibleStudentsForTest(batch, className, subjectName);
+    console.log('Eligible student IDs from helper:', eligibleStudentIds);
     
     if (eligibleStudentIds.length === 0) {
       return res.json({
@@ -382,24 +382,39 @@ const getAvailableStudentsForTest = async (req, res) => {
       });
     }
 
+    console.log('Attempting to fetch students with IDs:', eligibleStudentIds);
+    
+    // ✅ FIXED: Query for role: 'user' instead of role: 'student'
     const populatedStudents = await User.find({
       _id: { $in: eligibleStudentIds },
-      role: 'student'
+      role: 'user' // ✅ Changed from 'student' to 'user'
     }).select('name email');
-
-    console.log('Found students:', populatedStudents);
+    
+    console.log('Found students:', populatedStudents.length);
+    console.log('Students data to return:', populatedStudents.map(s => ({ 
+      id: s._id, 
+      name: s.name, 
+      email: s.email 
+    })));
 
     res.json({
       success: true,
       data: populatedStudents,
-      count: populatedStudents.length
+      count: populatedStudents.length,
+      debug: {
+        eligibleIds: eligibleStudentIds.length,
+        foundStudents: populatedStudents.length,
+        idsUsed: eligibleStudentIds.map(id => id.toString())
+      }
     });
+    
   } catch (error) {
     console.error('Error fetching available students:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch available students',
-      error: error.message
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
@@ -533,6 +548,15 @@ const getStudentSubjectReports = async (req, res) => {
   try {
     const studentId = req.user.id;
     const { subjectName, batchId } = req.query;
+    
+    // First, verify the user has role 'user' (student)
+    const user = await User.findById(studentId);
+    if (!user || user.role !== 'user') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Student role required.'
+      });
+    }
     
     // Build query filters
     const query = {
