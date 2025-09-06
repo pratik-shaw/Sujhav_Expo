@@ -36,6 +36,8 @@ import PaymentScreen from './screens/PaymentScreen';
 import NotesPaymentScreen from './screens/NotesPaymentScreen';
 import NotesViewerScreen from './screens/NotesViewerScreen';
 import UpcomingTestsScreen from './screens/UpcomingTestsScreen';
+import TeacherBatchCalendarScreen from './screens/TeacherBatchCalendarScreen';
+import TeacherHandleCalendarEventsScreen from './screens/TeacherHandleCalendarEventsScreen';
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -106,6 +108,8 @@ export type RootStackParamList = {
     fromScreen?: string; 
   };
   UpcomingTests: undefined; // Add this line
+  TeacherBatchCalendarScreen: { batchId: string; batchName: string }; // Add this line
+  TeacherHandleCalendarEventsScreen: { batchId: string; batchName: string }; // Add this line
 
   
 };
@@ -238,6 +242,8 @@ export default function App() {
         <Stack.Screen name="TeacherHandleScoresScreen" component={TeacherHandleScoresScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="TeacherTestListScreen" component={TeacherTestListScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="TeacherHandleReportsScreen" component={TeacherHandleReportsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="TeacherBatchCalendarScreen" component={TeacherBatchCalendarScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="TeacherHandleCalendarEventsScreen" component={TeacherHandleCalendarEventsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
 
         {/* Payment Screen */}
         <Stack.Screen name="PaymentScreen" component={PaymentScreen} options={{ gestureEnabled: true, animation: 'slide_from_bottom', presentation: 'card' }} />
