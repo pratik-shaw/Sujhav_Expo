@@ -26,6 +26,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import BottomNavigation from '../components/BottomNavigation';
 import SignupLoginBanner from '../components/SignupLoginBanner';
+import UserProfileQuickActions from '../components/UserProfileQuickActions';
 
 // Brand configuration
 const BRAND = {
@@ -628,6 +629,8 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
         </Text>
       </Animated.View>
 
+<UserProfileQuickActions navigation={navigation} />
+
       {/* Join Online Button */}
       <Animated.View
         style={[
@@ -1033,134 +1036,146 @@ const BatchCard = ({ batch }: { batch: Batch }) => (
   );
 
   // Render authenticated content (student assigned to batch)
-  const renderAuthenticatedContent = () => {
-    if (!reportsData) return null;
+const renderAuthenticatedContent = () => {
+  if (!reportsData) return null;
 
-    return (
-      <ScrollView 
-        style={styles.container}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[BRAND.primaryColor]}
-            progressBackgroundColor={BRAND.cardBackground}
+  return (
+    <ScrollView 
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[BRAND.primaryColor]}
+          progressBackgroundColor={BRAND.cardBackground}
+        />
+      }
+    >
+      {/* Quick Actions Section - NEW ADDITION */}
+      <UserProfileQuickActions navigation={navigation} />
+
+      {/* Statistics Section */}
+      <StatisticsCard statistics={reportsData.statistics} />
+
+      {/* Batches Section */}
+      {reportsData.batches.length > 0 && (
+        <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
+          <Text style={styles.sectionTitle}>Your Batches</Text>
+          {reportsData.batches.map((batch, index) => (
+            <BatchCard key={batch._id} batch={batch} />
+          ))}
+        </Animated.View>
+      )}
+
+      {/* Tests Section */}
+      {reportsData.tests.length > 0 && (
+        <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
+          <Text style={styles.sectionTitle}>Test Reports</Text>
+          
+          {/* Filter Buttons */}
+          <FilterButtons />
+          
+          <FlatList
+            data={getFilteredTests()}
+            renderItem={({ item }) => <TestCard item={item} />}
+            keyExtractor={(item) => item.testId}
+            scrollEnabled={false}
+            showsVerticalScrollIndicator={false}
           />
-        }
-      >
-        {/* Statistics Section */}
-        <StatisticsCard statistics={reportsData.statistics} />
+        </Animated.View>
+      )}
 
-        {/* Batches Section */}
-        {reportsData.batches.length > 0 && (
-          <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
-            <Text style={styles.sectionTitle}>Your Batches</Text>
-            {reportsData.batches.map((batch, index) => (
-              <BatchCard key={batch._id} batch={batch} />
-            ))}
-          </Animated.View>
-        )}
-
-        {/* Tests Section */}
-        {reportsData.tests.length > 0 && (
-          <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
-            <Text style={styles.sectionTitle}>Test Reports</Text>
-            
-            {/* Filter Buttons */}
-            <FilterButtons />
-            
-            <FlatList
-              data={getFilteredTests()}
-              renderItem={({ item }) => <TestCard item={item} />}
-              keyExtractor={(item) => item.testId}
-              scrollEnabled={false}
-              showsVerticalScrollIndicator={false}
-            />
-          </Animated.View>
-        )}
-
-        {/* No Tests Message */}
-        {getFilteredTests().length === 0 && (
-          <Animated.View style={[styles.noDataContainer, { opacity: fadeAnim }]}>
-            <MaterialIcons name="assignment" size={48} color={BRAND.textSecondary} />
-            <Text style={styles.noDataText}>No tests found</Text>
-            <Text style={styles.noDataSubtext}>
-              {selectedFilter === 'all' 
-                ? 'No tests have been assigned yet'
-                : `No ${selectedFilter} tests found`
-              }
-            </Text>
-          </Animated.View>
-        )}
-      </ScrollView>
-    );
-  };
+      {/* No Tests Message */}
+      {getFilteredTests().length === 0 && (
+        <Animated.View style={[styles.noDataContainer, { opacity: fadeAnim }]}>
+          <MaterialIcons name="assignment" size={48} color={BRAND.textSecondary} />
+          <Text style={styles.noDataText}>No tests found</Text>
+          <Text style={styles.noDataSubtext}>
+            {selectedFilter === 'all' 
+              ? 'No tests have been assigned yet'
+              : `No ${selectedFilter} tests found`
+            }
+          </Text>
+        </Animated.View>
+      )}
+    </ScrollView>
+  );
+};
 
   // Loading screen
   if (loading && isLoggedIn === null) {
-    return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
-        <View style={styles.loadingContent}>
-          <ActivityIndicator size="large" color={BRAND.primaryColor} />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.mainContainer}>
-      <StatusBar barStyle="light-content" backgroundColor={BRAND.backgroundColor} />
-      
-      {/* Animated Background Glow */}
-      <Animated.View
-        style={[
-          styles.backgroundGlow,
-          { opacity: glowOpacity }
-        ]}
+    <SafeAreaView style={styles.loadingContainer}>
+      <StatusBar 
+        barStyle="light-content" 
+        backgroundColor={BRAND.backgroundColor} 
+        translucent={false}
+        hidden={false}
       />
-
-      {/* Header */}
-      <Animated.View
-        style={[
-          styles.header,
-          {
-            opacity: headerOpacity,
-            transform: [{ translateY: headerTranslateY }],
-          },
-        ]}
-      >
-        <View style={styles.headerContent}>
-          <Image
-            source={require('../assets/images/logo-sujhav.png')}
-            style={styles.headerLogoImage}
-            resizeMode="contain"
-          />
-          <Text style={styles.headerTitle}>Reports</Text>
-        </View>
-      </Animated.View>
-
-      {/* Content based on authentication and batch assignment */}
-      {isLoggedIn === false ? (
-        renderUnauthenticatedContent()
-      ) : !isAssignedToBatch ? (
-        <EmptyState />
-      ) : loading ? (
-        <View style={styles.loadingContent}>
-          <ActivityIndicator size="large" color={BRAND.primaryColor} />
-          <Text style={styles.loadingText}>Loading Reports...</Text>
-        </View>
-      ) : (
-        renderAuthenticatedContent()
-      )}
-
-
-      {/* Bottom Navigation */}
-      <BottomNavigation navigation={navigation} activeTab="Reports" />
+      <View style={styles.loadingContent}>
+        <ActivityIndicator size="large" color={BRAND.primaryColor} />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
     </SafeAreaView>
   );
+}
+
+  return (
+  <SafeAreaView style={styles.mainContainer}>
+    <StatusBar 
+      barStyle="light-content" 
+      backgroundColor={BRAND.backgroundColor} 
+      translucent={false}
+      hidden={false}
+    />
+    
+    {/* Animated Background Glow */}
+    <Animated.View
+      style={[
+        styles.backgroundGlow,
+        { opacity: glowOpacity }
+      ]}
+    />
+
+    {/* Header */}
+    <Animated.View
+      style={[
+        styles.header,
+        {
+          opacity: headerOpacity,
+          transform: [{ translateY: headerTranslateY }],
+        },
+      ]}
+    >
+      <View style={styles.headerContent}>
+        <Image
+          source={require('../assets/images/logo-sujhav.png')}
+          style={styles.headerLogoImage}
+          resizeMode="contain"
+        />
+        <Text style={styles.headerTitle}>Reports</Text>
+      </View>
+    </Animated.View>
+
+    {/* Content based on authentication and batch assignment */}
+    {isLoggedIn === false ? (
+      renderUnauthenticatedContent()
+    ) : !isAssignedToBatch ? (
+      <EmptyState />
+    ) : loading ? (
+      <View style={styles.loadingContent}>
+        <ActivityIndicator size="large" color={BRAND.primaryColor} />
+        <Text style={styles.loadingText}>Loading Reports...</Text>
+      </View>
+    ) : (
+      renderAuthenticatedContent()
+    )}
+
+    {/* Bottom Navigation */}
+    <BottomNavigation navigation={navigation} activeTab="Reports" />
+  </SafeAreaView>
+);
 };
 
 // Styles
@@ -1168,6 +1183,9 @@ const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
+    ...(Platform.OS === 'android' && {
+      paddingTop: 0,
+    }),
   },
   container: {
     flex: 1,
@@ -1181,6 +1199,9 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.backgroundColor,
     justifyContent: 'center',
     alignItems: 'center',
+    ...(Platform.OS === 'android' && {
+      paddingTop: 0,
+    }),
   },
   loadingContent: {
     alignItems: 'center',
@@ -1201,14 +1222,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: BRAND.primaryColor,
     opacity: 0.05,
+    zIndex: -1,
   },
+  // Header - removed border
   header: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 10 : 20,
-    paddingBottom: 15,
+    paddingVertical: 20,
     backgroundColor: BRAND.backgroundColor,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.borderColor,
   },
   headerContent: {
     flexDirection: 'row',
@@ -1216,14 +1236,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerLogoImage: {
-    width: 32,
-    height: 32,
-    marginRight: 12,
+    width: 30,
+    height: 30,
+    marginRight: 10,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
+    color: BRAND.primaryColor,
     letterSpacing: 0.5,
   },
   unauthenticatedContainer: {
@@ -1236,6 +1256,7 @@ const styles = StyleSheet.create({
   welcomeSection: {
     alignItems: 'center',
     marginBottom: 40,
+    maxWidth: 350,
   },
   logoContainer: {
     position: 'relative',
@@ -1252,25 +1273,26 @@ const styles = StyleSheet.create({
     opacity: 0.3,
   },
   welcomeTitle: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
     color: BRAND.textPrimary,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 15,
     letterSpacing: 0.5,
   },
   welcomeSubtitle: {
-    fontSize: 16,
-    color: BRAND.textSecondary,
+    fontSize: 18,
+    color: BRAND.primaryColor,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 20,
     lineHeight: 24,
+    fontWeight: '500',
   },
   welcomeSubtext: {
-    fontSize: 14,
-    color: BRAND.textSecondary,
+    fontSize: 16,
+    color: '#ccc',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
   },
   signInButtonContainer: {
     width: '100%',
@@ -1316,13 +1338,13 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     letterSpacing: 0.3,
   },
+  // Statistics card - removed border, adjusted spacing for quick actions
   statisticsCard: {
-    backgroundColor: BRAND.cardBackground,
+    backgroundColor: '#0f1f0f',
     margin: 20,
+    marginTop: 10, // Reduced top margin for better spacing with quick actions
     padding: 20,
     borderRadius: 15,
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
     elevation: 3,
     shadowColor: BRAND.primaryColor,
     shadowOffset: { width: 0, height: 2 },
@@ -1357,13 +1379,17 @@ const styles = StyleSheet.create({
     color: BRAND.textSecondary,
     textAlign: 'center',
   },
+  // Batch card - removed border
   batchCard: {
-    backgroundColor: BRAND.cardBackground,
+    backgroundColor: '#0f1f0f',
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
+    elevation: 2,
+    shadowColor: BRAND.primaryColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
   batchName: {
     fontSize: 18,
@@ -1414,10 +1440,11 @@ const styles = StyleSheet.create({
     color: BRAND.textSecondary,
     fontStyle: 'italic',
   },
+  // Filter container - removed border
   filterContainer: {
     flexDirection: 'row',
     marginBottom: 15,
-    backgroundColor: BRAND.accentColor,
+    backgroundColor: '#1a2e1a',
     borderRadius: 10,
     padding: 4,
   },
@@ -1438,12 +1465,11 @@ const styles = StyleSheet.create({
   activeFilterTabText: {
     color: BRAND.secondaryColor,
   },
+  // Test card - removed border
   testCard: {
-    backgroundColor: BRAND.cardBackground,
+    backgroundColor: '#0f1f0f',
     marginBottom: 15,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
     overflow: 'hidden',
     elevation: 2,
     shadowColor: BRAND.primaryColor,
@@ -1492,13 +1518,16 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
+  // Marks container - removed border, added subtle separation
   marksContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 15,
     paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: BRAND.borderColor,
+    backgroundColor: 'rgba(26, 46, 26, 0.3)', // Subtle background instead of border
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+    borderRadius: 6,
   },
   marksLabel: {
     fontSize: 14,
@@ -1529,21 +1558,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  // Download buttons - removed borders, improved styling
   downloadButton: {
-    backgroundColor: BRAND.accentColor,
+    backgroundColor: '#1a2e1a',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BRAND.borderColor,
     flex: 1,
     justifyContent: 'center',
+    elevation: 1,
+    shadowColor: BRAND.primaryColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
   answerButton: {
     backgroundColor: BRAND.primaryColor + '20',
-    borderColor: BRAND.primaryColor,
   },
   downloadButtonDisabled: {
     opacity: 0.6,
