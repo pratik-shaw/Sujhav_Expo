@@ -24,6 +24,7 @@ const dppRoutes = require('./routes/dppRoutes'); // Uncomment if needed
 const batchRoutes = require('./routes/batchRoutes'); // Batch routes
 const testRoutes = require('./routes/testRoutes');
 const eventRoutes = require('./routes/eventRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes'); // Attendance routes
 
 app.use('/api/auth', authRoutes);
 app.use('/api/unpaidCourses', unpaidCourseRoutes);
@@ -38,6 +39,7 @@ app.use('/api/batches', batchRoutes); // Batch routes
 app.use('/api/tests', testRoutes);
 // Fix: Change the route mounting to match frontend expectations
 app.use('/api/calendar', eventRoutes); // Changed from '/api/events' to '/api/calendar'
+app.use('/api/attendance', attendanceRoutes); // Attendance routes
 
 // Static file serving
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));

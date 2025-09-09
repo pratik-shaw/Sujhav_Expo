@@ -9,7 +9,6 @@ import {
   StatusBar,
   SafeAreaView,
   Animated,
-  Image,
   ActivityIndicator,
   ScrollView,
   RefreshControl,
@@ -18,18 +17,17 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MaterialIcons, Feather, FontAwesome5, AntDesign, Ionicons } from '@expo/vector-icons';
+import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { RootStackParamList } from '../App';
 import { API_BASE } from '../config/api';
 
-type TeacherDashboardNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type TeacherBatchAttendanceNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width, height } = Dimensions.get('window');
 
-// Brand configuration (matching the app theme)
+// Brand configuration
 const BRAND = {
   name: "SUJHAV",
-  subtitle: "Synchronize your Understanding, do Justice to your Hardwork and let others Admire your Victory!",
   primaryColor: '#00ff88',
   secondaryColor: '#000000',
   backgroundColor: '#0a1a0a',
@@ -38,16 +36,11 @@ const BRAND = {
 
 const API_BASE_URL = API_BASE;
 
-// Quick action interface
-interface QuickAction {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  iconLibrary: 'MaterialIcons' | 'Feather' | 'FontAwesome5' | 'AntDesign' | 'Ionicons';
-  color: string;
-  backgroundColor: string;
-  onPress: () => void;
+// Subject interface
+interface Subject {
+  name: string;
+  teacher: string;
+  _id?: string;
 }
 
 // Batch interface
@@ -56,6 +49,7 @@ interface Batch {
   batchName: string;
   classes: string[];
   category: string;
+  subjects: Subject[];
   students: Array<{
     _id: string;
     name: string;
@@ -86,41 +80,27 @@ interface BatchResponse {
   message: string;
 }
 
-export default function TeacherDashboardScreen() {
-  const navigation = useNavigation<TeacherDashboardNavigationProp>();
+export default function TeacherBatchAttendanceScreen() {
+  const navigation = useNavigation<TeacherBatchAttendanceNavigationProp>();
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [teacherName, setTeacherName] = useState<string>('');
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [totalStudents, setTotalStudents] = useState(0);
+  const [totalSubjects, setTotalSubjects] = useState(0);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const headerTranslateY = useRef(new Animated.Value(-20)).current;
-  const quickActionsOpacity = useRef(new Animated.Value(0)).current;
-  const quickActionsTranslateY = useRef(new Animated.Value(30)).current;
   const batchListOpacity = useRef(new Animated.Value(0)).current;
   const batchListTranslateY = useRef(new Animated.Value(30)).current;
   const glowOpacity = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    loadTeacherData();
     fetchTeacherBatches();
     startEntranceAnimation();
     startPulseAnimation();
   }, []);
-
-  const loadTeacherData = async () => {
-    try {
-      const userName = await AsyncStorage.getItem('userName');
-      setTeacherName(userName || 'Teacher');
-    } catch (error) {
-      console.error('Error loading teacher data:', error);
-      setTeacherName('Teacher');
-    }
-  };
 
   const fetchTeacherBatches = async () => {
     try {
@@ -144,9 +124,11 @@ export default function TeacherDashboardScreen() {
       
       if (data.success) {
         setBatches(data.data);
-        // Calculate total students across all batches
-        const totalStudentsCount = data.data.reduce((total, batch) => total + batch.students.length, 0);
-        setTotalStudents(totalStudentsCount);
+        // Calculate total subjects taught by this teacher
+        const subjectCount = data.data.reduce((total, batch) => {
+          return total + batch.subjects.length;
+        }, 0);
+        setTotalSubjects(subjectCount);
       } else {
         Alert.alert('Error', data.message || 'Failed to fetch batches');
       }
@@ -187,22 +169,6 @@ export default function TeacherDashboardScreen() {
         }),
       ]).start();
     }, 200);
-
-    // Quick actions animation
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(quickActionsOpacity, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(quickActionsTranslateY, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 300);
 
     // Batch list animation
     setTimeout(() => {
@@ -248,141 +214,17 @@ export default function TeacherDashboardScreen() {
     pulse();
   };
 
-  const handleLogout = async () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsLoading(true);
-              await AsyncStorage.multiRemove([
-                'userToken',
-                'userRole',
-                'userId',
-                'userName',
-                'userData'
-              ]);
-              navigation.replace('Intro');
-            } catch (error) {
-              console.error('Logout error:', error);
-              Alert.alert("Error", "Failed to sign out. Please try again.");
-            } finally {
-              setIsLoading(false);
-            }
-          },
-        },
-      ]
-    );
+  const handleBatchPress = (batch: Batch) => {
+    navigation.navigate('TeacherHandleBatchAttendanceScreen', { 
+      batchId: batch._id,
+      batchName: batch.batchName,
+      subjects: batch.subjects
+    });
   };
 
-  const navigateToBatchDetails = (batchId: string) => {
-    navigation.navigate('TeacherBatchDetailsScreen', { batchId });
+  const goBack = () => {
+    navigation.goBack();
   };
-
-  // Quick action handlers
-  const handleAddEvents = () => {
-    navigation.navigate('TeacherBatchCalendarScreen', { batchId: '', batchName: '' });
-  };
-
-  const handleAddCurriculum = () => {
-    // Navigate to Curriculum screen
-    Alert.alert('Curriculum Management', 'Opening Curriculum management...', [
-      { text: 'OK' }
-    ]);
-    // navigation.navigate('TeacherCurriculumScreen');
-  };
-
-  const handleMarkAttendance = () => {
-    navigation.navigate('TeacherBatchAttendanceScreen', { batchId: '', batchName: '' });
-  };
-
-  // Quick actions configuration
-  const quickActions: QuickAction[] = [
-    {
-      id: 'events',
-      title: 'Events & Calendar',
-      description: 'Schedule and manage events',
-      icon: 'calendar-today',
-      iconLibrary: 'MaterialIcons',
-      color: '#4CAF50',
-      backgroundColor: '#4CAF5020',
-      onPress: handleAddEvents,
-    },
-    {
-      id: 'curriculum',
-      title: 'Add Curriculum',
-      description: 'Create and manage curriculum',
-      icon: 'book',
-      iconLibrary: 'Ionicons',
-      color: '#2196F3',
-      backgroundColor: '#2196F320',
-      onPress: handleAddCurriculum,
-    },
-    {
-      id: 'attendance',
-      title: 'Mark Attendance',
-      description: 'Track student attendance',
-      icon: 'checkcircleo',
-      iconLibrary: 'AntDesign',
-      color: '#FF9800',
-      backgroundColor: '#FF980020',
-      onPress: handleMarkAttendance,
-    },
-  ];
-
-  const renderIcon = (iconLibrary: string, iconName: string, size: number, color: string) => {
-    switch (iconLibrary) {
-      case 'MaterialIcons':
-        return <MaterialIcons name={iconName as any} size={size} color={color} />;
-      case 'Feather':
-        return <Feather name={iconName as any} size={size} color={color} />;
-      case 'FontAwesome5':
-        return <FontAwesome5 name={iconName as any} size={size} color={color} />;
-      case 'AntDesign':
-        return <AntDesign name={iconName as any} size={size} color={color} />;
-      case 'Ionicons':
-        return <Ionicons name={iconName as any} size={size} color={color} />;
-      default:
-        return <MaterialIcons name="help" size={size} color={color} />;
-    }
-  };
-
-  const renderQuickActionCard = ({ item, index }: { item: QuickAction; index: number }) => (
-    <Animated.View
-      style={[
-        styles.quickActionCard,
-        {
-          opacity: quickActionsOpacity,
-          transform: [
-            { translateY: quickActionsTranslateY },
-            { scale: pulseScale }
-          ],
-        },
-      ]}
-    >
-      <TouchableOpacity
-        style={[styles.quickActionTouchable, { backgroundColor: item.backgroundColor }]}
-        onPress={item.onPress}
-        activeOpacity={0.8}
-      >
-        <View style={[styles.quickActionIconContainer, { backgroundColor: item.color + '30' }]}>
-          {renderIcon(item.iconLibrary, item.icon, 24, item.color)}
-        </View>
-        <View style={styles.quickActionContent}>
-          <Text style={styles.quickActionTitle}>{item.title}</Text>
-          <Text style={styles.quickActionDescription}>{item.description}</Text>
-        </View>
-        <View style={[styles.quickActionArrow, { backgroundColor: item.color + '20' }]}>
-          <Feather name="arrow-right" size={16} color={item.color} />
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
 
   const renderBatchCard = ({ item }: { item: Batch }) => (
     <Animated.View
@@ -399,12 +241,12 @@ export default function TeacherDashboardScreen() {
     >
       <TouchableOpacity
         style={styles.batchCardTouchable}
-        onPress={() => navigateToBatchDetails(item._id)}
+        onPress={() => handleBatchPress(item)}
         activeOpacity={0.8}
       >
         <View style={styles.batchCardHeader}>
           <View style={styles.batchIconContainer}>
-            <MaterialIcons name="group" size={24} color={BRAND.primaryColor} />
+            <MaterialIcons name="people" size={24} color={BRAND.primaryColor} />
           </View>
           <View style={styles.batchHeaderText}>
             <Text style={styles.batchName}>{item.batchName}</Text>
@@ -425,9 +267,16 @@ export default function TeacherDashboardScreen() {
             </View>
             
             <View style={styles.batchInfoItem}>
-              <MaterialIcons name="people" size={16} color="#888" />
+              <MaterialIcons name="group" size={16} color="#888" />
               <Text style={styles.batchInfoText}>
                 {item.students.length} Students
+              </Text>
+            </View>
+
+            <View style={styles.batchInfoItem}>
+              <MaterialIcons name="book" size={16} color="#888" />
+              <Text style={styles.batchInfoText}>
+                {item.subjects.length} Subjects
               </Text>
             </View>
 
@@ -446,14 +295,31 @@ export default function TeacherDashboardScreen() {
               {item.description}
             </Text>
           )}
+
+          {/* Subject Pills */}
+          <View style={styles.subjectPills}>
+            {item.subjects.slice(0, 3).map((subject, index) => (
+              <View key={index} style={styles.subjectPill}>
+                <Text style={styles.subjectPillText}>{subject.name}</Text>
+              </View>
+            ))}
+            {item.subjects.length > 3 && (
+              <View style={styles.subjectPillMore}>
+                <Text style={styles.subjectPillMoreText}>
+                  +{item.subjects.length - 3} more
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <View style={styles.batchCardFooter}>
+          <View style={styles.attendanceInfo}>
+            <MaterialIcons name="check-circle" size={16} color={BRAND.primaryColor} />
+            <Text style={styles.attendanceText}>Tap to mark attendance</Text>
+          </View>
           <Text style={styles.batchStatus}>
             {item.isActive ? 'Active' : 'Inactive'}
-          </Text>
-          <Text style={styles.batchDate}>
-            Created: {new Date(item.createdAt).toLocaleDateString()}
           </Text>
         </View>
       </TouchableOpacity>
@@ -467,8 +333,8 @@ export default function TeacherDashboardScreen() {
         { opacity: fadeAnim }
       ]}
     >
-      <MaterialIcons name="school" size={64} color="#333" />
-      <Text style={styles.emptyStateTitle}>No Batches Assigned</Text>
+      <MaterialIcons name="assignment-late" size={64} color="#333" />
+      <Text style={styles.emptyStateTitle}>No Batches Available</Text>
       <Text style={styles.emptyStateDescription}>
         You haven't been assigned to any batches yet. Contact your administrator for batch assignments.
       </Text>
@@ -527,26 +393,27 @@ export default function TeacherDashboardScreen() {
           ]}
         >
           <View style={styles.headerContent}>
-            <View style={styles.logoContainer}>
-              <Image
-                source={require('../assets/images/logo-sujhav.png')}
-                style={styles.headerLogoImage}
-                resizeMode="contain"
-              />
-            </View>
-            <View style={styles.headerTextContainer}>
-              <Text style={styles.headerTitle}>Teacher Dashboard</Text>
-              <Text style={styles.headerSubtitle}>Welcome back, {teacherName}</Text>
-            </View>
             <TouchableOpacity 
-              style={styles.logoutButton}
-              onPress={handleLogout}
+              style={styles.backButton}
+              onPress={goBack}
+            >
+              <MaterialIcons name="arrow-back" size={24} color={BRAND.primaryColor} />
+            </TouchableOpacity>
+            
+            <View style={styles.headerTextContainer}>
+              <Text style={styles.headerTitle}>Attendance Management</Text>
+              <Text style={styles.headerSubtitle}>Select a batch to mark attendance</Text>
+            </View>
+            
+            <TouchableOpacity 
+              onPress={onRefresh}
+              style={styles.refreshButton}
               disabled={isLoading}
             >
-              {isLoading ? (
-                <ActivityIndicator size="small" color="#ff6b6b" />
+              {isLoading || refreshing ? (
+                <ActivityIndicator size="small" color={BRAND.primaryColor} />
               ) : (
-                <MaterialIcons name="logout" size={20} color="#ff6b6b" />
+                <MaterialIcons name="refresh" size={20} color={BRAND.primaryColor} />
               )}
             </TouchableOpacity>
           </View>
@@ -561,43 +428,25 @@ export default function TeacherDashboardScreen() {
         >
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
+              <MaterialIcons name="group" size={24} color={BRAND.primaryColor} />
               <Text style={styles.statNumber}>{batches.length}</Text>
-              <Text style={styles.statLabel}>My Batches</Text>
+              <Text style={styles.statLabel}>Total Batches</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{totalStudents}</Text>
+              <MaterialIcons name="book" size={24} color="#4CAF50" />
+              <Text style={styles.statNumber}>{totalSubjects}</Text>
+              <Text style={styles.statLabel}>Subjects Teaching</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <MaterialIcons name="people" size={24} color="#FF9800" />
+              <Text style={styles.statNumber}>
+                {batches.reduce((total, batch) => total + batch.students.length, 0)}
+              </Text>
               <Text style={styles.statLabel}>Total Students</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{batches.filter(b => b.isActive).length}</Text>
-              <Text style={styles.statLabel}>Active Batches</Text>
-            </View>
           </View>
-        </Animated.View>
-
-        {/* Quick Actions Section */}
-        <Animated.View 
-          style={[
-            styles.quickActionsSection,
-            { opacity: fadeAnim }
-          ]}
-        >
-          <View style={styles.quickActionsHeader}>
-            <Text style={styles.quickActionsTitle}>Quick Actions</Text>
-            <Text style={styles.quickActionsSubtitle}>Manage your teaching activities</Text>
-          </View>
-          
-          <FlatList
-            data={quickActions}
-            renderItem={renderQuickActionCard}
-            keyExtractor={(item) => item.id}
-            horizontal={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.quickActionsList}
-            scrollEnabled={false}
-          />
         </Animated.View>
 
         {/* Batches Section */}
@@ -608,13 +457,8 @@ export default function TeacherDashboardScreen() {
           ]}
         >
           <View style={styles.batchesHeader}>
-            <Text style={styles.batchesTitle}>My Batches</Text>
-            <TouchableOpacity 
-              onPress={onRefresh}
-              style={styles.refreshButton}
-            >
-              <MaterialIcons name="refresh" size={20} color={BRAND.primaryColor} />
-            </TouchableOpacity>
+            <Text style={styles.batchesTitle}>Select Batch</Text>
+            <Text style={styles.batchesSubtitle}>Tap any batch to mark student attendance</Text>
           </View>
 
           {isLoading && !refreshing ? (
@@ -690,7 +534,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  logoContainer: {
+  backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -699,10 +543,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: BRAND.primaryColor + '30',
-  },
-  headerLogoImage: {
-    width: 24,
-    height: 24,
   },
   headerTextContainer: {
     flex: 1,
@@ -718,7 +558,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#aaa',
   },
-  logoutButton: {
+  refreshButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -726,7 +566,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ff6b6b30',
+    borderColor: BRAND.primaryColor + '30',
   },
   statsSection: {
     marginHorizontal: 20,
@@ -746,9 +586,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: BRAND.primaryColor,
+    color: '#fff',
+    marginTop: 5,
     marginBottom: 5,
   },
   statLabel: {
@@ -758,93 +599,25 @@ const styles = StyleSheet.create({
   },
   statDivider: {
     width: 1,
-    height: 30,
-    backgroundColor: '#333',
-  },
-  quickActionsSection: {
-    paddingHorizontal: 20,
-    marginBottom: 25,
-  },
-  quickActionsHeader: {
-    marginBottom: 20,
-  },
-  quickActionsTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
-  },
-  quickActionsSubtitle: {
-    fontSize: 14,
-    color: '#888',
-  },
-  quickActionsList: {
-    gap: 15,
-  },
-  quickActionCard: {
-    borderRadius: 15,
-    overflow: 'hidden',
-  },
-  quickActionTouchable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 18,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  quickActionIconContainer: {
-    width: 50,
     height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  quickActionContent: {
-    flex: 1,
-  },
-  quickActionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  quickActionDescription: {
-    fontSize: 13,
-    color: '#aaa',
-  },
-  quickActionArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#333',
   },
   batchesSection: {
     paddingHorizontal: 20,
     paddingBottom: 30,
   },
   batchesHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 20,
   },
   batchesTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 5,
   },
-  refreshButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: BRAND.accentColor,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: BRAND.primaryColor + '30',
+  batchesSubtitle: {
+    fontSize: 14,
+    color: '#888',
   },
   loadingContainer: {
     paddingVertical: 40,
@@ -925,6 +698,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#aaa',
     lineHeight: 18,
+    marginBottom: 10,
+  },
+  subjectPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  subjectPill: {
+    backgroundColor: BRAND.primaryColor + '15',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: BRAND.primaryColor + '30',
+  },
+  subjectPillText: {
+    fontSize: 11,
+    color: BRAND.primaryColor,
+    fontWeight: '600',
+  },
+  subjectPillMore: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  subjectPillMoreText: {
+    fontSize: 11,
+    color: '#888',
+    fontWeight: '500',
   },
   batchCardFooter: {
     flexDirection: 'row',
@@ -934,14 +737,20 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#333',
   },
-  batchStatus: {
+  attendanceInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  attendanceText: {
     fontSize: 12,
     color: BRAND.primaryColor,
+    marginLeft: 5,
     fontWeight: '600',
   },
-  batchDate: {
+  batchStatus: {
     fontSize: 12,
-    color: '#666',
+    color: '#4CAF50',
+    fontWeight: '600',
   },
   emptyState: {
     paddingVertical: 60,

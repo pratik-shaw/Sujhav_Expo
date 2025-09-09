@@ -38,6 +38,15 @@ import NotesViewerScreen from './screens/NotesViewerScreen';
 import UpcomingTestsScreen from './screens/UpcomingTestsScreen';
 import TeacherBatchCalendarScreen from './screens/TeacherBatchCalendarScreen';
 import TeacherHandleCalendarEventsScreen from './screens/TeacherHandleCalendarEventsScreen';
+import TeacherBatchAttendanceScreen from './screens/TeacherBatchAttendanceScreen';
+import TeacherHandleBatchAttendanceScreen from './screens/TeacherHandleBatchAttendanceScreen';
+
+// Subject interface
+interface Subject {
+  name: string;
+  teacher: string;
+  _id?: string;
+}
 
 export type RootStackParamList = {
   Intro: undefined;
@@ -110,8 +119,12 @@ export type RootStackParamList = {
   UpcomingTests: undefined; // Add this line
   TeacherBatchCalendarScreen: { batchId: string; batchName: string }; // Add this line
   TeacherHandleCalendarEventsScreen: { batchId: string; batchName: string }; // Add this line
-
-  
+  TeacherBatchAttendanceScreen: { batchId: string; batchName: string }; // Add this line
+  TeacherHandleBatchAttendanceScreen: { 
+    batchId: string; 
+    batchName: string; 
+    subjects: Subject[]; // Changed from 'string' to 'Subject[]'
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -234,8 +247,6 @@ export default function App() {
         <Stack.Screen name="UserReportsScreen" component={UserReportsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
         <Stack.Screen name="UpcomingTests" component={UpcomingTestsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
 
-        
-
         {/* Teacher Screens */}
         <Stack.Screen name="TeacherBatchDetailsScreen" component={TeacherBatchDetailsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="TeacherHandleTestScreen" component={TeacherHandleTestScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
@@ -244,13 +255,13 @@ export default function App() {
         <Stack.Screen name="TeacherHandleReportsScreen" component={TeacherHandleReportsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="TeacherBatchCalendarScreen" component={TeacherBatchCalendarScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="TeacherHandleCalendarEventsScreen" component={TeacherHandleCalendarEventsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="TeacherBatchAttendanceScreen" component={TeacherBatchAttendanceScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
+        <Stack.Screen name="TeacherHandleBatchAttendanceScreen" component={TeacherHandleBatchAttendanceScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
 
         {/* Payment Screen */}
         <Stack.Screen name="PaymentScreen" component={PaymentScreen} options={{ gestureEnabled: true, animation: 'slide_from_bottom', presentation: 'card' }} />
         <Stack.Screen name="NotesPaymentScreen" component={NotesPaymentScreen} options={{ gestureEnabled: true, animation: 'slide_from_bottom', presentation: 'card' }} />
         <Stack.Screen name="NotesViewerScreen" component={NotesViewerScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
-        
-
       </Stack.Navigator>
     </NavigationContainer>
   );
