@@ -1,6 +1,38 @@
 const Attendance = require('../models/Attendance');
 const Batch = require('../models/Batch');
 
+// Helper function to create date without timezone issues
+const createLocalDate = (dateInput) => {
+  if (typeof dateInput === 'string' && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    // For YYYY-MM-DD format, create date in UTC to avoid timezone shifts
+    return new Date(dateInput + 'T00:00:00.000Z');
+  }
+  
+  if (dateInput instanceof Date) {
+    // If it's already a Date object, normalize it to start of day in UTC
+    const year = dateInput.getFullYear();
+    const month = dateInput.getMonth();
+    const day = dateInput.getDate();
+    return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+  }
+  
+  // Fallback: try to parse and normalize
+  const date = new Date(dateInput);
+  if (!isNaN(date.getTime())) {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+    return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+  }
+  
+  throw new Error('Invalid date format');
+};
+
+// Helper function to get date string for comparison
+const getDateString = (date) => {
+  return date.toISOString().split('T')[0];
+};
+
 // Mark attendance for a subject
 const markAttendance = async (req, res) => {
   try {
@@ -31,10 +63,24 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    const attendanceDate = new Date(date);
-    attendanceDate.setHours(0, 0, 0, 0);
+    // FIXED: Use timezone-agnostic date creation
+    let attendanceDate;
+    try {
+      attendanceDate = createLocalDate(date);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format. Please use YYYY-MM-DD format.'
+      });
+    }
 
-    // Check if attendance already exists for this date
+    const dateString = getDateString(attendanceDate);
+
+    console.log('Original date input:', date);
+    console.log('Processed attendance date:', attendanceDate);
+    console.log('Date string for storage:', dateString);
+
+    // Check if attendance already exists for this date using date string comparison
     const existingAttendance = await Attendance.findOne({
       batch: batchId,
       subject: subject,
@@ -104,14 +150,25 @@ const getAttendanceByDate = async (req, res) => {
     const { batchId, subject, date } = req.params;
     const teacherId = req.user.id;
 
-    const attendanceDate = new Date(date);
-    attendanceDate.setHours(0, 0, 0, 0);
+    // FIXED: Use timezone-agnostic date creation
+    let queryDate;
+    try {
+      queryDate = createLocalDate(date);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format. Please use YYYY-MM-DD format.'
+      });
+    }
+
+    console.log('Query date input:', date);
+    console.log('Processed query date:', queryDate);
 
     const attendance = await Attendance.findOne({
       batch: batchId,
       subject: subject,
-      date: attendanceDate,
-      teacher: teacherId
+      teacher: teacherId,
+      date: queryDate
     })
     .populate('batch', 'batchName')
     .populate('teacher', 'name email')
@@ -144,12 +201,25 @@ const getSubjectAttendance = async (req, res) => {
 
     let dateFilter = {};
     if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate)
-        }
-      };
+      try {
+        const start = createLocalDate(startDate);
+        const end = createLocalDate(endDate);
+        
+        // Add 24 hours to end date to include the entire end day
+        const endOfDay = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+        
+        dateFilter = {
+          date: {
+            $gte: start,
+            $lt: endOfDay
+          }
+        };
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format. Please use YYYY-MM-DD format.'
+        });
+      }
     }
 
     const attendance = await Attendance.find({
@@ -297,10 +367,185 @@ const getStudentsForAttendance = async (req, res) => {
   }
 };
 
+const getStudentAttendanceRecords = async (req, res) => {
+  try {
+    const studentId = req.user.id;
+
+    // Find all batches where this student is assigned
+    const batches = await Batch.find({
+      'studentAssignments.student': studentId
+    }).populate('studentAssignments.student', 'name email');
+
+    if (!batches || batches.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'You are not assigned to any batch'
+      });
+    }
+
+    // Extract student's batch assignments
+    const batchAssignments = [];
+    for (const batch of batches) {
+      const studentAssignment = batch.studentAssignments.find(
+        assignment => assignment.student._id.toString() === studentId
+      );
+      
+      if (studentAssignment) {
+        batchAssignments.push({
+          batchId: batch._id.toString(),
+          batchName: batch.batchName,
+          category: batch.category,
+          assignedSubjects: studentAssignment.assignedSubjects.map(subject => ({
+            subjectName: subject.subjectName,
+            teacherId: subject.teacherId ? subject.teacherId.toString() : null,
+            teacherName: subject.teacherName || 'Unknown'
+          }))
+        });
+      }
+    }
+
+    if (batchAssignments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No valid batch assignments found'
+      });
+    }
+
+    // Get attendance records for each subject
+    const subjectAttendancePromises = [];
+    
+    for (const batchAssignment of batchAssignments) {
+      for (const subject of batchAssignment.assignedSubjects) {
+        subjectAttendancePromises.push(
+          getSubjectAttendanceForStudent(
+            studentId,
+            batchAssignment.batchId,
+            batchAssignment.batchName,
+            subject.subjectName,
+            subject.teacherName
+          )
+        );
+      }
+    }
+
+    const subjectAttendanceResults = await Promise.all(subjectAttendancePromises);
+    const subjectAttendance = subjectAttendanceResults.filter(result => result !== null);
+
+    // Calculate overall statistics
+    let totalClassesAcrossSubjects = 0;
+    let totalPresentAcrossSubjects = 0;
+    
+    subjectAttendance.forEach(subject => {
+      totalClassesAcrossSubjects += subject.statistics.totalClasses;
+      totalPresentAcrossSubjects += subject.statistics.present;
+    });
+
+    const overallAttendancePercentage = totalClassesAcrossSubjects > 0 
+      ? (totalPresentAcrossSubjects / totalClassesAcrossSubjects) * 100 
+      : 0;
+
+    const responseData = {
+      batches: batchAssignments,
+      subjectAttendance: subjectAttendance,
+      overallStats: {
+        totalClassesAcrossSubjects,
+        totalPresentAcrossSubjects,
+        overallAttendancePercentage,
+        totalSubjects: subjectAttendance.length
+      }
+    };
+
+    res.json({
+      success: true,
+      data: responseData
+    });
+
+  } catch (error) {
+    console.error('Get student attendance records error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch attendance records',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to get attendance for a specific subject
+const getSubjectAttendanceForStudent = async (studentId, batchId, batchName, subjectName, teacherName) => {
+  try {
+    // Get all attendance records for this student in this subject
+    const attendanceRecords = await Attendance.find({
+      batch: batchId,
+      subject: subjectName,
+      'studentAttendance.student': studentId
+    }).sort({ date: -1 });
+
+    if (attendanceRecords.length === 0) {
+      return null; // No attendance records for this subject
+    }
+
+    // Calculate statistics
+    let present = 0, absent = 0, noClass = 0;
+    const recentAttendance = [];
+
+    attendanceRecords.forEach(record => {
+      const studentRecord = record.studentAttendance.find(
+        sa => sa.student.toString() === studentId
+      );
+
+      if (studentRecord) {
+        switch (studentRecord.status) {
+          case 'present':
+            present++;
+            break;
+          case 'absent':
+            absent++;
+            break;
+          case 'no_class':
+            noClass++;
+            break;
+        }
+
+        // Add to recent attendance (limit to 10 most recent)
+        if (recentAttendance.length < 10) {
+          recentAttendance.push({
+            date: record.date.toISOString(),
+            status: studentRecord.status,
+            markedAt: studentRecord.markedAt.toISOString()
+          });
+        }
+      }
+    });
+
+    const totalClasses = present + absent;
+    const attendancePercentage = totalClasses > 0 ? (present / totalClasses) * 100 : 0;
+
+    return {
+      subjectName,
+      batchId,
+      batchName,
+      teacherName,
+      statistics: {
+        present,
+        absent,
+        noClass,
+        totalClasses,
+        attendancePercentage
+      },
+      recentAttendance
+    };
+
+  } catch (error) {
+    console.error(`Error getting attendance for subject ${subjectName}:`, error);
+    return null;
+  }
+};
+
 module.exports = {
   markAttendance,
   getAttendanceByDate,
   getSubjectAttendance,
   getStudentStats,
-  getStudentsForAttendance
+  getStudentsForAttendance,
+  getStudentAttendanceRecords
 };

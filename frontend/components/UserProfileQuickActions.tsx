@@ -65,12 +65,7 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
 
   // Handler functions for each action
   const handleAttendancePress = () => {
-    Alert.alert(
-      'Attendance Records',
-      'Navigating to attendance records...',
-      [{ text: 'OK' }]
-    );
-    // Future navigation: navigation.navigate('AttendanceRecords');
+    navigation.navigate('StudentAttendanceRecords');
   };
 
   const handleCalendarPress = () => {
@@ -79,7 +74,7 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
       'Opening calendar view...',
       [{ text: 'OK' }]
     );
-    // Future navigation: navigation.navigate('Calendar');
+    // Future navigation: navigation.navigate('StudentCalendar');
   };
 
   const handleCurriculumPress = () => {
@@ -88,7 +83,7 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
       'Loading curriculum content...',
       [{ text: 'OK' }]
     );
-    // Future navigation: navigation.navigate('Curriculum');
+    // Future navigation: navigation.navigate('StudentCurriculum');
   };
 
   // Start entrance animation

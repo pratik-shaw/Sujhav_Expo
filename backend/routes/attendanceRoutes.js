@@ -5,11 +5,12 @@ const {
   getAttendanceByDate,
   getSubjectAttendance,
   getStudentStats,
-  getStudentsForAttendance
+  getStudentsForAttendance,
+  getStudentAttendanceRecords
 } = require('../controllers/attendanceController');
+const { verifyToken, verifyTeacher, verifyStudent } = require('../middlewares/authMiddleware');
 
-const { verifyToken, verifyTeacher } = require('../middlewares/authMiddleware');
-
+// TEACHER ROUTES
 // Mark attendance (Teacher only)
 router.post('/mark', verifyTeacher, markAttendance);
 
@@ -24,5 +25,9 @@ router.get('/subject/:batchId/:subject', verifyTeacher, getSubjectAttendance);
 
 // Get student attendance statistics
 router.get('/stats/:batchId/:subject/:studentId', verifyTeacher, getStudentStats);
+
+// STUDENT ROUTES
+// Get student's own attendance records
+router.get('/student-records', verifyToken, getStudentAttendanceRecords);
 
 module.exports = router;

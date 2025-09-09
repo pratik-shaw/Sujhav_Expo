@@ -40,6 +40,7 @@ import TeacherBatchCalendarScreen from './screens/TeacherBatchCalendarScreen';
 import TeacherHandleCalendarEventsScreen from './screens/TeacherHandleCalendarEventsScreen';
 import TeacherBatchAttendanceScreen from './screens/TeacherBatchAttendanceScreen';
 import TeacherHandleBatchAttendanceScreen from './screens/TeacherHandleBatchAttendanceScreen';
+import StudentAttendanceRecordsScreen from './screens/StudentAttendanceRecordsScreen';
 
 // Subject interface
 interface Subject {
@@ -125,6 +126,7 @@ export type RootStackParamList = {
     batchName: string; 
     subjects: Subject[]; // Changed from 'string' to 'Subject[]'
   };
+  StudentAttendanceRecords: undefined; // Add this line
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -246,6 +248,7 @@ export default function App() {
         <Stack.Screen name="AdminCreateBatchesScreen" component={AdminCreateBatchesScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />
         <Stack.Screen name="UserReportsScreen" component={UserReportsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
         <Stack.Screen name="UpcomingTests" component={UpcomingTestsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
+        <Stack.Screen name="StudentAttendanceRecords" component={StudentAttendanceRecordsScreen} options={{ gestureEnabled: true, animation: 'fade', presentation: 'card' }} />
 
         {/* Teacher Screens */}
         <Stack.Screen name="TeacherBatchDetailsScreen" component={TeacherBatchDetailsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right', presentation: 'card' }} />

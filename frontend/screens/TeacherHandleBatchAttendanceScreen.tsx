@@ -380,7 +380,7 @@ export default function TeacherHandleBatchAttendanceScreen() {
         body: JSON.stringify({
           batchId,
           subject: selectedSubject.name,
-          date: selectedDate.toISOString().split('T')[0],
+date: `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`,
           studentAttendance: attendanceRecords
         }),
       });
