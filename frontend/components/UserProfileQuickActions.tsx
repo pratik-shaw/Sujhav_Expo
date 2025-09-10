@@ -69,12 +69,7 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
   };
 
   const handleCalendarPress = () => {
-    Alert.alert(
-      'Calendar View',
-      'Opening calendar view...',
-      [{ text: 'OK' }]
-    );
-    // Future navigation: navigation.navigate('StudentCalendar');
+    navigation.navigate('StudentCalendar');
   };
 
   const handleCurriculumPress = () => {
