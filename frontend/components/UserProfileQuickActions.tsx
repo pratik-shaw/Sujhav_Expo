@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Animated,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -16,8 +17,8 @@ const BRAND = {
   secondaryColor: '#000000',
   backgroundColor: '#0a1a0a',
   accentColor: '#1a2e1a',
-  cardBackground: '#1a2e1a',
-  borderColor: '#2a3e2a',
+  cardBackground: '#0f1f0f',
+  borderColor: '#1a2e1a',
   textPrimary: '#ffffff',
   textSecondary: '#b0b0b0',
   successColor: '#00ff88',
@@ -34,42 +35,63 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
 
-  // Quick action items configuration
+  // Extended quick action items configuration for better row display
   const quickActions = [
     {
       id: 'attendance',
-      title: 'Attendance Records',
-      subtitle: 'View your attendance history',
+      title: 'Attendance',
+      subtitle: 'View records',
       icon: 'event-available',
       color: BRAND.successColor,
       onPress: () => handleAttendancePress(),
     },
     {
       id: 'calendar',
-      title: 'View Calendar',
-      subtitle: 'Check upcoming events',
+      title: 'Calendar',
+      subtitle: 'Events & dates',
       icon: 'calendar-today',
       color: BRAND.warningColor,
       onPress: () => handleCalendarPress(),
     },
     {
       id: 'curriculum',
-      title: 'View Curriculum',
-      subtitle: 'Explore course content',
+      title: 'Curriculum',
+      subtitle: 'Course content',
       icon: 'menu-book',
       color: BRAND.primaryColor,
       onPress: () => handleCurriculumPress(),
+    },
+    {
+      id: 'notifications',
+      title: 'Notifications',
+      subtitle: 'Updates & alerts',
+      icon: 'notifications',
+      color: '#ff6b6b',
+      onPress: () => handleNotificationsPress(),
+    },
+    {
+      id: 'profile',
+      title: 'Profile',
+      subtitle: 'Edit details',
+      icon: 'person',
+      color: '#4ecdc4',
+      onPress: () => handleProfilePress(),
     },
   ];
 
   // Handler functions for each action
   const handleAttendancePress = () => {
-    navigation.navigate('StudentAttendanceRecords');
+    if (navigation) {
+      navigation.navigate('StudentAttendanceRecords');
+    }
   };
 
   const handleCalendarPress = () => {
-    navigation.navigate('StudentCalendar');
+    if (navigation) {
+      navigation.navigate('StudentCalendar');
+    }
   };
 
   const handleCurriculumPress = () => {
@@ -79,6 +101,24 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
       [{ text: 'OK' }]
     );
     // Future navigation: navigation.navigate('StudentCurriculum');
+  };
+
+  const handleNotificationsPress = () => {
+    Alert.alert(
+      'Notifications',
+      'Opening notifications...',
+      [{ text: 'OK' }]
+    );
+    // Future navigation: navigation.navigate('Notifications');
+  };
+
+  const handleProfilePress = () => {
+    Alert.alert(
+      'Profile',
+      'Opening profile settings...',
+      [{ text: 'OK' }]
+    );
+    // Future navigation: navigation.navigate('Profile');
   };
 
   // Start entrance animation
@@ -100,6 +140,11 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
           duration: 800,
           useNativeDriver: true,
         }),
+        Animated.timing(glowAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
       ]).start();
     };
 
@@ -115,7 +160,7 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
         {
           translateY: Animated.add(
             slideAnim,
-            new Animated.Value(index * 10)
+            new Animated.Value(index * 4)
           ),
         },
         { scale: scaleAnim },
@@ -123,51 +168,111 @@ const UserProfileQuickActions: React.FC<UserProfileQuickActionsProps> = ({ navig
     };
 
     return (
-      <Animated.View key={action.id} style={[animatedStyle]}>
+      <Animated.View key={action.id} style={[styles.actionItemContainer, animatedStyle]}>
         <TouchableOpacity
           style={styles.actionItem}
           onPress={action.onPress}
           activeOpacity={0.8}
         >
-          <View style={styles.actionContent}>
-            <View style={[styles.iconContainer, { backgroundColor: action.color + '20' }]}>
-              <MaterialIcons 
-                name={action.icon as any} 
-                size={24} 
-                color={action.color} 
-              />
-            </View>
-            <View style={styles.textContainer}>
-              <Text style={styles.actionTitle}>{action.title}</Text>
-              <Text style={styles.actionSubtitle}>{action.subtitle}</Text>
-            </View>
-            <View style={styles.chevronContainer}>
-              <MaterialIcons 
-                name="chevron-right" 
-                size={20} 
-                color={BRAND.textSecondary} 
-              />
-            </View>
+          {/* Icon Container with Glow Effect */}
+          <View style={[styles.iconContainer, { backgroundColor: action.color + '15' }]}>
+            <Animated.View
+              style={[
+                styles.iconGlow,
+                { 
+                  backgroundColor: action.color,
+                  opacity: Animated.multiply(glowAnim, 0.3)
+                }
+              ]}
+            />
+            <MaterialIcons 
+              name={action.icon as any} 
+              size={24} 
+              color={action.color} 
+              style={styles.actionIcon}
+            />
           </View>
+          
+          {/* Text Content */}
+          <View style={styles.textContainer}>
+            <Text style={styles.actionTitle} numberOfLines={1}>{action.title}</Text>
+            <Text style={styles.actionSubtitle} numberOfLines={1}>{action.subtitle}</Text>
+          </View>
+          
+          {/* Arrow Indicator */}
+          <MaterialIcons 
+            name="chevron-right" 
+            size={20} 
+            color={BRAND.textSecondary} 
+            style={styles.chevron}
+          />
         </TouchableOpacity>
       </Animated.View>
     );
   };
 
   return (
-    <View style={styles.container}>
+    <Animated.View 
+      style={[
+        styles.container,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: scaleAnim }]
+        }
+      ]}
+    >
       <Text style={styles.sectionTitle}>Quick Actions</Text>
-      <View style={styles.actionsContainer}>
-        {quickActions.map((action, index) => renderActionItem(action, index))}
+      
+      {/* Alternative: Vertical Stack for smaller screens */}
+      <View style={styles.verticalContainer}>
+        {quickActions.slice(0, 3).map((action, index) => (
+          <Animated.View key={`vertical-${action.id}`} style={[styles.verticalActionItem, {
+            opacity: fadeAnim,
+            transform: [{ translateX: slideAnim }],
+          }]}>
+            <TouchableOpacity
+              style={styles.verticalAction}
+              onPress={action.onPress}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.verticalIconContainer, { backgroundColor: action.color + '15' }]}>
+                <Animated.View
+                  style={[
+                    styles.verticalIconGlow,
+                    { 
+                      backgroundColor: action.color,
+                      opacity: Animated.multiply(glowAnim, 0.2)
+                    }
+                  ]}
+                />
+                <MaterialIcons 
+                  name={action.icon as any} 
+                  size={22} 
+                  color={action.color} 
+                />
+              </View>
+              
+              <View style={styles.verticalTextContainer}>
+                <Text style={styles.verticalActionTitle}>{action.title}</Text>
+                <Text style={styles.verticalActionSubtitle}>{action.subtitle}</Text>
+              </View>
+              
+              <MaterialIcons 
+                name="chevron-right" 
+                size={18} 
+                color={BRAND.textSecondary} 
+              />
+            </TouchableOpacity>
+          </Animated.View>
+        ))}
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 25,
-    paddingHorizontal: 20,
+    marginVertical: 20,
   },
   sectionTitle: {
     fontSize: 20,
@@ -175,36 +280,55 @@ const styles = StyleSheet.create({
     color: BRAND.textPrimary,
     marginBottom: 15,
     letterSpacing: 0.3,
+    paddingHorizontal: 5,
   },
-  actionsContainer: {
+  
+  // Horizontal Scroll Styles
+  scrollView: {
+    marginBottom: 20,
+  },
+  scrollContainer: {
+    paddingHorizontal: 5,
+    gap: 15,
+  },
+  actionItemContainer: {
+    width: 280,
+  },
+  actionItem: {
     backgroundColor: BRAND.cardBackground,
     borderRadius: 15,
     borderWidth: 1,
     borderColor: BRAND.borderColor,
-    overflow: 'hidden',
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
     elevation: 3,
     shadowColor: BRAND.primaryColor,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  actionItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.borderColor,
-  },
-  actionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
   iconContainer: {
-    width: 44,
-    height: 44,
+    position: 'relative',
+    width: 48,
+    height: 48,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  iconGlow: {
+    position: 'absolute',
+    width: '130%',
+    height: '130%',
+    borderRadius: 15,
+    top: -7,
+    left: -7,
+  },
+  actionIcon: {
+    zIndex: 2,
   },
   textContainer: {
     flex: 1,
@@ -213,16 +337,70 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: BRAND.textPrimary,
-    marginBottom: 2,
-    letterSpacing: 0.2,
+    marginBottom: 4,
   },
   actionSubtitle: {
     fontSize: 13,
     color: BRAND.textSecondary,
-    lineHeight: 18,
+    lineHeight: 16,
   },
-  chevronContainer: {
-    marginLeft: 8,
+  chevron: {
+    marginLeft: 10,
+    opacity: 0.7,
+  },
+  
+  // Vertical Stack Styles (Alternative Layout)
+  verticalContainer: {
+    gap: 12,
+  },
+  verticalActionItem: {
+    backgroundColor: BRAND.cardBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BRAND.borderColor,
+    elevation: 2,
+    shadowColor: BRAND.primaryColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  verticalAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+  },
+  verticalIconContainer: {
+    position: 'relative',
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  verticalIconGlow: {
+    position: 'absolute',
+    width: '120%',
+    height: '120%',
+    borderRadius: 12,
+    top: -4,
+    left: -4,
+  },
+  verticalTextContainer: {
+    flex: 1,
+  },
+  verticalActionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.textPrimary,
+    marginBottom: 2,
+  },
+  verticalActionSubtitle: {
+    fontSize: 12,
+    color: BRAND.textSecondary,
+    lineHeight: 14,
   },
 });
 

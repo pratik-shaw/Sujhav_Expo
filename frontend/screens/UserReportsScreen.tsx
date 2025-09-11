@@ -229,7 +229,6 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
       const fileName = `${sanitizedTitle}_Questions.pdf`;
       const fileUri = FileSystem.documentDirectory + fileName;
 
-      // Updated endpoint path for student question PDF download
       const downloadResult = await FileSystem.downloadAsync(
         `${API_BASE}/tests/student/test/${testId}/question-pdf`,
         fileUri,
@@ -292,7 +291,6 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
       const fileName = `${sanitizedTitle}_Answers.pdf`;
       const fileUri = FileSystem.documentDirectory + fileName;
 
-      // Updated endpoint path for student answer PDF download
       const downloadResult = await FileSystem.downloadAsync(
         `${API_BASE}/tests/student/test/${testId}/answer-pdf`,
         fileUri,
@@ -343,98 +341,97 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
 
   // Fetch user reports using new endpoint structure
   const fetchUserReports = async () => {
-  try {
-    setLoading(true);
-    
-    const currentUserData = await checkAuthStatus();
-    if (!currentUserData) {
-      setLoading(false);
-      return;
-    }
-
-    const response = await fetch(`${API_BASE}/tests/user/comprehensive-reports`, {
-      headers: {
-        'Authorization': `Bearer ${currentUserData.token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      console.log('User reports response:', data);
+    try {
+      setLoading(true);
       
-      if (data.success) {
-        setIsAssignedToBatch(data.isAssigned);
+      const currentUserData = await checkAuthStatus();
+      if (!currentUserData) {
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch(`${API_BASE}/tests/user/comprehensive-reports`, {
+        headers: {
+          'Authorization': `Bearer ${currentUserData.token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('User reports response:', data);
         
-        if (data.isAssigned) {
-          // Transform the data with comprehensive null safety
-          const transformedData = {
-            batches: (data.data?.batches || []).map((batch: any) => ({
-              ...batch,
-              batchName: batch?.batchName || 'Unknown Batch',
-              category: batch?.category || 'Unknown Category',
-              classes: batch?.classes || [],
-              subjects: (batch?.subjects || []).map((subject: any) => ({
-                name: subject?.name || 'Unknown Subject',
-                teacher: {
-                  _id: subject?.teacher?._id || '',
-                  name: subject?.teacher?.name || 'Unknown Teacher',
-                  email: subject?.teacher?.email || '',
-                }
+        if (data.success) {
+          setIsAssignedToBatch(data.isAssigned);
+          
+          if (data.isAssigned) {
+            const transformedData = {
+              batches: (data.data?.batches || []).map((batch: any) => ({
+                ...batch,
+                batchName: batch?.batchName || 'Unknown Batch',
+                category: batch?.category || 'Unknown Category',
+                classes: batch?.classes || [],
+                subjects: (batch?.subjects || []).map((subject: any) => ({
+                  name: subject?.name || 'Unknown Subject',
+                  teacher: {
+                    _id: subject?.teacher?._id || '',
+                    name: subject?.teacher?.name || 'Unknown Teacher',
+                    email: subject?.teacher?.email || '',
+                  }
+                })),
+                userAssignment: batch?.userAssignment ? {
+                  assignedClasses: batch.userAssignment.assignedClasses || [],
+                  assignedSubjects: (batch.userAssignment.assignedSubjects || []).map((s: any) => ({
+                    subjectName: s?.subjectName || 'Unknown Subject'
+                  }))
+                } : undefined
               })),
-              userAssignment: batch?.userAssignment ? {
-                assignedClasses: batch.userAssignment.assignedClasses || [],
-                assignedSubjects: (batch.userAssignment.assignedSubjects || []).map((s: any) => ({
-                  subjectName: s?.subjectName || 'Unknown Subject'
-                }))
-              } : undefined
-            })),
-            tests: (data.data?.tests || []).map((test: any) => ({
-              ...test,
-              testTitle: test?.testTitle || 'Untitled Test',
-              batch: {
-                _id: test?.batch?._id || '',
-                batchName: test?.batch?.batchName || 'Unknown Batch',
-                category: test?.batch?.category || 'Unknown Category',
-              },
-              createdBy: {
-                _id: test?.createdBy?._id || '',
-                name: test?.createdBy?.name || 'Unknown Teacher',
-                email: test?.createdBy?.email || '',
-              },
-              className: test?.className || 'Unknown Class',
-              subjectName: test?.subjectName || 'Unknown Subject',
-              percentage: test?.percentage || null,
-            })),
-            userAssignments: data.data?.userAssignments || [],
-            statistics: {
-              totalTests: data.data?.statistics?.totalTests || 0,
-              evaluatedTests: data.data?.statistics?.evaluatedTests || 0,
-              pendingTests: data.data?.statistics?.pendingTests || 0,
-              averagePercentage: parseFloat(data.data?.statistics?.averagePercentage || '0'),
-              totalMarksScored: data.data?.statistics?.totalMarksScored || 0,
-              totalFullMarks: data.data?.statistics?.totalFullMarks || 0,
-            }
-          };
-          setReportsData(transformedData);
+              tests: (data.data?.tests || []).map((test: any) => ({
+                ...test,
+                testTitle: test?.testTitle || 'Untitled Test',
+                batch: {
+                  _id: test?.batch?._id || '',
+                  batchName: test?.batch?.batchName || 'Unknown Batch',
+                  category: test?.batch?.category || 'Unknown Category',
+                },
+                createdBy: {
+                  _id: test?.createdBy?._id || '',
+                  name: test?.createdBy?.name || 'Unknown Teacher',
+                  email: test?.createdBy?.email || '',
+                },
+                className: test?.className || 'Unknown Class',
+                subjectName: test?.subjectName || 'Unknown Subject',
+                percentage: test?.percentage || null,
+              })),
+              userAssignments: data.data?.userAssignments || [],
+              statistics: {
+                totalTests: data.data?.statistics?.totalTests || 0,
+                evaluatedTests: data.data?.statistics?.evaluatedTests || 0,
+                pendingTests: data.data?.statistics?.pendingTests || 0,
+                averagePercentage: parseFloat(data.data?.statistics?.averagePercentage || '0'),
+                totalMarksScored: data.data?.statistics?.totalMarksScored || 0,
+                totalFullMarks: data.data?.statistics?.totalFullMarks || 0,
+              }
+            };
+            setReportsData(transformedData);
+          } else {
+            setReportsData(null);
+          }
         } else {
-          setReportsData(null);
+          console.error('Failed to fetch user reports:', data.message);
+          Alert.alert('Error', data.message || 'Failed to fetch reports');
         }
       } else {
-        console.error('Failed to fetch user reports:', data.message);
-        Alert.alert('Error', data.message || 'Failed to fetch reports');
+        console.error('Failed to fetch user reports:', response.status);
+        Alert.alert('Error', 'Failed to fetch reports. Please try again.');
       }
-    } else {
-      console.error('Failed to fetch user reports:', response.status);
-      Alert.alert('Error', 'Failed to fetch reports. Please try again.');
+    } catch (error) {
+      console.error('Error fetching user reports:', error);
+      Alert.alert('Error', 'Network error. Please check your connection.');
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error('Error fetching user reports:', error);
-    Alert.alert('Error', 'Network error. Please check your connection.');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   // Handle refresh
   const onRefresh = async () => {
@@ -571,6 +568,231 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
     return 'F';
   };
 
+  // Render content for unauthenticated users
+const renderUnauthenticatedContent = () => (
+  <View style={styles.unauthenticatedContainer}>
+    <Animated.View
+      style={[
+        styles.welcomeSection,
+        {
+          opacity: contentOpacity,
+          transform: [{ translateY: Animated.multiply(contentScale, 20) }],
+        },
+      ]}
+    >
+      {/* Logo */}
+      <Animated.View
+        style={[
+          styles.logoContainer,
+          {
+            transform: [
+              { scale: Animated.multiply(contentScale, pulseScale) }
+            ],
+          },
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.logoGlow,
+            { opacity: Animated.multiply(glowOpacity, 0.5) }
+          ]}
+        />
+        <Image
+          source={require('../assets/images/logo-sujhav.png')}
+          style={styles.headerLogoImage}
+          resizeMode="contain"
+        />
+      </Animated.View>
+
+      <Text style={styles.welcomeTitle}>Sign In Required</Text>
+      <Text style={styles.welcomeSubtitle}>
+        Please sign in to view your test reports and performance analytics.
+      </Text>
+      <Text style={styles.welcomeSubtext}>
+        Join SUJHAV to track your academic progress!
+      </Text>
+    </Animated.View>
+
+    <UserProfileQuickActions navigation={navigation} />
+
+    {/* Sign In Button */}
+    <Animated.View
+      style={[
+        styles.signInButtonContainer,
+        { 
+          opacity: fadeAnim,
+          transform: [{ scale: buttonScale }]
+        }
+      ]}
+    >
+      <TouchableOpacity 
+        style={styles.signInButton}
+        onPress={handleSignInPress}
+        activeOpacity={0.8}
+      >
+        <Animated.View
+          style={[
+            styles.buttonGlow,
+            { opacity: Animated.multiply(glowOpacity, 0.6) }
+          ]}
+        />
+        <Text style={styles.signInButtonText}>Sign In</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  </View>
+);
+
+// Render content for authenticated users with batch assignment
+// Render content for authenticated users with batch assignment
+const renderAuthenticatedContent = () => {
+  const filteredTests = getFilteredTests();
+  
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[BRAND.primaryColor]}
+          tintColor={BRAND.primaryColor}
+          progressBackgroundColor={BRAND.cardBackground}
+        />
+      }
+    >
+      {/* Statistics Card */}
+      {reportsData?.statistics && (
+        <StatisticsCard statistics={reportsData.statistics} />
+      )}
+
+      {/* Add Quick Actions here */}
+      <UserProfileQuickActions navigation={navigation} />
+
+      {/* Batch Information */}
+      {reportsData?.batches && reportsData.batches.length > 0 && (
+        <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
+          <Text style={styles.sectionTitle}>Your Batches</Text>
+          {reportsData.batches.map((batch) => (
+            <View key={batch._id} style={styles.batchCard}>
+              <Text style={styles.batchName}>{batch.batchName}</Text>
+              <Text style={styles.batchCategory}>{batch.category}</Text>
+              
+              {batch.userAssignment && (
+                <View style={styles.assignmentInfo}>
+                  <Text style={styles.assignmentLabel}>Assigned Classes:</Text>
+                  <Text style={styles.assignmentValue}>
+                    {batch.userAssignment.assignedClasses.join(', ') || 'None'}
+                  </Text>
+                </View>
+              )}
+
+              {batch.subjects && batch.subjects.length > 0 && (
+                <View style={styles.subjectsContainer}>
+                  <Text style={styles.subjectsLabel}>Subjects:</Text>
+                  {batch.subjects.map((subject, index) => (
+                    <View key={index} style={styles.subjectItem}>
+                      <Text style={styles.subjectName}>
+                        {subject.name || 'Unknown Subject'}
+                      </Text>
+                      <Text style={styles.teacherName}>
+                        {safeGetTeacherName(subject.teacher)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          ))}
+        </Animated.View>
+      )}
+
+      {/* Rest of the content remains the same... */}
+      {/* Filter Tabs */}
+      <Animated.View style={[styles.filterContainer, { opacity: fadeAnim }]}>
+        <View style={{ flexDirection: 'row' }}>
+          {(['all', 'pending', 'evaluated'] as const).map((filter) => (
+            <TouchableOpacity
+              key={filter}
+              style={[
+                styles.filterTab,
+                selectedFilter === filter && styles.activeFilterTab
+              ]}
+              onPress={() => setSelectedFilter(filter)}
+              activeOpacity={0.8}
+            >
+              <Text style={[
+                styles.filterTabText,
+                selectedFilter === filter && styles.activeFilterTabText
+              ]}>
+                {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                {filter === 'all' && reportsData?.statistics && 
+                  ` (${reportsData.statistics.totalTests})`}
+                {filter === 'pending' && reportsData?.statistics && 
+                  ` (${reportsData.statistics.pendingTests})`}
+                {filter === 'evaluated' && reportsData?.statistics && 
+                  ` (${reportsData.statistics.evaluatedTests})`}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Animated.View>
+
+      {/* Tests List */}
+      <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
+        <Text style={styles.sectionTitle}>
+          {selectedFilter === 'all' ? 'All Tests' : 
+           selectedFilter === 'pending' ? 'Pending Tests' : 'Evaluated Tests'}
+        </Text>
+        
+        {filteredTests.length > 0 ? (
+          <FlatList
+            data={filteredTests}
+            renderItem={({ item }) => <TestCard item={item} />}
+            keyExtractor={(item) => item.testId}
+            scrollEnabled={false}
+            showsVerticalScrollIndicator={false}
+          />
+        ) : (
+          <View style={styles.noDataContainer}>
+            <MaterialIcons 
+              name={selectedFilter === 'pending' ? 'pending' : 
+                    selectedFilter === 'evaluated' ? 'check-circle' : 'assignment'} 
+              size={60} 
+              color={BRAND.textSecondary} 
+            />
+            <Text style={styles.noDataText}>
+              {selectedFilter === 'pending' ? 'No Pending Tests' :
+               selectedFilter === 'evaluated' ? 'No Evaluated Tests' : 'No Tests Available'}
+            </Text>
+            <Text style={styles.noDataSubtext}>
+              {selectedFilter === 'pending' 
+                ? 'All your tests have been completed or evaluated.'
+                : selectedFilter === 'evaluated'
+                ? 'No tests have been evaluated yet.'
+                : 'Your teacher will assign tests soon.'}
+            </Text>
+          </View>
+        )}
+      </Animated.View>
+    </ScrollView>
+  );
+};
+
+  // Safe data access helpers
+  const safeGetTeacherName = (teacher: any): string => {
+    return teacher?.name || 'Unknown Teacher';
+  };
+
+  const safeGetBatchName = (batch: any): string => {
+    return batch?.batchName || 'Unknown Batch';
+  };
+
+  const safeGetCreatorName = (creator: any): string => {
+    return creator?.name || 'Unknown Creator';
+  };
+
   // Initialize screen
   useEffect(() => {
     fetchUserReports();
@@ -629,7 +851,7 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
         </Text>
       </Animated.View>
 
-<UserProfileQuickActions navigation={navigation} />
+      <UserProfileQuickActions navigation={navigation} />
 
       {/* Join Online Button */}
       <Animated.View
@@ -658,7 +880,7 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
     </View>
   );
 
-  // Statistics Card Component
+  // Statistics Card Component - Updated to match MyContent style
   const StatisticsCard = ({ statistics }: { statistics: any }) => (
     <Animated.View style={[styles.statisticsCard, { 
       opacity: fadeAnim,
@@ -667,19 +889,23 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
       <Text style={styles.cardTitle}>Performance Overview</Text>
       <View style={styles.statsGrid}>
         <View style={styles.statItem}>
+          <MaterialIcons name="assignment" size={24} color={BRAND.primaryColor} />
           <Text style={styles.statValue}>{statistics.totalTests}</Text>
           <Text style={styles.statLabel}>Total Tests</Text>
         </View>
         <View style={styles.statItem}>
+          <MaterialIcons name="check-circle" size={24} color={BRAND.successColor} />
           <Text style={styles.statValue}>{statistics.evaluatedTests}</Text>
           <Text style={styles.statLabel}>Evaluated</Text>
         </View>
         <View style={styles.statItem}>
+          <MaterialIcons name="pending" size={24} color={BRAND.warningColor} />
           <Text style={styles.statValue}>{statistics.pendingTests}</Text>
           <Text style={styles.statLabel}>Pending</Text>
         </View>
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: BRAND.successColor }]}>
+          <MaterialIcons name="trending-up" size={24} color={BRAND.primaryColor} />
+          <Text style={[styles.statValue, { color: BRAND.primaryColor }]}>
             {statistics.averagePercentage.toFixed(1)}%
           </Text>
           <Text style={styles.statLabel}>Average</Text>
@@ -688,504 +914,279 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
     </Animated.View>
   );
 
-  // Test Card Component with enhanced information
+  // Test Card Component - Updated to match MyContent style
   const TestCard = ({ item }: { item: TestReport }) => (
-  <Animated.View
-    style={[
-      styles.testCard,
-      {
-        opacity: fadeAnim,
-        transform: [{ scale: Animated.multiply(contentScale, pulseScale) }],
-      },
-    ]}
-  >
-    <View style={styles.testCardContent}>
-      <View style={styles.testHeader}>
-        <Text style={styles.testTitle}>{item.testTitle || 'Untitled Test'}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-            {item.status?.toUpperCase() || 'UNKNOWN'}
-          </Text>
-        </View>
-      </View>
-      
-      <View style={styles.testDetails}>
-        <View style={styles.testInfoRow}>
-          <MaterialIcons name="group" size={14} color={BRAND.textSecondary} />
-          <Text style={styles.testInfoText}>
-            Batch: {safeGetBatchName(item.batch)}
-          </Text>
-        </View>
-        <View style={styles.testInfoRow}>
-          <MaterialIcons name="class" size={14} color={BRAND.textSecondary} />
-          <Text style={styles.testInfoText}>Class: {item.className || 'Unknown Class'}</Text>
-        </View>
-        <View style={styles.testInfoRow}>
-          <MaterialIcons name="subject" size={14} color={BRAND.textSecondary} />
-          <Text style={styles.testInfoText}>Subject: {item.subjectName || 'Unknown Subject'}</Text>
-        </View>
-        <View style={styles.testInfoRow}>
-          <MaterialIcons name="person" size={14} color={BRAND.textSecondary} />
-          <Text style={styles.testInfoText}>
-            Teacher: {safeGetCreatorName(item.createdBy)}
-          </Text>
-        </View>
-        <View style={styles.testInfoRow}>
-          <MaterialIcons name="calendar-today" size={14} color={BRAND.textSecondary} />
-          <Text style={styles.testInfoText}>
-            Created: {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'Unknown Date'}
-          </Text>
-        </View>
-        
-        {item.dueDate && (
-          <View style={styles.testInfoRow}>
-            <MaterialIcons name="schedule" size={14} color={BRAND.warningColor} />
-            <Text style={[styles.testInfoText, { color: BRAND.warningColor }]}>
-              Due: {new Date(item.dueDate).toLocaleDateString()}
-            </Text>
-          </View>
-        )}
-        
-        {item.evaluatedAt && (
-          <View style={styles.testInfoRow}>
-            <MaterialIcons name="check-circle" size={14} color={BRAND.successColor} />
-            <Text style={[styles.testInfoText, { color: BRAND.successColor }]}>
-              Evaluated: {new Date(item.evaluatedAt).toLocaleDateString()}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.marksContainer}>
-        <Text style={styles.marksLabel}>Marks:</Text>
-        {item.marksScored !== null && item.marksScored !== undefined ? (
-          <View style={styles.marksInfo}>
-            <Text style={styles.marksValue}>
-              {item.marksScored}/{item.fullMarks || 0}
-            </Text>
-            <Text style={[styles.percentage, { color: BRAND.successColor }]}>
-              {item.percentage || '0'}%
-            </Text>
-            <Text style={[styles.grade, { color: BRAND.successColor }]}>
-              ({getGrade(parseFloat(item.percentage || '0'))})
-            </Text>
-          </View>
-        ) : (
-          <Text style={[styles.marksValue, { color: BRAND.textSecondary }]}>
-            Not Evaluated
-          </Text>
-        )}
-      </View>
-
-      {/* Download Buttons */}
-      <View style={styles.actionButtons}>
-        {/* Question PDF button - always show if available */}
-        {item.hasQuestionPdf && (
-          <TouchableOpacity
-            style={[
-              styles.downloadButton,
-              downloadingPdf === item.testId && styles.downloadButtonDisabled
-            ]}
-            onPress={() => downloadQuestionPdf(item.testId, item.testTitle || 'test')}
-            disabled={downloadingPdf === item.testId}
-          >
-            {downloadingPdf === item.testId ? (
-              <ActivityIndicator size="small" color={BRAND.textPrimary} />
-            ) : (
-              <>
-                <MaterialIcons name="description" size={16} color={BRAND.textPrimary} />
-                <Text style={styles.downloadButtonText}>Questions</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {/* Answer PDF button - only show for evaluated tests with answer PDF */}
-        {item.status === 'evaluated' && item.hasAnswerPdf && (
-          <TouchableOpacity
-            style={[
-              styles.downloadButton,
-              styles.answerButton,
-              downloadingPdf === item.testId + '_answer' && styles.downloadButtonDisabled
-            ]}
-            onPress={() => downloadAnswerPdf(item.testId, item.testTitle || 'test')}
-            disabled={downloadingPdf === item.testId + '_answer'}
-          >
-            {downloadingPdf === item.testId + '_answer' ? (
-              <ActivityIndicator size="small" color={BRAND.textPrimary} />
-            ) : (
-              <>
-                <MaterialIcons name="assignment" size={16} color={BRAND.textPrimary} />
-                <Text style={styles.downloadButtonText}>Answers</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  </Animated.View>
-);
-
-  // Enhanced Batch Card Component
-  // Enhanced Batch Card Component with null safety
-// Updated TypeScript interfaces with optional properties
-interface Batch {
-  _id: string;
-  batchName: string;
-  category: string;
-  classes: string[];
-  subjects: Array<{
-    name?: string;
-    teacher?: {
-      _id?: string;
-      name?: string;
-      email?: string;
-    };
-  }>;
-  userAssignment?: {
-    assignedClasses: string[];
-    assignedSubjects: Array<{
-      subjectName?: string;
-    }>;
-  };
-}
-
-interface TestReport {
-  testId: string;
-  testTitle: string;
-  fullMarks: number;
-  marksScored: number | null;
-  submittedAt: string | null;
-  evaluatedAt: string | null;
-  createdAt: string;
-  dueDate: string | null;
-  className: string;
-  subjectName: string;
-  batch: {
-    _id: string;
-    batchName?: string;
-    category?: string;
-  };
-  createdBy: {
-    _id: string;
-    name?: string;
-    email?: string;
-  };
-  instructions: string;
-  percentage: string | null;
-  status: 'pending' | 'submitted' | 'evaluated';
-  hasQuestionPdf?: boolean;
-  hasAnswerPdf?: boolean;
-}
-
-// Safe data access helpers
-const safeGetTeacherName = (teacher: any): string => {
-  return teacher?.name || 'Unknown Teacher';
-};
-
-const safeGetBatchName = (batch: any): string => {
-  return batch?.batchName || 'Unknown Batch';
-};
-
-const safeGetCreatorName = (creator: any): string => {
-  return creator?.name || 'Unknown Creator';
-};
-
-// Enhanced Batch Card Component with comprehensive null safety
-const BatchCard = ({ batch }: { batch: Batch }) => (
-  <Animated.View style={[styles.batchCard, { opacity: fadeAnim }]}>
-    <Text style={styles.batchName}>{batch.batchName || 'Unknown Batch'}</Text>
-    <Text style={styles.batchCategory}>{batch.category || 'Unknown Category'}</Text>
-    
-    {/* Show user's assigned classes */}
-    {batch.userAssignment?.assignedClasses && batch.userAssignment.assignedClasses.length > 0 && (
-      <View style={styles.assignmentInfo}>
-        <Text style={styles.assignmentLabel}>Your Classes:</Text>
-        <Text style={styles.assignmentValue}>
-          {batch.userAssignment.assignedClasses.join(', ')}
-        </Text>
-      </View>
-    )}
-    
-    {/* Show user's assigned subjects */}
-    {batch.userAssignment?.assignedSubjects && batch.userAssignment.assignedSubjects.length > 0 && (
-      <View style={styles.assignmentInfo}>
-        <Text style={styles.assignmentLabel}>Your Subjects:</Text>
-        <Text style={styles.assignmentValue}>
-          {batch.userAssignment.assignedSubjects
-            .map(s => s?.subjectName || 'Unknown Subject')
-            .filter(name => name !== 'Unknown Subject')
-            .join(', ') || 'No subjects assigned'
-          }
-        </Text>
-      </View>
-    )}
-    
-    {/* Show available subjects with teachers - with comprehensive null safety */}
-    {batch.subjects && batch.subjects.length > 0 && (
-      <View style={styles.subjectsContainer}>
-        <Text style={styles.subjectsLabel}>All Subjects:</Text>
-        {batch.subjects
-          .filter(subject => subject && subject.name) // Filter out invalid subjects
-          .map((subject, index) => (
-            <View key={index} style={styles.subjectItem}>
-              <Text style={styles.subjectName}>
-                {subject.name || 'Unknown Subject'}
-              </Text>
-              <Text style={styles.teacherName}>
-                by {safeGetTeacherName(subject.teacher)}
+    <Animated.View
+      style={[
+        styles.testCard,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: Animated.multiply(contentScale, pulseScale) }],
+        },
+      ]}
+    >
+      <View style={styles.testCardContent}>
+        {/* Test Header */}
+        <View style={styles.testHeader}>
+          <View style={styles.testImageContainer}>
+            <Image
+              source={require('../assets/images/logo-sujhav.png')}
+              style={styles.testImage}
+              resizeMode="contain"
+            />
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+              <Text style={styles.statusBadgeText}>
+                {item.status?.toUpperCase() || 'UNKNOWN'}
               </Text>
             </View>
-          ))
-        }
+          </View>
+          
+          <View style={styles.testContent}>
+            <Text style={styles.testTitle} numberOfLines={2}>
+              {item.testTitle || 'Untitled Test'}
+            </Text>
+            
+            <Text style={styles.testSubtitle}>
+              {safeGetBatchName(item.batch)}
+            </Text>
+            
+            <View style={styles.testInfoRow}>
+              <MaterialIcons name="class" size={14} color={BRAND.textSecondary} />
+              <Text style={styles.testInfoText}>
+                {item.className || 'Unknown Class'} • {item.subjectName || 'Unknown Subject'}
+              </Text>
+            </View>
+            
+            <View style={styles.testInfoRow}>
+              <MaterialIcons name="person" size={14} color={BRAND.textSecondary} />
+              <Text style={styles.testInfoText}>
+                {safeGetCreatorName(item.createdBy)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Test Details */}
+        <View style={styles.testDetails}>
+          <View style={styles.testInfoGrid}>
+            <View style={styles.testInfoItem}>
+              <MaterialIcons name="calendar-today" size={16} color={BRAND.textSecondary} />
+              <Text style={styles.testInfoLabel}>Created</Text>
+              <Text style={styles.testInfoValue}>
+                {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
+              </Text>
+            </View>
+            
+            {item.dueDate && (
+              <View style={styles.testInfoItem}>
+                <MaterialIcons name="schedule" size={16} color={BRAND.warningColor} />
+                <Text style={[styles.testInfoLabel, { color: BRAND.warningColor }]}>Due Date</Text>
+                <Text style={[styles.testInfoValue, { color: BRAND.warningColor }]}>
+                  {new Date(item.dueDate).toLocaleDateString()}
+                </Text>
+              </View>
+            )}
+            
+            {item.evaluatedAt && (
+              <View style={styles.testInfoItem}>
+                <MaterialIcons name="check-circle" size={16} color={BRAND.successColor} />
+                <Text style={[styles.testInfoLabel, { color: BRAND.successColor }]}>Evaluated</Text>
+                <Text style={[styles.testInfoValue, { color: BRAND.successColor }]}>
+                  {new Date(item.evaluatedAt).toLocaleDateString()}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Marks Section */}
+        <View style={styles.marksSection}>
+          {item.marksScored !== null && item.marksScored !== undefined ? (
+            <View style={styles.marksContainer}>
+              <View style={styles.marksDisplay}>
+                <Text style={styles.marksValue}>
+                  {item.marksScored}/{item.fullMarks || 0}
+                </Text>
+                <Text style={styles.marksLabel}>Marks</Text>
+              </View>
+              <View style={styles.percentageDisplay}>
+                <Text style={[styles.percentageValue, { color: BRAND.primaryColor }]}>
+                  {item.percentage || '0'}%
+                </Text>
+                <Text style={[styles.gradeValue, { color: BRAND.primaryColor }]}>
+                  Grade {getGrade(parseFloat(item.percentage || '0'))}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.notEvaluatedContainer}>
+              <MaterialIcons name="pending" size={20} color={BRAND.textSecondary} />
+              <Text style={styles.notEvaluatedText}>Not Evaluated Yet</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Download Buttons */}
+        <View style={styles.actionButtons}>
+          {item.hasQuestionPdf && (
+            <TouchableOpacity
+              style={[
+                styles.downloadButton,
+                downloadingPdf === item.testId && styles.downloadButtonDisabled
+              ]}
+              onPress={() => downloadQuestionPdf(item.testId, item.testTitle || 'test')}
+              disabled={downloadingPdf === item.testId}
+              activeOpacity={0.8}
+            >
+              {downloadingPdf === item.testId ? (
+                <ActivityIndicator size="small" color={BRAND.backgroundColor} />
+              ) : (
+                <>
+                  <MaterialIcons name="description" size={18} color={BRAND.backgroundColor} />
+                  <Text style={styles.downloadButtonText}>Question Paper</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {item.status === 'evaluated' && item.hasAnswerPdf && (
+            <TouchableOpacity
+              style={[
+                styles.downloadButton,
+                styles.answerButton,
+                downloadingPdf === item.testId + '_answer' && styles.downloadButtonDisabled
+              ]}
+              onPress={() => downloadAnswerPdf(item.testId, item.testTitle || 'test')}
+              disabled={downloadingPdf === item.testId + '_answer'}
+              activeOpacity={0.8}
+            >
+              {downloadingPdf === item.testId + '_answer' ? (
+                <ActivityIndicator size="small" color={BRAND.backgroundColor} />
+              ) : (
+                <>
+                  <MaterialIcons name="assignment" size={18} color={BRAND.backgroundColor} />
+                  <Text style={styles.downloadButtonText}>Answer Sheet</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-    )}
-  </Animated.View>
-);
-
-
-  // Filter Buttons Component
-  const FilterButtons = () => (
-    <Animated.View style={[styles.filterContainer, { opacity: fadeAnim }]}>
-      {['all', 'pending', 'evaluated'].map((filter) => (
-        <TouchableOpacity
-          key={filter}
-          style={[
-            styles.filterTab,
-            selectedFilter === filter && styles.activeFilterTab,
-          ]}
-          onPress={() => setSelectedFilter(filter as any)}
-        >
-          <Text style={[
-            styles.filterTabText,
-            selectedFilter === filter && styles.activeFilterTabText,
-          ]}>
-            {filter.toUpperCase()}
-          </Text>
-        </TouchableOpacity>
-      ))}
     </Animated.View>
   );
 
-  // Render unauthenticated content
-  const renderUnauthenticatedContent = () => (
-    <View style={styles.unauthenticatedContainer}>
-      <Animated.View
-        style={[
-          styles.welcomeSection,
-          {
-            opacity: contentOpacity,
-            transform: [{ translateY: Animated.multiply(contentScale, 20) }],
-          },
-        ]}
-      >
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              transform: [
-                { scale: Animated.multiply(contentScale, pulseScale) }
-              ],
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              styles.logoGlow,
-              { opacity: Animated.multiply(glowOpacity, 0.5) }
-            ]}
-          />
-          <Image
-            source={require('../assets/images/logo-sujhav.png')}
-            style={styles.headerLogoImage}
-            resizeMode="contain"
-          />
-        </Animated.View>
+  // Initialize screen
+  useEffect(() => {
+    fetchUserReports();
+  }, []);
 
-        <Text style={styles.welcomeTitle}>Welcome to {BRAND.name}</Text>
-        <Text style={styles.welcomeSubtitle}>{BRAND.subtitle}</Text>
-        <Text style={styles.welcomeSubtext}>
-          Please sign in to view your academic reports and progress.
-        </Text>
-      </Animated.View>
-
-      <Animated.View
-        style={[
-          styles.signInButtonContainer,
-          { 
-            opacity: fadeAnim,
-            transform: [{ scale: buttonScale }]
-          }
-        ]}
-      >
-        <TouchableOpacity 
-          style={styles.signInButton}
-          onPress={handleSignInPress}
-          activeOpacity={0.8}
-        >
-          <Animated.View
-            style={[
-              styles.buttonGlow,
-              { opacity: Animated.multiply(glowOpacity, 0.6) }
-            ]}
-          />
-          <Text style={styles.signInButtonText}>Sign In</Text>
-        </TouchableOpacity>
-      </Animated.View>
-    </View>
-  );
-
-  // Render authenticated content (student assigned to batch)
-const renderAuthenticatedContent = () => {
-  if (!reportsData) return null;
-
-  return (
-    <ScrollView 
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          colors={[BRAND.primaryColor]}
-          progressBackgroundColor={BRAND.cardBackground}
-        />
-      }
-    >
-      {/* Quick Actions Section - NEW ADDITION */}
-      <UserProfileQuickActions navigation={navigation} />
-
-      {/* Statistics Section */}
-      <StatisticsCard statistics={reportsData.statistics} />
-
-      {/* Batches Section */}
-      {reportsData.batches.length > 0 && (
-        <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
-          <Text style={styles.sectionTitle}>Your Batches</Text>
-          {reportsData.batches.map((batch, index) => (
-            <BatchCard key={batch._id} batch={batch} />
-          ))}
-        </Animated.View>
-      )}
-
-      {/* Tests Section */}
-      {reportsData.tests.length > 0 && (
-        <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
-          <Text style={styles.sectionTitle}>Test Reports</Text>
-          
-          {/* Filter Buttons */}
-          <FilterButtons />
-          
-          <FlatList
-            data={getFilteredTests()}
-            renderItem={({ item }) => <TestCard item={item} />}
-            keyExtractor={(item) => item.testId}
-            scrollEnabled={false}
-            showsVerticalScrollIndicator={false}
-          />
-        </Animated.View>
-      )}
-
-      {/* No Tests Message */}
-      {getFilteredTests().length === 0 && (
-        <Animated.View style={[styles.noDataContainer, { opacity: fadeAnim }]}>
-          <MaterialIcons name="assignment" size={48} color={BRAND.textSecondary} />
-          <Text style={styles.noDataText}>No tests found</Text>
-          <Text style={styles.noDataSubtext}>
-            {selectedFilter === 'all' 
-              ? 'No tests have been assigned yet'
-              : `No ${selectedFilter} tests found`
-            }
-          </Text>
-        </Animated.View>
-      )}
-    </ScrollView>
-  );
-};
+  // Handle entrance animations
+  useEffect(() => {
+    if (isLoggedIn !== null) {
+      startEntranceAnimation();
+      startPulseAnimation();
+    }
+  }, [isLoggedIn]);
 
   // Loading screen
   if (loading && isLoggedIn === null) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar 
+          barStyle="light-content" 
+          backgroundColor={BRAND.backgroundColor} 
+          translucent={false}
+          hidden={false}
+        />
+        <View style={styles.loadingContent}>
+          <ActivityIndicator size="large" color={BRAND.primaryColor} />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.loadingContainer}>
+    <SafeAreaView style={styles.mainContainer}>
       <StatusBar 
         barStyle="light-content" 
         backgroundColor={BRAND.backgroundColor} 
         translucent={false}
         hidden={false}
       />
-      <View style={styles.loadingContent}>
-        <ActivityIndicator size="large" color={BRAND.primaryColor} />
-        <Text style={styles.loadingText}>Loading...</Text>
+      
+      {/* Animated Background Elements */}
+      <View style={styles.backgroundElements}>
+        <Animated.View 
+          style={[
+            styles.glowCircle,
+            styles.glowCircle1,
+            { opacity: Animated.multiply(glowOpacity, 0.08) }
+          ]} 
+        />
+        <Animated.View 
+          style={[
+            styles.glowCircle,
+            styles.glowCircle2,
+            { opacity: Animated.multiply(glowOpacity, 0.06) }
+          ]} 
+        />
+        <Animated.View 
+          style={[
+            styles.glowCircle,
+            styles.glowCircle3,
+            { opacity: Animated.multiply(glowOpacity, 0.04) }
+          ]} 
+        />
       </View>
+
+      {/* Header */}
+      <Animated.View
+        style={[
+          styles.headerSection,
+          {
+            opacity: headerOpacity,
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
+        <View style={styles.headerContent}>
+          <Image
+            source={require('../assets/images/logo-sujhav.png')}
+            style={styles.headerLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.brandTitle}>Reports</Text>
+        </View>
+      </Animated.View>
+
+      {/* Content based on authentication and batch assignment */}
+      <View style={styles.contentContainer}>
+        {isLoggedIn === false ? (
+          renderUnauthenticatedContent()
+        ) : !isAssignedToBatch ? (
+          <EmptyState />
+        ) : loading ? (
+          <View style={styles.loadingContent}>
+            <ActivityIndicator size="large" color={BRAND.primaryColor} />
+            <Text style={styles.loadingText}>Loading Reports...</Text>
+          </View>
+        ) : (
+          renderAuthenticatedContent()
+        )}
+      </View>
+
+      {/* Bottom Navigation */}
+      <BottomNavigation navigation={navigation} activeTab="Reports" />
     </SafeAreaView>
   );
-}
-
-  return (
-  <SafeAreaView style={styles.mainContainer}>
-    <StatusBar 
-      barStyle="light-content" 
-      backgroundColor={BRAND.backgroundColor} 
-      translucent={false}
-      hidden={false}
-    />
-    
-    {/* Animated Background Glow */}
-    <Animated.View
-      style={[
-        styles.backgroundGlow,
-        { opacity: glowOpacity }
-      ]}
-    />
-
-    {/* Header */}
-    <Animated.View
-      style={[
-        styles.header,
-        {
-          opacity: headerOpacity,
-          transform: [{ translateY: headerTranslateY }],
-        },
-      ]}
-    >
-      <View style={styles.headerContent}>
-        <Image
-          source={require('../assets/images/logo-sujhav.png')}
-          style={styles.headerLogoImage}
-          resizeMode="contain"
-        />
-        <Text style={styles.headerTitle}>Reports</Text>
-      </View>
-    </Animated.View>
-
-    {/* Content based on authentication and batch assignment */}
-    {isLoggedIn === false ? (
-      renderUnauthenticatedContent()
-    ) : !isAssignedToBatch ? (
-      <EmptyState />
-    ) : loading ? (
-      <View style={styles.loadingContent}>
-        <ActivityIndicator size="large" color={BRAND.primaryColor} />
-        <Text style={styles.loadingText}>Loading Reports...</Text>
-      </View>
-    ) : (
-      renderAuthenticatedContent()
-    )}
-
-    {/* Bottom Navigation */}
-    <BottomNavigation navigation={navigation} activeTab="Reports" />
-  </SafeAreaView>
-);
 };
 
-// Styles
+// Updated Styles to match MyContent design consistency
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
     backgroundColor: BRAND.backgroundColor,
-    ...(Platform.OS === 'android' && {
-      paddingTop: 0,
-    }),
   },
   container: {
     flex: 1,
@@ -1199,9 +1200,6 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.backgroundColor,
     justifyContent: 'center',
     alignItems: 'center',
-    ...(Platform.OS === 'android' && {
-      paddingTop: 0,
-    }),
   },
   loadingContent: {
     alignItems: 'center',
@@ -1209,142 +1207,173 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   loadingText: {
-    color: BRAND.textPrimary,
+    color: BRAND.primaryColor,
     fontSize: 16,
     marginTop: 12,
     fontWeight: '500',
   },
-  backgroundGlow: {
+  // Background Elements - matching MyContent
+  backgroundElements: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: BRAND.primaryColor,
-    opacity: 0.05,
-    zIndex: -1,
   },
-  // Header - removed border
-  header: {
+  glowCircle: {
+    position: 'absolute',
+    borderRadius: 1000,
+    backgroundColor: BRAND.primaryColor,
+  },
+  glowCircle1: {
+    width: 200,
+    height: 200,
+    top: -100,
+    right: -100,
+  },
+  glowCircle2: {
+    width: 150,
+    height: 150,
+    bottom: 100,
+    left: -75,
+  },
+  glowCircle3: {
+    width: 100,
+    height: 100,
+    top: height * 0.3,
+    right: -50,
+  },
+  // Header - matching MyContent design
+  headerSection: {
     paddingHorizontal: 20,
     paddingVertical: 20,
-    backgroundColor: BRAND.backgroundColor,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a2e1a',
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerLogoImage: {
+  headerLogo: {
     width: 30,
     height: 30,
     marginRight: 10,
   },
-  headerTitle: {
+  brandTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: BRAND.primaryColor,
-    letterSpacing: 0.5,
   },
+  contentContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  // Unauthenticated content - matching MyContent
   unauthenticatedContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 30,
-    backgroundColor: BRAND.backgroundColor,
+    paddingHorizontal: 20,
   },
   welcomeSection: {
     alignItems: 'center',
-    marginBottom: 40,
-    maxWidth: 350,
+    marginBottom: 50,
   },
   logoContainer: {
     position: 'relative',
     marginBottom: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   logoGlow: {
     position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: BRAND.primaryColor,
-    opacity: 0.3,
+    top: -10,
+    left: -10,
+    right: -10,
+    bottom: -10,
+  },
+  headerLogoImage: {
+    width: 100,
+    height: 100,
+    zIndex: 2,
   },
   welcomeTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
+    color: '#fff',
     textAlign: 'center',
     marginBottom: 15,
-    letterSpacing: 0.5,
   },
   welcomeSubtitle: {
-    fontSize: 18,
-    color: BRAND.primaryColor,
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 24,
-    fontWeight: '500',
-  },
-  welcomeSubtext: {
     fontSize: 16,
-    color: '#ccc',
+    color: '#888',
     textAlign: 'center',
     lineHeight: 22,
+    maxWidth: 300,
+  },
+  welcomeSubtext: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 10,
   },
   signInButtonContainer: {
     width: '100%',
     alignItems: 'center',
   },
   signInButton: {
-    backgroundColor: BRAND.primaryColor,
-    paddingVertical: 16,
-    paddingHorizontal: 40,
-    borderRadius: 25,
     position: 'relative',
-    overflow: 'hidden',
+    backgroundColor: BRAND.primaryColor,
+    paddingHorizontal: 40,
+    paddingVertical: 18,
+    borderRadius: 30,
+    minWidth: 200,
+    alignItems: 'center',
     elevation: 5,
     shadowColor: BRAND.primaryColor,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 6,
   },
   buttonGlow: {
     position: 'absolute',
-    top: -10,
-    left: -10,
-    right: -10,
-    bottom: -10,
-    backgroundColor: BRAND.primaryColor,
+    width: '120%',
+    height: '140%',
     borderRadius: 35,
-    opacity: 0.2,
+    backgroundColor: BRAND.primaryColor,
+    top: -10,
+    left: -20,
+    right: -20,
+    bottom: -10,
   },
   signInButtonText: {
-    color: BRAND.secondaryColor,
+    color: BRAND.backgroundColor,
     fontSize: 18,
     fontWeight: 'bold',
-    letterSpacing: 0.5,
+    zIndex: 2,
   },
   section: {
     marginBottom: 25,
-    paddingHorizontal: 20,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
+    color: '#fff',
     marginBottom: 15,
     letterSpacing: 0.3,
   },
-  // Statistics card - removed border, adjusted spacing for quick actions
+  // Statistics card - matching MyContent style
   statisticsCard: {
     backgroundColor: '#0f1f0f',
-    margin: 20,
-    marginTop: 10, // Reduced top margin for better spacing with quick actions
+    marginVertical: 20,
     padding: 20,
     borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#1a2e1a',
     elevation: 3,
     shadowColor: BRAND.primaryColor,
     shadowOffset: { width: 0, height: 2 },
@@ -1354,7 +1383,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
+    color: '#fff',
     marginBottom: 15,
     textAlign: 'center',
   },
@@ -1376,15 +1405,17 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 12,
-    color: BRAND.textSecondary,
+    color: '#888',
     textAlign: 'center',
   },
-  // Batch card - removed border
+  // Batch card - matching MyContent style
   batchCard: {
     backgroundColor: '#0f1f0f',
     padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#1a2e1a',
     elevation: 2,
     shadowColor: BRAND.primaryColor,
     shadowOffset: { width: 0, height: 1 },
@@ -1394,7 +1425,7 @@ const styles = StyleSheet.create({
   batchName: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
+    color: '#fff',
     marginBottom: 4,
   },
   batchCategory: {
@@ -1408,12 +1439,12 @@ const styles = StyleSheet.create({
   },
   assignmentLabel: {
     fontSize: 12,
-    color: BRAND.textSecondary,
+    color: '#888',
     marginBottom: 2,
   },
   assignmentValue: {
     fontSize: 14,
-    color: BRAND.textPrimary,
+    color: '#fff',
     fontWeight: '500',
   },
   subjectsContainer: {
@@ -1421,7 +1452,7 @@ const styles = StyleSheet.create({
   },
   subjectsLabel: {
     fontSize: 12,
-    color: BRAND.textSecondary,
+    color: '#888',
     marginBottom: 6,
   },
   subjectItem: {
@@ -1432,80 +1463,133 @@ const styles = StyleSheet.create({
   },
   subjectName: {
     fontSize: 13,
-    color: BRAND.textPrimary,
+    color: '#fff',
     flex: 1,
   },
   teacherName: {
     fontSize: 11,
-    color: BRAND.textSecondary,
+    color: '#888',
     fontStyle: 'italic',
   },
-  // Filter container - removed border
+  // Filter container - matching MyContent design
   filterContainer: {
-    flexDirection: 'row',
-    marginBottom: 15,
-    backgroundColor: '#1a2e1a',
-    borderRadius: 10,
-    padding: 4,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a2e1a',
   },
   filterTab: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
     borderRadius: 8,
+    marginHorizontal: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   activeFilterTab: {
     backgroundColor: BRAND.primaryColor,
+    borderColor: BRAND.primaryColor,
   },
   filterTabText: {
     fontSize: 14,
-    color: BRAND.textSecondary,
+    color: '#888',
     fontWeight: '600',
   },
   activeFilterTabText: {
-    color: BRAND.secondaryColor,
+    color: BRAND.backgroundColor,
+    fontWeight: '700',
   },
-  // Test card - removed border
+  // Test card - completely redesigned to match MyContent
   testCard: {
     backgroundColor: '#0f1f0f',
-    marginBottom: 15,
-    borderRadius: 12,
+    borderRadius: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#1a2e1a',
     overflow: 'hidden',
-    elevation: 2,
+    elevation: 3,
     shadowColor: BRAND.primaryColor,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   testCardContent: {
-    padding: 16,
+    padding: 15,
   },
   testHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     marginBottom: 12,
+  },
+  testImageContainer: {
+    position: 'relative',
+    width: 100,
+    height: 100,
+    backgroundColor: '#1a2e1a',
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  testImage: {
+    width: 60,
+    height: 60,
+  },
+  statusBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  statusBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  testContent: {
+    flex: 1,
+    justifyContent: 'space-between',
   },
   testTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
-    flex: 1,
-    marginRight: 10,
+    color: '#fff',
+    marginBottom: 5,
     lineHeight: 22,
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+  testSubtitle: {
+    fontSize: 12,
+    color: BRAND.primaryColor,
+    marginBottom: 8,
+    fontWeight: '500',
   },
   testDetails: {
     marginBottom: 12,
+  },
+  testInfoGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+  },
+  testInfoItem: {
+    alignItems: 'center',
+    minWidth: '30%',
+    marginBottom: 8,
+  },
+  testInfoLabel: {
+    fontSize: 10,
+    color: '#888',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  testInfoValue: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '500',
+    marginTop: 1,
+    textAlign: 'center',
   },
   testInfoRow: {
     flexDirection: 'row',
@@ -1514,60 +1598,72 @@ const styles = StyleSheet.create({
   },
   testInfoText: {
     fontSize: 13,
-    color: BRAND.textSecondary,
+    color: '#888',
     marginLeft: 8,
     flex: 1,
   },
-  // Marks container - removed border, added subtle separation
+  marksSection: {
+    marginBottom: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#1a2e1a',
+  },
   marksContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
-    paddingTop: 10,
-    backgroundColor: 'rgba(26, 46, 26, 0.3)', // Subtle background instead of border
-    marginHorizontal: -8,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    justifyContent: 'space-between',
   },
-  marksLabel: {
-    fontSize: 14,
-    color: BRAND.textSecondary,
-    marginRight: 10,
-  },
-  marksInfo: {
-    flexDirection: 'row',
+  marksDisplay: {
     alignItems: 'center',
-    flex: 1,
   },
   marksValue: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: BRAND.textPrimary,
-    marginRight: 8,
+    color: '#fff',
   },
-  percentage: {
-    fontSize: 14,
+  marksLabel: {
+    fontSize: 10,
+    color: '#888',
+    marginTop: 2,
+  },
+  percentageDisplay: {
+    alignItems: 'center',
+  },
+  percentageValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  gradeValue: {
+    fontSize: 12,
     fontWeight: '600',
-    marginRight: 6,
+    marginTop: 2,
   },
-  grade: {
+  notEvaluatedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  notEvaluatedText: {
     fontSize: 14,
-    fontWeight: 'bold',
+    color: '#888',
+    marginLeft: 8,
   },
   actionButtons: {
     flexDirection: 'row',
     gap: 10,
   },
-  // Download buttons - removed borders, improved styling
   downloadButton: {
     backgroundColor: '#1a2e1a',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#2a3e2a',
     elevation: 1,
     shadowColor: BRAND.primaryColor,
     shadowOffset: { width: 0, height: 1 },
@@ -1575,18 +1671,21 @@ const styles = StyleSheet.create({
     shadowRadius: 1,
   },
   answerButton: {
-    backgroundColor: BRAND.primaryColor + '20',
+    backgroundColor: 'rgba(0, 255, 136, 0.15)',
+    borderColor: BRAND.primaryColor,
   },
   downloadButtonDisabled: {
     opacity: 0.6,
   },
   downloadButtonText: {
-    color: BRAND.textPrimary,
+    color: '#fff',
     fontSize: 12,
     fontWeight: '600',
-    marginLeft: 4,
+    marginLeft: 6,
   },
   noDataContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 40,
     paddingHorizontal: 20,
@@ -1594,13 +1693,13 @@ const styles = StyleSheet.create({
   noDataText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: BRAND.textSecondary,
+    color: '#fff',
     marginTop: 12,
     textAlign: 'center',
   },
   noDataSubtext: {
     fontSize: 14,
-    color: BRAND.textSecondary,
+    color: '#888',
     textAlign: 'center',
     marginTop: 8,
     lineHeight: 20,
