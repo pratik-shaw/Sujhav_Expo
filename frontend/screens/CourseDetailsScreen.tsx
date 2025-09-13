@@ -149,8 +149,7 @@ const CourseDetailsScreen: React.FC<CourseDetailsScreenProps> = ({ navigation, r
     }
   };
 
-  // Check if user is already enrolled
-  const checkEnrollmentStatus = async () => {
+const checkEnrollmentStatus = async () => {
   if (!userData || !courseId) return;
 
   try {
@@ -165,13 +164,18 @@ const CourseDetailsScreen: React.FC<CourseDetailsScreenProps> = ({ navigation, r
     if (response.ok) {
       const data = await response.json();
       console.log('Enrollment status:', data);
-      setIsEnrolled(data.hasAccess);
+      // Only consider enrolled status as having access
+      setIsEnrolled(data.hasAccess && data.enrollment?.enrollmentStatus === 'enrolled');
       setEnrollmentData(data.enrollment);
     } else {
       console.log('Enrollment check failed:', response.status);
+      setIsEnrolled(false);
+      setEnrollmentData(null);
     }
   } catch (error) {
     console.error('Enrollment check error:', error);
+    setIsEnrolled(false);
+    setEnrollmentData(null);
   }
 };
 
