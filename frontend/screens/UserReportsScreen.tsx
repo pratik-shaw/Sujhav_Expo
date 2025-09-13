@@ -442,79 +442,89 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
 
   // Start animations
   const startEntranceAnimation = () => {
-    // Background glow
-    Animated.timing(glowOpacity, {
-      toValue: 1,
-      duration: 1000,
-      useNativeDriver: true,
-    }).start();
+  // Reset all animations to initial state
+  glowOpacity.setValue(0);
+  headerOpacity.setValue(0);
+  headerTranslateY.setValue(-20);
+  contentOpacity.setValue(0);
+  contentScale.setValue(0.8);
+  fadeAnim.setValue(0);
+  buttonScale.setValue(0.8);
 
-    // Header animation
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(headerOpacity, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(headerTranslateY, {
-          toValue: 0,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 200);
+  // Background glow
+  Animated.timing(glowOpacity, {
+    toValue: 1,
+    duration: 1000,
+    useNativeDriver: true,
+  }).start();
 
-    // Content animation
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(contentScale, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 600);
+  // Header animation
+  setTimeout(() => {
+    Animated.parallel([
+      Animated.timing(headerOpacity, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(headerTranslateY, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, 200);
 
-    // Fade in animation
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(buttonScale, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 1000);
+  // Content animation
+  setTimeout(() => {
+    Animated.parallel([
+      Animated.timing(contentOpacity, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentScale, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, 600);
+
+  // Fade in and button scale animation
+  setTimeout(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(buttonScale, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, 1000);
+};
+
+
+const startPulseAnimation = () => {
+  const pulse = () => {
+    Animated.sequence([
+      Animated.timing(pulseScale, {
+        toValue: 1.02,
+        duration: 3000,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pulseScale, {
+        toValue: 1,
+        duration: 3000,
+        useNativeDriver: true,
+      }),
+    ]).start(() => pulse());
   };
-
-  const startPulseAnimation = () => {
-    const pulse = () => {
-      Animated.sequence([
-        Animated.timing(pulseScale, {
-          toValue: 1.02,
-          duration: 3000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseScale, {
-          toValue: 1,
-          duration: 3000,
-          useNativeDriver: true,
-        }),
-      ]).start(() => pulse());
-    };
-    pulse();
-  };
+  pulse();
+};
 
   // Navigation handlers
   const handleJoinOnline = () => {
@@ -570,33 +580,33 @@ const UserReportsScreen: React.FC<UserReportsScreenProps> = ({ navigation }) => 
 
   // Render content for unauthenticated users
 const renderUnauthenticatedContent = () => (
-  <View style={styles.unauthenticatedContainer}>
-    <Animated.View
+  <Animated.View 
+    style={[
+      styles.unauthenticatedContainer,
+      {
+        opacity: contentOpacity,
+        transform: [{ scale: contentScale }],
+      }
+    ]}
+  >
+    <Animated.View 
       style={[
         styles.welcomeSection,
         {
-          opacity: contentOpacity,
-          transform: [{ translateY: Animated.multiply(contentScale, 20) }],
-        },
+          opacity: fadeAnim,
+          transform: [{ translateY: headerTranslateY }],
+        }
       ]}
     >
       {/* Logo */}
-      <Animated.View
+      <Animated.View 
         style={[
           styles.logoContainer,
           {
-            transform: [
-              { scale: Animated.multiply(contentScale, pulseScale) }
-            ],
-          },
+            transform: [{ scale: pulseScale }],
+          }
         ]}
       >
-        <Animated.View
-          style={[
-            styles.logoGlow,
-            { opacity: Animated.multiply(glowOpacity, 0.5) }
-          ]}
-        />
         <Image
           source={require('../assets/images/logo-sujhav.png')}
           style={styles.headerLogoImage}
@@ -604,43 +614,80 @@ const renderUnauthenticatedContent = () => (
         />
       </Animated.View>
 
-      <Text style={styles.welcomeTitle}>Sign In Required</Text>
-      <Text style={styles.welcomeSubtitle}>
+      <Animated.Text 
+        style={[
+          styles.welcomeTitle,
+          {
+            opacity: fadeAnim,
+          }
+        ]}
+      >
+        Sign In Required
+      </Animated.Text>
+      
+      <Animated.Text 
+        style={[
+          styles.welcomeSubtitle,
+          {
+            opacity: fadeAnim,
+          }
+        ]}
+      >
         Please sign in to view your test reports and performance analytics.
-      </Text>
-      <Text style={styles.welcomeSubtext}>
+      </Animated.Text>
+      
+      <Animated.Text 
+        style={[
+          styles.welcomeSubtext,
+          {
+            opacity: fadeAnim,
+          }
+        ]}
+      >
         Join SUJHAV to track your academic progress!
-      </Text>
+      </Animated.Text>
     </Animated.View>
 
-    <UserProfileQuickActions navigation={navigation} />
-
     {/* Sign In Button */}
-    <Animated.View
+    <Animated.View 
       style={[
         styles.signInButtonContainer,
-        { 
+        {
           opacity: fadeAnim,
-          transform: [{ scale: buttonScale }]
+          transform: [{ scale: buttonScale }],
         }
       ]}
     >
       <TouchableOpacity 
         style={styles.signInButton}
         onPress={handleSignInPress}
-        activeOpacity={0.8}
+        activeOpacity={0.7}
       >
-        <Animated.View
-          style={[
-            styles.buttonGlow,
-            { opacity: Animated.multiply(glowOpacity, 0.6) }
-          ]}
-        />
         <Text style={styles.signInButtonText}>Sign In</Text>
       </TouchableOpacity>
     </Animated.View>
-  </View>
+
+    {/* Secondary Button */}
+    <Animated.View 
+      style={[
+        styles.secondaryButtonContainer,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: buttonScale }],
+        }
+      ]}
+    >
+      <TouchableOpacity 
+        style={styles.secondaryButton}
+        onPress={() => navigation.navigate('SignUp')}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.secondaryButtonText}>Create Account</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  </Animated.View>
 );
+
 
 // Render content for authenticated users with batch assignment
 // Render content for authenticated users with batch assignment
@@ -806,79 +853,98 @@ const renderAuthenticatedContent = () => {
     }
   }, [isLoggedIn]);
 
-  // Empty State Component (Not registered student)
-  const EmptyState = () => (
-    <View style={styles.unauthenticatedContainer}>
-      <Animated.View
+const EmptyState = () => (
+  <Animated.View 
+    style={[
+      styles.unauthenticatedContainer,
+      {
+        opacity: contentOpacity,
+        transform: [{ scale: contentScale }],
+      }
+    ]}
+  >
+    <Animated.View 
+      style={[
+        styles.welcomeSection,
+        {
+          opacity: fadeAnim,
+          transform: [{ translateY: headerTranslateY }],
+        }
+      ]}
+    >
+      {/* Logo */}
+      <Animated.View 
         style={[
-          styles.welcomeSection,
+          styles.logoContainer,
           {
-            opacity: contentOpacity,
-            transform: [{ translateY: Animated.multiply(contentScale, 20) }],
-          },
-        ]}
-      >
-        {/* Logo */}
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              transform: [
-                { scale: Animated.multiply(contentScale, pulseScale) }
-              ],
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              styles.logoGlow,
-              { opacity: Animated.multiply(glowOpacity, 0.5) }
-            ]}
-          />
-          <Image
-            source={require('../assets/images/logo-sujhav.png')}
-            style={styles.headerLogoImage}
-            resizeMode="contain"
-          />
-        </Animated.View>
-
-        <Text style={styles.welcomeTitle}>Not a Registered Student</Text>
-        <Text style={styles.welcomeSubtitle}>
-          You are not registered as a student in any offline center batch.
-        </Text>
-        <Text style={styles.welcomeSubtext}>
-          Join SUJHAV Online Center to continue your learning journey!
-        </Text>
-      </Animated.View>
-
-      <UserProfileQuickActions navigation={navigation} />
-
-      {/* Join Online Button */}
-      <Animated.View
-        style={[
-          styles.signInButtonContainer,
-          { 
-            opacity: fadeAnim,
-            transform: [{ scale: buttonScale }]
+            transform: [{ scale: pulseScale }],
           }
         ]}
       >
-        <TouchableOpacity 
-          style={styles.signInButton}
-          onPress={handleJoinOnline}
-          activeOpacity={0.8}
-        >
-          <Animated.View
-            style={[
-              styles.buttonGlow,
-              { opacity: Animated.multiply(glowOpacity, 0.6) }
-            ]}
-          />
-          <Text style={styles.signInButtonText}>Join Online Center</Text>
-        </TouchableOpacity>
+        <Image
+          source={require('../assets/images/logo-sujhav.png')}
+          style={styles.headerLogoImage}
+          resizeMode="contain"
+        />
       </Animated.View>
-    </View>
-  );
+
+      <Animated.Text 
+        style={[
+          styles.welcomeTitle,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: headerTranslateY }],
+          }
+        ]}
+      >
+        Not a Registered Student
+      </Animated.Text>
+      
+      <Animated.Text 
+        style={[
+          styles.welcomeSubtitle,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: headerTranslateY }],
+          }
+        ]}
+      >
+        You are not registered as a student in any offline center batch.
+      </Animated.Text>
+      
+      <Animated.Text 
+        style={[
+          styles.welcomeSubtext,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: headerTranslateY }],
+          }
+        ]}
+      >
+        Join SUJHAV Online Center to continue your learning journey!
+      </Animated.Text>
+    </Animated.View>
+
+    {/* Join Online Button */}
+    <Animated.View 
+      style={[
+        styles.signInButtonContainer,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: buttonScale }],
+        }
+      ]}
+    >
+      <TouchableOpacity 
+        style={styles.signInButton}
+        onPress={handleJoinOnline}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.signInButtonText}>Join Offline Center</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  </Animated.View>
+);
 
   // Statistics Card Component - Updated to match MyContent style
   const StatisticsCard = ({ statistics }: { statistics: any }) => (
@@ -1269,7 +1335,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
-  // Unauthenticated content - matching MyContent
+  // Unauthenticated content - simplified
   unauthenticatedContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1281,24 +1347,12 @@ const styles = StyleSheet.create({
     marginBottom: 50,
   },
   logoContainer: {
-    position: 'relative',
     marginBottom: 30,
-  },
-  logoGlow: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: BRAND.primaryColor,
-    top: -10,
-    left: -10,
-    right: -10,
-    bottom: -10,
+    alignItems: 'center',
   },
   headerLogoImage: {
     width: 100,
     height: 100,
-    zIndex: 2,
   },
   welcomeTitle: {
     fontSize: 28,
@@ -1313,48 +1367,50 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
     maxWidth: 300,
+    marginBottom: 10,
   },
   welcomeSubtext: {
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
     lineHeight: 20,
-    marginTop: 10,
   },
   signInButtonContainer: {
     width: '100%',
     alignItems: 'center',
   },
   signInButton: {
-    position: 'relative',
     backgroundColor: BRAND.primaryColor,
     paddingHorizontal: 40,
-    paddingVertical: 18,
-    borderRadius: 30,
+    paddingVertical: 16,
+    borderRadius: 25,
     minWidth: 200,
     alignItems: 'center',
-    elevation: 5,
-    shadowColor: BRAND.primaryColor,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  buttonGlow: {
-    position: 'absolute',
-    width: '120%',
-    height: '140%',
-    borderRadius: 35,
-    backgroundColor: BRAND.primaryColor,
-    top: -10,
-    left: -20,
-    right: -20,
-    bottom: -10,
   },
   signInButtonText: {
     color: BRAND.backgroundColor,
     fontSize: 18,
-    fontWeight: 'bold',
-    zIndex: 2,
+    fontWeight: '600',
+  },
+  secondaryButtonContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: BRAND.primaryColor,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: BRAND.primaryColor,
+    fontSize: 16,
+    fontWeight: '500',
   },
   section: {
     marginBottom: 25,

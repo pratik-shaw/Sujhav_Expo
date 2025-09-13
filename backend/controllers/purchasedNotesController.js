@@ -1,4 +1,5 @@
 // controllers/purchasedNotesController.js - Fixed version
+const mongoose = require('mongoose'); // Add this line
 const PurchasedNotes = require('../models/PurchasedNotes');
 const PaidNotes = require('../models/PaidNotes');
 const User = require('../models/User');
@@ -63,6 +64,7 @@ const validateAuth = (req) => {
 };
 
 // Purchase notes (handles both free and paid)
+// FIXED: Purchase notes - allows multiple payment attempts for pending purchases
 const purchaseNotes = async (req, res) => {
   try {
     const studentId = validateAuth(req);
@@ -72,14 +74,21 @@ const purchaseNotes = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Notes ID is required' });
     }
 
-    // Check existing purchase
-    const existingPurchase = await PurchasedNotes.findOne({
-      studentId, notesId, purchaseStatus: { $in: ['completed', 'pending'] }, isActive: true
+    // Check for completed purchase only
+    const completedPurchase = await PurchasedNotes.findOne({
+      studentId, 
+      notesId, 
+      purchaseStatus: 'completed',
+      paymentStatus: 'completed',
+      isActive: true
     });
 
-    if (existingPurchase) {
+    if (completedPurchase) {
       return res.status(400).json({
-        success: false, message: 'You have already purchased these notes or have a pending purchase'
+        success: false, 
+        message: 'You have already purchased these notes',
+        alreadyPurchased: true,
+        purchase: completedPurchase
       });
     }
 
@@ -89,21 +98,52 @@ const purchaseNotes = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Notes not found or unavailable' });
     }
 
-    // Create purchase record
-    const purchase = new PurchasedNotes({
-      studentId, notesId, purchaseStatus: 'pending',
-      paymentDetails: { amount: notes.price, currency: 'INR' }
+    // Check for existing pending/failed purchase
+    let purchase = await PurchasedNotes.findOne({
+      studentId, 
+      notesId, 
+      purchaseStatus: { $in: ['pending', 'failed'] },
+      isActive: true
     });
 
     // Handle free notes
     if (notes.price === 0) {
+      if (!purchase) {
+        purchase = new PurchasedNotes({
+          studentId, 
+          notesId, 
+          purchaseStatus: 'pending',
+          paymentDetails: { amount: 0, currency: 'INR' }
+        });
+      }
+      
       await purchase.completePurchase();
       return res.status(201).json({
-        success: true, message: 'Successfully purchased the free notes', purchase
+        success: true, 
+        message: 'Successfully purchased the free notes', 
+        purchase
       });
     }
 
-    // Handle paid notes - create Razorpay order
+    // For paid notes - reuse existing purchase or create new one
+    if (!purchase) {
+      purchase = new PurchasedNotes({
+        studentId, 
+        notesId, 
+        purchaseStatus: 'pending',
+        paymentDetails: { amount: notes.price, currency: 'INR' }
+      });
+    } else {
+      // Reset the existing purchase for retry
+      purchase.purchaseStatus = 'pending';
+      purchase.paymentStatus = 'pending';
+      purchase.paymentDetails.razorpayOrderId = null;
+      purchase.paymentDetails.razorpayPaymentId = null;
+      purchase.paymentDetails.razorpaySignature = null;
+      purchase.paymentDetails.paidAt = null;
+    }
+
+    // Create new Razorpay order
     const orderData = {
       amount: notes.price * 100,
       currency: 'INR',
@@ -113,7 +153,6 @@ const purchaseNotes = async (req, res) => {
 
     const razorpayOrder = await razorpay.orders.create(orderData);
     
-    purchase.paymentStatus = 'pending';
     purchase.paymentDetails.razorpayOrderId = razorpayOrder.id;
     await purchase.save();
 
@@ -138,38 +177,24 @@ const purchaseNotes = async (req, res) => {
   }
 };
 
-// FIXED: Verify payment and complete purchase - simplified and more robust
+// FIXED: Verify payment with database transaction to ensure consistency
+// FIXED: Verify payment without database transactions (compatible with standalone MongoDB)
 const verifyPaymentAndPurchase = async (req, res) => {
   try {
-    console.log('=== Payment Verification Started ===');
+    console.log('=== PAYMENT VERIFICATION STARTED ===');
     console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('Timestamp:', new Date().toISOString());
     
     const studentId = validateAuth(req);
     const { purchaseId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
     
-    // CRITICAL FIX: Better validation with specific error messages
-    if (!razorpay_order_id && !purchaseId) {
-      console.log('❌ No order ID or purchase ID provided');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Order ID or Purchase ID is required',
-        error: 'missing_identifiers'
-      });
-    }
+    console.log('Authenticated student ID:', studentId);
 
-    if (!razorpay_payment_id && razorpay_order_id) {
-      console.log('❌ Payment ID missing for order verification');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Payment ID is required for verification',
-        error: 'missing_payment_id'
-      });
-    }
-
-    // Find purchase
+    // Find purchase (no session needed)
     let purchase = null;
     
     if (purchaseId) {
+      console.log('Searching by purchaseId:', purchaseId);
       purchase = await PurchasedNotes.findOne({
         _id: purchaseId,
         studentId
@@ -177,15 +202,15 @@ const verifyPaymentAndPurchase = async (req, res) => {
     }
     
     if (!purchase && razorpay_order_id) {
+      console.log('Searching by razorpay_order_id:', razorpay_order_id);
       purchase = await PurchasedNotes.findOne({
         studentId,
-        'paymentDetails.razorpayOrderId': razorpay_order_id,
-        purchaseStatus: { $in: ['pending', 'failed'] }
+        'paymentDetails.razorpayOrderId': razorpay_order_id
       });
     }
 
     if (!purchase) {
-      console.log('❌ Purchase not found');
+      console.log('❌ No purchase found');
       return res.status(404).json({ 
         success: false, 
         message: 'Purchase not found',
@@ -193,9 +218,16 @@ const verifyPaymentAndPurchase = async (req, res) => {
       });
     }
 
-    // CRITICAL FIX: If already completed, return success immediately
+    console.log('Found purchase:', {
+      id: purchase._id,
+      currentStatus: purchase.purchaseStatus,
+      paymentStatus: purchase.paymentStatus,
+      orderId: purchase.paymentDetails.razorpayOrderId
+    });
+
+    // If already completed, return success
     if (purchase.purchaseStatus === 'completed' && purchase.paymentStatus === 'completed') {
-      console.log('✅ Purchase already completed - returning success');
+      console.log('✅ Purchase already completed');
       return res.status(200).json({
         success: true,
         message: 'Payment already verified and purchase completed',
@@ -205,71 +237,119 @@ const verifyPaymentAndPurchase = async (req, res) => {
       });
     }
 
-    // CRITICAL FIX: If no payment details in request but purchase exists, return current status
-    if (!razorpay_payment_id && !razorpay_order_id) {
-      console.log('ℹ️ Status check request - returning current purchase status');
-      return res.status(200).json({
-        success: purchase.purchaseStatus === 'completed',
-        message: `Purchase status: ${purchase.purchaseStatus}`,
-        purchase,
-        verified: purchase.purchaseStatus === 'completed',
-        status: purchase.purchaseStatus
+    // Validate payment data
+    if (!razorpay_payment_id || !razorpay_order_id) {
+      console.log('❌ Missing payment details');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Payment ID and Order ID are required',
+        error: 'missing_payment_data'
       });
     }
 
-    // Continue with verification only if we have payment details
+    // Verify signature
+    console.log('Verifying signature...');
     let signatureValid = false;
     
     if (razorpay_signature) {
       signatureValid = validateSignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+      console.log('Signature validation result:', signatureValid);
     } else {
       signatureValid = process.env.NODE_ENV === 'development';
+      console.log('Development mode - signature validation:', signatureValid);
     }
     
     if (!signatureValid) {
       console.log('❌ Signature validation failed');
-      purchase.paymentStatus = 'failed';
-      await purchase.save();
+      
+      // Update purchase status to failed (without transaction)
+      await PurchasedNotes.findByIdAndUpdate(
+        purchase._id,
+        { 
+          paymentStatus: 'failed',
+          purchaseStatus: 'failed'
+        }
+      );
       
       return res.status(400).json({ 
         success: false, 
-        message: 'Payment verification failed',
+        message: 'Payment verification failed - invalid signature',
         error: 'signature_verification_failed'
       });
     }
 
-    // Complete payment
-    purchase.paymentStatus = 'completed';
-    purchase.purchaseStatus = 'completed';
-    purchase.paymentDetails.razorpayPaymentId = razorpay_payment_id;
-    purchase.paymentDetails.razorpaySignature = razorpay_signature;
-    purchase.paymentDetails.paymentMethod = 'razorpay';
-    purchase.paymentDetails.paidAt = new Date();
-    purchase.purchasedAt = new Date();
-    
-    await purchase.save();
-    
-    console.log('✅ Payment completed successfully');
+    console.log('✅ Signature validated successfully');
+
+    // Update purchase with all required fields (atomic operation)
+    const updateData = {
+      paymentStatus: 'completed',
+      purchaseStatus: 'completed',
+      'paymentDetails.razorpayPaymentId': razorpay_payment_id,
+      'paymentDetails.razorpaySignature': razorpay_signature,
+      'paymentDetails.paymentMethod': 'razorpay',
+      'paymentDetails.paidAt': new Date(),
+      'accessDetails.grantedAt': new Date(),
+      purchasedAt: new Date(),
+      isActive: true
+    };
+
+    console.log('Updating purchase with data:', updateData);
+
+    // Use findByIdAndUpdate for atomic operation (no transaction needed)
+    const updatedPurchase = await PurchasedNotes.findByIdAndUpdate(
+      purchase._id,
+      { $set: updateData },
+      { 
+        new: true,
+        runValidators: true 
+      }
+    );
+
+    if (!updatedPurchase) {
+      console.log('❌ Failed to update purchase');
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to update purchase',
+        error: 'update_failed'
+      });
+    }
+
+    console.log('✅ Purchase updated successfully:', {
+      id: updatedPurchase._id,
+      purchaseStatus: updatedPurchase.purchaseStatus,
+      paymentStatus: updatedPurchase.paymentStatus,
+      paidAt: updatedPurchase.paymentDetails.paidAt,
+      grantedAt: updatedPurchase.accessDetails.grantedAt
+    });
+
+    // Verify the update by re-querying
+    const verifyUpdate = await PurchasedNotes.findById(updatedPurchase._id);
+    console.log('Verification query result:', {
+      purchaseStatus: verifyUpdate.purchaseStatus,
+      paymentStatus: verifyUpdate.paymentStatus,
+      isActive: verifyUpdate.isActive
+    });
 
     return res.status(200).json({
       success: true,
       message: 'Payment verified and purchase completed successfully',
-      purchase,
+      purchase: updatedPurchase,
       verified: true,
       status: 'success'
     });
 
   } catch (error) {
-    console.error('Payment verification error:', error);
+    console.error('❌ PAYMENT VERIFICATION ERROR:', error);
     return res.status(500).json({
       success: false,
-      message: error.message === 'Authentication required' ? error.message : 'Internal server error',
-      error: 'verification_error'
+      message: 'Internal server error during verification',
+      error: 'verification_error',
+      details: error.message
     });
   }
 };
 
-// Check if student has access to notes
+// FIXED: Check if student has access to notes - handles pending purchases correctly
 const checkNotesAccess = async (req, res) => {
   try {
     const studentId = validateAuth(req);
@@ -283,20 +363,50 @@ const checkNotesAccess = async (req, res) => {
     // Free notes - grant immediate access
     if (notes.price === 0) {
       return res.status(200).json({
-        success: true, hasAccess: true, isFree: true, purchase: null,
+        success: true, 
+        hasAccess: true, 
+        isFree: true, 
+        purchase: null,
         message: 'These are free notes - access granted'
       });
     }
 
-    // Paid notes - check purchase
-    const purchase = await PurchasedNotes.findOne({
-      studentId, notesId, purchaseStatus: 'completed', paymentStatus: 'completed', isActive: true
+    // Check for completed purchase
+    const completedPurchase = await PurchasedNotes.findOne({
+      studentId, 
+      notesId, 
+      purchaseStatus: 'completed', 
+      paymentStatus: 'completed', 
+      isActive: true
     });
 
-    const hasAccess = !!purchase;
+    if (completedPurchase) {
+      return res.status(200).json({
+        success: true, 
+        hasAccess: true, 
+        isFree: false, 
+        purchase: completedPurchase,
+        message: 'Access granted'
+      });
+    }
+
+    // Check for pending/failed purchase
+    const pendingPurchase = await PurchasedNotes.findOne({
+      studentId, 
+      notesId, 
+      purchaseStatus: { $in: ['pending', 'failed'] },
+      isActive: true
+    });
+
     return res.status(200).json({
-      success: true, hasAccess, isFree: false, purchase: hasAccess ? purchase : null,
-      message: hasAccess ? 'Access granted' : 'Purchase required'
+      success: true, 
+      hasAccess: false, 
+      isFree: false, 
+      purchase: pendingPurchase,
+      canPurchase: true, // Always allow purchase attempts
+      message: pendingPurchase 
+        ? 'Previous purchase is pending/failed. You can try purchasing again.' 
+        : 'Purchase required'
     });
 
   } catch (error) {

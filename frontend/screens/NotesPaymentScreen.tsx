@@ -741,20 +741,25 @@ const NotesPaymentScreen: React.FC<NotesPaymentScreenProps> = ({ navigation, rou
   };
 
   // EXPO: Handle WebView messages
- const handleWebViewMessage = (event: { nativeEvent: { data: string; }; }) => {
+// FIXED: Handle WebView messages without blocking verification
+const handleWebViewMessage = (event: { nativeEvent: { data: string; }; }) => {
   try {
     const data = JSON.parse(event.nativeEvent.data);
     console.log('WebView message received:', data);
 
     setShowWebView(false);
 
-    if (data.success && !paymentProcessing) { // CRITICAL: Check if already processing
+    if (data.success) {
       const paymentResponse = {
         razorpay_order_id: data.razorpay_order_id,
         razorpay_payment_id: data.razorpay_payment_id,
         razorpay_signature: data.razorpay_signature,
       };
       
+      // CRITICAL FIX: Reset processing state before calling handler
+      setPaymentProcessing(false);
+      
+      // Call payment success handler
       handlePaymentSuccess(paymentResponse);
       
     } else if (!data.success) {
@@ -763,10 +768,10 @@ const NotesPaymentScreen: React.FC<NotesPaymentScreenProps> = ({ navigation, rou
       if (data.error === 'cancelled') {
         Alert.alert(
           'Payment Cancelled',
-          'You cancelled the payment. Your notes purchase is still pending.',
+          'You cancelled the payment. You can try again anytime.',
           [
             { text: 'Try Again', onPress: () => initializeRazorpay() },
-            { text: 'Cancel', style: 'cancel' }
+            { text: 'Cancel', style: 'cancel', onPress: () => navigation.goBack() }
           ]
         );
       } else {
@@ -775,7 +780,7 @@ const NotesPaymentScreen: React.FC<NotesPaymentScreenProps> = ({ navigation, rou
           data.message || 'Payment failed. Please try again.',
           [
             { text: 'Try Again', onPress: () => initializeRazorpay() },
-            { text: 'Cancel', style: 'cancel' }
+            { text: 'Cancel', style: 'cancel', onPress: () => navigation.goBack() }
           ]
         );
       }
@@ -788,46 +793,12 @@ const NotesPaymentScreen: React.FC<NotesPaymentScreenProps> = ({ navigation, rou
 };
 
 
-  // Handle real payment success
-// Handle real payment success
+// FIXED: Handle payment success with proper state management
 const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
-  // Declare showSuccessAndNavigate function at the top level of the function
-  const showSuccessAndNavigate = () => {
-    setTimeout(() => {
-      Alert.alert(
-        'Payment Successful! 📚',
-        'You have successfully purchased the notes! Go to the My Notes section of My Content to access them.',
-        [
-          {
-            text: 'Go to My Content',
-            onPress: () => {
-              if (onPaymentSuccess) {
-                const purchaseData = {
-                  _id: purchase?._id,
-                  studentId: userData.userId,
-                  notesId: notes?._id,
-                  paymentStatus: 'completed',
-                  purchaseStatus: 'completed',
-                  paymentId: paymentResponse.razorpay_payment_id,
-                  orderId: paymentResponse.razorpay_order_id
-                };
-                onPaymentSuccess(purchaseData);
-              }
-              navigation.navigate('MyContent');
-            },
-          },
-        ],
-        { cancelable: false }
-      );
-    }, 1000);
-  };
-
   try {
-    // CRITICAL FIX: Prevent multiple calls
-    if (paymentProcessing) {
-      console.log('Payment already being processed, ignoring duplicate call');
-      return;
-    }
+    console.log('=== PAYMENT SUCCESS HANDLER CALLED ===');
+    console.log('Current paymentProcessing state:', paymentProcessing);
+    console.log('Payment response:', paymentResponse);
 
     if (!userData || !userData.token) {
       throw new Error('User authentication expired. Please login again.');
@@ -837,8 +808,17 @@ const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
       throw new Error('Invalid payment response data');
     }
 
-    console.log('Processing notes payment success...');
-    setPaymentProcessing(true); // Set this IMMEDIATELY
+    // Set processing state
+    setPaymentProcessing(true);
+    console.log('Set paymentProcessing to true');
+
+    // Show verification alert
+    Alert.alert(
+      'Verifying Payment',
+      'Please wait while we verify your payment...',
+      [],
+      { cancelable: false }
+    );
 
     const verificationPayload = {
       purchaseId: purchase?._id,
@@ -847,41 +827,127 @@ const handlePaymentSuccess = async (paymentResponse: PaymentResponse) => {
       razorpay_signature: paymentResponse.razorpay_signature || ''
     };
 
-    // Show success immediately
-    showSuccessAndNavigate();
+    console.log('Sending verification request with payload:', verificationPayload);
+
+    // Make verification request
+    const verificationUrl = getApiUrl('/purchasedNotes/verify-payment');
+    console.log('Verification URL:', verificationUrl);
     
-    // Verify in background (fire and forget) - ONLY ONCE
-    const verifyPaymentInBackground = async () => {
-      try {
-        const verificationUrl = getApiUrl('/purchasedNotes/verify-payment');
-        
-        const { data } = await makeNetworkRequest(verificationUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${userData.token}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
+    const { data } = await makeNetworkRequest(verificationUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${userData.token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(verificationPayload),
+    }, 3);
+
+    console.log('=== VERIFICATION RESPONSE ===');
+    console.log('Full verification response:', JSON.stringify(data, null, 2));
+
+    if (data.success && (data.verified || data.status === 'success' || data.status === 'already_completed')) {
+      console.log('✅ Payment verified successfully');
+      
+      setPaymentProcessing(false);
+      
+      // Show success and navigate immediately
+      Alert.alert(
+        'Payment Successful!',
+        'You have successfully purchased the notes! Redirecting to your purchased notes...',
+        [
+          {
+            text: 'View Notes',
+            onPress: () => {
+              console.log('User clicked View Notes, navigating...');
+              
+              // Call success callback if provided
+              if (onPaymentSuccess) {
+                const purchaseData = {
+                  _id: data.purchase?._id || purchase?._id,
+                  studentId: userData.userId,
+                  notesId: notes?._id,
+                  paymentStatus: 'completed',
+                  purchaseStatus: 'completed',
+                  paymentId: paymentResponse.razorpay_payment_id,
+                  orderId: paymentResponse.razorpay_order_id,
+                  hasAccess: true
+                };
+                console.log('Calling onPaymentSuccess with:', purchaseData);
+                onPaymentSuccess(purchaseData);
+              }
+              
+              // Navigate to notes detail with access
+              console.log('Navigating to NotesDetail with:', {
+                notesId: notes?._id,
+                hasAccess: true,
+                justPurchased: true
+              });
+              
+              navigation.navigate('NotesDetail', {
+                notesId: notes?._id,
+                hasAccess: true,
+                justPurchased: true,
+                purchase: data.purchase || purchase
+              });
+            },
           },
-          body: JSON.stringify(verificationPayload),
-        }, 1); // Only 1 retry
+        ],
+        { cancelable: false }
+      );
 
-        console.log('✅ Background verification completed:', data);
-        return data.purchase || null;
-
-      } catch (error) {
-        console.log('⚠️ Background verification failed:', (error as Error).message || 'Unknown error');
-        return null;
-      }
-    };
-
-    // Start verification but don't wait for it
-    verifyPaymentInBackground();
+    } else {
+      console.error('❌ Payment verification failed');
+      console.error('Response data:', data);
+      setPaymentProcessing(false);
+      
+      Alert.alert(
+        'Verification Failed',
+        data.message || 'Payment verification failed. Please try again or contact support.',
+        [
+          { 
+            text: 'Try Again', 
+            onPress: () => {
+              console.log('User chose to try again');
+              handlePaymentSuccess(paymentResponse);
+            }
+          },
+          { 
+            text: 'Contact Support',
+            onPress: () => {
+              console.log('User chose to contact support');
+              navigation.goBack();
+            }
+          }
+        ]
+      );
+    }
 
   } catch (error) {
-    console.error('Error in payment success handling:', error);
+    console.error('=== PAYMENT SUCCESS HANDLER ERROR ===');
+    console.error('Error details:', error);
     setPaymentProcessing(false);
-    // Still show success since Razorpay payment went through
-    showSuccessAndNavigate();
+    
+    Alert.alert(
+      'Payment Error',
+      'There was an error verifying your payment. Please contact support if money was deducted.',
+      [
+        { 
+          text: 'Try Again', 
+          onPress: () => {
+            console.log('User chose to try verification again');
+            handlePaymentSuccess(paymentResponse);
+          }
+        },
+        { 
+          text: 'Contact Support',
+          onPress: () => {
+            console.log('User chose to contact support');
+            navigation.goBack();
+          }
+        }
+      ]
+    );
   }
 };
 

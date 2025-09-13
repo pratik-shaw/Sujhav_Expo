@@ -66,7 +66,11 @@ interface PurchasedNotesData {
     createdAt: string;
     updatedAt: string;
     isActive: boolean;
-  };
+    // Add missing properties
+    notesTitle?: string;
+    category?: string;
+    brief?: string;
+  } | string; // Allow string type for unpopulated refs
   studentId: string;
   purchaseStatus: string;
   totalAmount: number;
@@ -75,6 +79,7 @@ interface PurchasedNotesData {
   maxDownloads: number;
   expiresAt?: string;
   isActive: boolean;
+  paymentStatus?: string;
 }
 
 
@@ -332,17 +337,112 @@ const fetchPurchasedNotes = async () => {
     
     if (response.data && response.data.success) {
       const purchases = response.data.purchases || [];
-      setPurchasedNotes(purchases);
+      
+      // Enhanced validation and enrichment of purchase data
+      const enrichedPurchases = await Promise.all(
+        purchases.map(async (purchase: any) => {
+          try {
+            // If notesId is not populated (is just a string), fetch the full notes data
+            if (typeof purchase.notesId === 'string' || !purchase.notesId?.title) {
+              console.log('Notes data not populated for purchase:', purchase._id);
+              console.log('Fetching notes details for notesId:', purchase.notesId);
+              
+              const notesIdValue = typeof purchase.notesId === 'string' ? purchase.notesId : purchase.notesId?._id;
+              
+              if (notesIdValue) {
+                try {
+                  // Fetch notes details from the paid notes API
+                  const notesResponse = await apiClient.get(`/paidNotes/${notesIdValue}`);
+                  
+                  if (notesResponse.data && notesResponse.data.success) {
+                    purchase.notesId = {
+                      ...purchase.notesId,
+                      ...notesResponse.data.notes
+                    };
+                    console.log('Successfully enriched notes data for:', purchase._id);
+                  } else {
+                    console.warn('Failed to fetch notes details for:', notesIdValue);
+                    purchase.notesId = createFallbackNotesData(notesIdValue, purchase.totalAmount || 0);
+                  }
+                } catch (fetchError) {
+                  console.error('Error fetching notes details:', fetchError);
+                  purchase.notesId = createFallbackNotesData(notesIdValue, purchase.totalAmount || 0);
+                }
+              } else {
+                purchase.notesId = createFallbackNotesData('unknown', purchase.totalAmount || 0);
+              }
+            }
+            
+            // Ensure all required fields exist with proper typing
+            if (typeof purchase.notesId === 'object' && purchase.notesId !== null) {
+              purchase.notesId = {
+                _id: purchase.notesId._id || 'unknown',
+                title: purchase.notesId.title || purchase.notesId.notesTitle || 'Untitled Notes',
+                description: purchase.notesId.description || purchase.notesId.brief || 'No description available',
+                subject: purchase.notesId.subject || purchase.notesId.category || 'Unknown Subject',
+                price: purchase.notesId.price !== undefined ? purchase.notesId.price : purchase.totalAmount || 0,
+                thumbnail: purchase.notesId.thumbnail || undefined,
+                createdBy: purchase.notesId.createdBy || purchase.notesId.tutor || 'Unknown',
+                createdAt: purchase.notesId.createdAt || new Date().toISOString(),
+                updatedAt: purchase.notesId.updatedAt || new Date().toISOString(),
+                isActive: purchase.notesId.isActive !== undefined ? purchase.notesId.isActive : true,
+                // Include the additional properties for backward compatibility
+                notesTitle: purchase.notesId.notesTitle,
+                category: purchase.notesId.category,
+                brief: purchase.notesId.brief
+              };
+            }
+            
+            return purchase;
+          } catch (enrichError) {
+            console.error('Error enriching purchase data:', enrichError);
+            // Return purchase with fallback data
+            return {
+              ...purchase,
+              notesId: createFallbackNotesData(
+                typeof purchase.notesId === 'string' ? purchase.notesId : purchase.notesId?._id || 'unknown',
+                purchase.totalAmount || 0
+              )
+            };
+          }
+        })
+      );
+      
+      console.log('Enriched purchased notes:', enrichedPurchases);
+      setPurchasedNotes(enrichedPurchases);
     } else {
       console.error('Purchased notes API response indicates failure:', response.data);
       setPurchasedNotes([]);
     }
   } catch (error) {
     console.error('Error fetching purchased notes:', error);
+    
+    // Enhanced error logging
+    if (axios.isAxiosError(error)) {
+      console.error('Response status:', error.response?.status);
+      console.error('Response data:', error.response?.data);
+    }
+    
     setPurchasedNotes([]);
     await handleAuthError(error);
   }
 };
+
+const createFallbackNotesData = (id: string, price: number) => ({
+  _id: id,
+  title: 'Notes Title Not Available',
+  description: 'Description not available',
+  subject: 'Unknown Subject',
+  price: price,
+  createdBy: 'Unknown',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  isActive: true,
+  notesTitle: 'Notes Title Not Available',
+  category: 'Unknown Subject',
+  brief: 'Description not available'
+});
+
 
 const handleNotesPress = (notesId: string) => {
   console.log('Opening notes:', notesId);
@@ -593,17 +693,61 @@ const handleNotesPress = (notesId: string) => {
     );
   };
 
-  const renderNotesCard = ({ item }: { item: PurchasedNotesData }) => {
-  // Add safety checks and fallbacks
-  const notesData = item.notesId || {};
-  const title = notesData.title || 'Untitled Notes';
-  const subject = notesData.subject || 'Unknown Subject';
-  const description = notesData.description || 'No description available';
+const renderNotesCard = ({ item }: { item: PurchasedNotesData }) => {
+  // Enhanced safety checks and fallbacks
+  console.log('Rendering notes card for item:', JSON.stringify(item, null, 2));
+  
+  // Handle case where notesId might be a string instead of an object
+  if (typeof item.notesId === 'string') {
+    console.warn('notesId is a string, notes data not populated:', item.notesId);
+    return (
+      <Animated.View
+        style={[
+          styles.courseCard,
+          {
+            opacity: fadeAnim,
+            transform: [{ scale: Animated.multiply(contentScale, pulseScale) }],
+          },
+        ]}
+      >
+        <View style={styles.courseCardContent}>
+          <View style={styles.courseImageContainer}>
+            <Image
+              source={require('../assets/images/logo-sujhav.png')}
+              style={styles.courseImage}
+              resizeMode="contain"
+            />
+            <View style={[styles.courseTypeBadge, { backgroundColor: '#9C27B0' }]}>
+              <Text style={styles.courseTypeBadgeText}>NOTES</Text>
+            </View>
+          </View>
+          <View style={styles.courseContent}>
+            <Text style={styles.courseTitle}>Notes details not available</Text>
+            <Text style={styles.courseInstructor}>Please refresh to load details</Text>
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={() => fetchPurchasedNotes()}
+            >
+              <Text style={styles.refreshButtonText}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Animated.View>
+    );
+  }
+  
+  const notesData = item.notesId;
+  
+  // Extract data with proper fallbacks and type safety
+  const title = notesData.title || notesData.notesTitle || 'Untitled Notes';
+  const subject = notesData.subject || notesData.category || 'Unknown Subject';
+  const description = notesData.description || notesData.brief || 'No description available';
   const price = item.totalAmount || notesData.price || 0;
   const downloadCount = item.downloadCount || 0;
   const maxDownloads = item.maxDownloads || 3;
   const purchaseDate = item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : 'N/A';
   const status = item.purchaseStatus || 'completed';
+  const notesId = notesData._id;
 
   return (
     <Animated.View
@@ -617,7 +761,13 @@ const handleNotesPress = (notesId: string) => {
     >
       <TouchableOpacity
         style={styles.courseCardContent}
-        onPress={() => handleNotesPress(notesData._id)}
+        onPress={() => {
+          if (notesId) {
+            handleNotesPress(notesId);
+          } else {
+            Alert.alert('Error', 'Cannot open notes - ID not found');
+          }
+        }}
         activeOpacity={0.8}
       >
         {/* Notes Image using Logo */}
@@ -801,33 +951,33 @@ const renderEmptyState = () => (
 );
 
 const renderUnauthenticatedContent = () => (
-  <View style={styles.unauthenticatedContainer}>
-    <Animated.View
+  <Animated.View 
+    style={[
+      styles.unauthenticatedContainer,
+      {
+        opacity: contentOpacity,
+        transform: [{ scale: contentScale }],
+      }
+    ]}
+  >
+    <Animated.View 
       style={[
         styles.welcomeSection,
         {
-          opacity: contentOpacity,
-          transform: [{ translateY: Animated.multiply(contentScale, 20) }],
-        },
+          opacity: fadeAnim,
+          transform: [{ translateY: headerTranslateY }],
+        }
       ]}
     >
       {/* Logo */}
-      <Animated.View
+      <Animated.View 
         style={[
           styles.logoContainer,
           {
-            transform: [
-              { scale: Animated.multiply(contentScale, pulseScale) }
-            ],
-          },
+            transform: [{ scale: pulseScale }],
+          }
         ]}
       >
-        <Animated.View
-          style={[
-            styles.logoGlow,
-            { opacity: Animated.multiply(glowOpacity, 0.5) }
-          ]}
-        />
         <Image
           source={require('../assets/images/logo-sujhav.png')}
           style={styles.headerLogoImage}
@@ -835,37 +985,78 @@ const renderUnauthenticatedContent = () => (
         />
       </Animated.View>
 
-      <Text style={styles.welcomeTitle}>My Learning Dashboard</Text>
-      <Text style={styles.welcomeSubtitle}>
+      <Animated.Text 
+        style={[
+          styles.welcomeTitle,
+          {
+            opacity: fadeAnim,
+          }
+        ]}
+      >
+        My Learning Dashboard
+      </Animated.Text>
+      
+      <Animated.Text 
+        style={[
+          styles.welcomeSubtitle,
+          {
+            opacity: fadeAnim,
+          }
+        ]}
+      >
         Sign in to access your enrolled courses and track your learning progress
-      </Text>
+      </Animated.Text>
+      
+      <Animated.Text 
+        style={[
+          styles.welcomeSubtext,
+          {
+            opacity: fadeAnim,
+          }
+        ]}
+      >
+        Join SUJHAV to continue your learning journey!
+      </Animated.Text>
     </Animated.View>
 
     {/* Sign In Button */}
-    <Animated.View
+    <Animated.View 
       style={[
         styles.signInButtonContainer,
-        { 
+        {
           opacity: fadeAnim,
-          transform: [{ scale: buttonScale }]
+          transform: [{ scale: buttonScale }],
         }
       ]}
     >
       <TouchableOpacity 
         style={styles.signInButton}
         onPress={handleSignInPress}
-        activeOpacity={0.8}
+        activeOpacity={0.7}
       >
-        <Animated.View
-          style={[
-            styles.buttonGlow,
-            { opacity: Animated.multiply(glowOpacity, 0.6) }
-          ]}
-        />
-        <Text style={styles.signInButtonText}>Sign in to continue</Text>
+        <Text style={styles.signInButtonText}>Sign In</Text>
       </TouchableOpacity>
     </Animated.View>
-  </View>
+
+    {/* Secondary Button */}
+    <Animated.View 
+      style={[
+        styles.secondaryButtonContainer,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: buttonScale }],
+        }
+      ]}
+    >
+      <TouchableOpacity 
+        style={styles.secondaryButton}
+        onPress={() => navigation.navigate('SignUp')}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.secondaryButtonText}>Create Account</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  </Animated.View>
 );
 
 // Loading state
@@ -1234,19 +1425,23 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   unauthenticatedContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
+  flex: 1,
+  justifyContent: 'center',
+  alignItems: 'center',
+  paddingHorizontal: 20,
+},
   welcomeSection: {
-    alignItems: 'center',
-    marginBottom: 50,
-  },
-  logoContainer: {
-    position: 'relative',
-    marginBottom: 30,
-  },
+  alignItems: 'center',
+  marginBottom: 50,
+},
+logoContainer: {
+  marginBottom: 30,
+  alignItems: 'center',
+},
+headerLogoImage: {
+  width: 100,
+  height: 100,
+},
   logoGlow: {
     position: 'absolute',
     width: 120,
@@ -1258,43 +1453,64 @@ const styles = StyleSheet.create({
     right: -10,
     bottom: -10,
   },
-  headerLogoImage: {
-    width: 100,
-    height: 100,
-    zIndex: 2,
-  },
   welcomeTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  welcomeSubtitle: {
-    fontSize: 16,
-    color: '#888',
-    textAlign: 'center',
-    lineHeight: 22,
-    maxWidth: 300,
-  },
-  signInButtonContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  signInButton: {
-    position: 'relative',
-    backgroundColor: BRAND.primaryColor,
-    paddingHorizontal: 40,
-    paddingVertical: 18,
-    borderRadius: 30,
-    minWidth: 200,
-    alignItems: 'center',
-    elevation: 5,
-    shadowColor: BRAND.primaryColor,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
+  fontSize: 28,
+  fontWeight: 'bold',
+  color: '#fff',
+  textAlign: 'center',
+  marginBottom: 15,
+},
+welcomeSubtitle: {
+  fontSize: 16,
+  color: '#888',
+  textAlign: 'center',
+  lineHeight: 22,
+  maxWidth: 300,
+  marginBottom: 10,
+},
+welcomeSubtext: {
+  fontSize: 14,
+  color: '#666',
+  textAlign: 'center',
+  lineHeight: 20,
+},
+signInButtonContainer: {
+  width: '100%',
+  alignItems: 'center',
+},
+signInButton: {
+  backgroundColor: BRAND.primaryColor,
+  paddingHorizontal: 40,
+  paddingVertical: 16,
+  borderRadius: 25,
+  minWidth: 200,
+  alignItems: 'center',
+},
+signInButtonText: {
+  color: BRAND.backgroundColor,
+  fontSize: 18,
+  fontWeight: '600',
+},
+secondaryButtonContainer: {
+  width: '100%',
+  alignItems: 'center',
+  marginTop: 15,
+},
+secondaryButton: {
+  backgroundColor: 'transparent',
+  paddingHorizontal: 40,
+  paddingVertical: 15,
+  borderRadius: 25,
+  borderWidth: 1,
+  borderColor: BRAND.primaryColor,
+  minWidth: 200,
+  alignItems: 'center',
+},
+secondaryButtonText: {
+  color: BRAND.primaryColor,
+  fontSize: 16,
+  fontWeight: '500',
+},
   buttonGlow: {
     position: 'absolute',
     width: '120%',
@@ -1305,12 +1521,6 @@ const styles = StyleSheet.create({
     left: -20,
     right: -20,
     bottom: -10,
-  },
-  signInButtonText: {
-    color: BRAND.backgroundColor,
-    fontSize: 18,
-    fontWeight: 'bold',
-    zIndex: 2,
   },
   filterContainer: {
     paddingVertical: 20,
@@ -1405,6 +1615,21 @@ const styles = StyleSheet.create({
     color: BRAND.primaryColor,
     fontWeight: '600',
   },
+  // Add these styles to your existing StyleSheet.create object
+
+refreshButton: {
+  backgroundColor: BRAND.primaryColor,
+  paddingHorizontal: 15,
+  paddingVertical: 8,
+  borderRadius: 15,
+  alignSelf: 'flex-start',
+  marginTop: 10,
+},
+refreshButtonText: {
+  color: BRAND.backgroundColor,
+  fontSize: 12,
+  fontWeight: '600',
+},
 });
 
 export default MyContentScreen;
