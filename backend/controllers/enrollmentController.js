@@ -151,10 +151,11 @@ const enrollInCourse = async (req, res) => {
       });
     }
 
+    // Only block if user is already successfully enrolled
     const existingEnrollment = await Enrollment.findOne({
       studentId,
       courseId,
-      enrollmentStatus: { $in: ['enrolled', 'pending'] },
+      enrollmentStatus: 'enrolled',
       isActive: true
     });
 
@@ -189,6 +190,14 @@ const enrollInCourse = async (req, res) => {
       price: course.price 
     });
 
+    // Cancel/delete any existing pending or failed enrollments for this course
+    await Enrollment.deleteMany({
+      studentId,
+      courseId,
+      enrollmentStatus: { $in: ['pending', 'failed', 'cancelled'] },
+    });
+
+    // Create new enrollment
     const enrollment = new Enrollment({
       studentId,
       courseId,
@@ -275,6 +284,9 @@ const enrollInCourse = async (req, res) => {
 
       } catch (razorpayError) {
         console.error('❌ Razorpay order creation failed:', razorpayError);
+        
+        // Clean up the enrollment if Razorpay order creation fails
+        await Enrollment.deleteOne({ _id: enrollment._id });
         
         if (razorpayError.statusCode === 401) {
           console.error('❌ RAZORPAY AUTHENTICATION FAILED');
@@ -495,7 +507,6 @@ const verifyPaymentAndEnroll = async (req, res) => {
   }
 };
 
-// Check if student has access to a course
 const checkCourseAccess = async (req, res) => {
   try {
     const { courseId } = req.params;
@@ -509,6 +520,7 @@ const checkCourseAccess = async (req, res) => {
     
     const studentId = req.user.id;
 
+    // Only return enrolled status, not pending
     const enrollment = await Enrollment.findOne({
       studentId,
       courseId,
@@ -521,7 +533,7 @@ const checkCourseAccess = async (req, res) => {
     return res.status(200).json({
       success: true,
       hasAccess,
-      enrollment: hasAccess ? enrollment : null
+      enrollment: enrollment // Return the enrollment regardless of access status
     });
 
   } catch (error) {

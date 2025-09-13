@@ -151,29 +151,29 @@ const CourseDetailsScreen: React.FC<CourseDetailsScreenProps> = ({ navigation, r
 
   // Check if user is already enrolled
   const checkEnrollmentStatus = async () => {
-    if (!userData || !courseId) return;
+  if (!userData || !courseId) return;
 
-    try {
-      console.log('Checking enrollment status for course:', courseId);
-      const response = await fetch(`${API_BASE_URL}/enrollment/access/${courseId}`, {
-        headers: {
-          'Authorization': `Bearer ${userData.token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+  try {
+    console.log('Checking enrollment status for course:', courseId);
+    const response = await fetch(`${API_BASE_URL}/enrollment/access/${courseId}`, {
+      headers: {
+        'Authorization': `Bearer ${userData.token}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Enrollment status:', data);
-        setIsEnrolled(data.hasAccess);
-        setEnrollmentData(data.enrollment);
-      } else {
-        console.log('Enrollment check failed:', response.status);
-      }
-    } catch (error) {
-      console.error('Enrollment check error:', error);
+    if (response.ok) {
+      const data = await response.json();
+      console.log('Enrollment status:', data);
+      setIsEnrolled(data.hasAccess);
+      setEnrollmentData(data.enrollment);
+    } else {
+      console.log('Enrollment check failed:', response.status);
     }
-  };
+  } catch (error) {
+    console.error('Enrollment check error:', error);
+  }
+};
 
   // Fetch course details from API
   const fetchCourseDetails = async () => {
