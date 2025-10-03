@@ -20,6 +20,7 @@ import CoursesSection from '../components/CoursesSection';
 import MoreOptionSection from '../components/MoreOptionSection';
 import OfflinePromotionSection from '../components/OfflinePromotionSection';
 import { API_BASE } from '../config/api';
+import { EMAIL, MOBILE_NO } from '../config/contact';
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
@@ -530,7 +531,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               onPress={handlePhoneCall}
             >
               <Text style={styles.supportButtonText}>📞 Call Us</Text>
-              <Text style={styles.supportContactText}>+91-XXXXXXXXXX</Text>
+              <Text style={styles.supportContactText}>+91-{MOBILE_NO}</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -538,7 +539,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               onPress={handleEmailPress}
             >
               <Text style={styles.supportButtonText}>✉️ Email Us</Text>
-              <Text style={styles.supportContactText}>support@sujhav.com</Text>
+              <Text style={styles.supportContactText}>{EMAIL}</Text>
             </TouchableOpacity>
           </View>
         </View>
