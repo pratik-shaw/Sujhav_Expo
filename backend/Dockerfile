@@ -1,21 +1,31 @@
-# Use official Node.js LTS image
-FROM node:18
+FROM node:24 AS development
 
-# Set working directory inside container
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Copy package.json and package-lock.json first (for efficient caching)
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production
+RUN npm install;
 
-# Copy the rest of the application code
 COPY . .
 
-# Expose port (adjust if your app runs on a different port)
-EXPOSE 3000
+ENV PORT=5000
+EXPOSE $PORT
 
-# Start the app
+CMD ["npm", "run", "dev"]
+
+
+FROM node:24 AS production
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install --production
+
+COPY . .
+
+ENV PORT=5000
+EXPOSE $PORT
+
 CMD ["npm", "start"]
 

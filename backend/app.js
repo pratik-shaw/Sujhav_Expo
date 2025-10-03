@@ -43,12 +43,30 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/students', studentRoutes);
 
 // Static file serving
+
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
+const uploadDir = express.static(path.join(__dirname, 'uploads'))
+console.log('[+] upload dir ' + path.join(__dirname, 'uploads'));
 
+
+// Health Check
+app.get("/api/health", (req, res) => {
+  res.sendStatus(200);
+})
 // Database connection
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.log('MongoDB connection error:', err));
+const host = process.env.MONGO_HOST || 'mongodb'; // container service name
+const port = process.env.MONGO_PORT || 27017;
+const user = process.env.MONGO_INITDB_ROOT_USERNAME;
+const pass = process.env.MONGO_INITDB_ROOT_PASSWORD;
+const dbName = process.env.MONGO_DB_NAME;
 
+const mongoURI = (user && pass)
+  ? `mongodb://${user}:${pass}@${host}:${port}/${dbName}?authSource=admin`
+  : `mongodb://${host}:${port}/${dbName}`;
+
+
+mongoose.connect(mongoURI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

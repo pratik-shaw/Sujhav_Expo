@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    volumes:
+      - uploads:/app/uploads
+    container_name: sujhav
+    ports:
+      - "${BACKEND_PORT:-5000}:5000"
+    env_file:
+      - .env
+    depends_on:
+      - mongodb
+    command: npm start
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: "${MONGO_DATA_PATH}"
+      o: bind
+
+  uploads:
+      driver: local
+      driver_opts:
+        type: none
+        device: ${UPLOADS_PATH}
+        o: bind
+

@@ -1,0 +1,36 @@
+# Node modules (will be installed inside the container)
+node_modules
+npm-debug.log
+yarn-error.log
+pnpm-lock.yaml
+package-lock.json
+
+docker-compose*.yml
+
+# Environment files (you usually pass them via Docker secrets or build args)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Git files
+.git
+.gitignore
+
+# Docker files (optional if you don’t want recursion)
+Dockerfile
+.dockerignore
+

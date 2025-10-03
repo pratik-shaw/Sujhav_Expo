@@ -1,0 +1,8 @@
+services:
+  backend:
+    build:
+      target: development
+    volumes:
+      - .:/app
+      - uploads:/app/uploads
+    command: npm run dev

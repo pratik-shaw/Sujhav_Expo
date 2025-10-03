@@ -100,7 +100,7 @@ const createCourse = async (req, res) => {
     }
 
     // Handle thumbnail
-    const thumbnailPath = `course-thumbnails/${req.file.filename}`;
+    const thumbnailPath = `uploads/course-thumbnails/${req.file.filename}`;
 
     // Create course object
     const courseData = {
