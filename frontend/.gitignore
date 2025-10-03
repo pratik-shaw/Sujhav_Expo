@@ -4,7 +4,7 @@
 node_modules/
 
 .env*
-./config/api.ts
+api.ts
 
 # Expo
 .expo/
