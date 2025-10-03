@@ -3,6 +3,9 @@
 # dependencies
 node_modules/
 
+.env*
+./config/api.ts
+
 # Expo
 .expo/
 dist/
