@@ -1,22 +1,20 @@
 const Attendance = require('../models/Attendance');
 const Batch = require('../models/Batch');
+const User = require('../models/User');
 
 // Helper function to create date without timezone issues
 const createLocalDate = (dateInput) => {
   if (typeof dateInput === 'string' && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
-    // For YYYY-MM-DD format, create date in UTC to avoid timezone shifts
     return new Date(dateInput + 'T00:00:00.000Z');
   }
   
   if (dateInput instanceof Date) {
-    // If it's already a Date object, normalize it to start of day in UTC
     const year = dateInput.getFullYear();
     const month = dateInput.getMonth();
     const day = dateInput.getDate();
     return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
   }
   
-  // Fallback: try to parse and normalize
   const date = new Date(dateInput);
   if (!isNaN(date.getTime())) {
     const year = date.getFullYear();
@@ -28,7 +26,6 @@ const createLocalDate = (dateInput) => {
   throw new Error('Invalid date format');
 };
 
-// Helper function to get date string for comparison
 const getDateString = (date) => {
   return date.toISOString().split('T')[0];
 };
@@ -46,7 +43,6 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    // Verify teacher is assigned to this subject in the batch
     const batch = await Batch.findById(batchId);
     if (!batch) {
       return res.status(404).json({ success: false, message: 'Batch not found' });
@@ -63,7 +59,6 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    // FIXED: Use timezone-agnostic date creation
     let attendanceDate;
     try {
       attendanceDate = createLocalDate(date);
@@ -76,11 +71,6 @@ const markAttendance = async (req, res) => {
 
     const dateString = getDateString(attendanceDate);
 
-    console.log('Original date input:', date);
-    console.log('Processed attendance date:', attendanceDate);
-    console.log('Date string for storage:', dateString);
-
-    // Check if attendance already exists for this date using date string comparison
     const existingAttendance = await Attendance.findOne({
       batch: batchId,
       subject: subject,
@@ -88,7 +78,6 @@ const markAttendance = async (req, res) => {
     });
 
     if (existingAttendance) {
-      // Update existing attendance
       existingAttendance.studentAttendance = studentAttendance.map(sa => ({
         student: sa.student,
         status: sa.status,
@@ -109,7 +98,6 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    // Create new attendance record
     const newAttendance = new Attendance({
       batch: batchId,
       subject: subject,
@@ -144,13 +132,11 @@ const markAttendance = async (req, res) => {
   }
 };
 
-// Get attendance for a specific date and subject
 const getAttendanceByDate = async (req, res) => {
   try {
     const { batchId, subject, date } = req.params;
     const teacherId = req.user.id;
 
-    // FIXED: Use timezone-agnostic date creation
     let queryDate;
     try {
       queryDate = createLocalDate(date);
@@ -160,9 +146,6 @@ const getAttendanceByDate = async (req, res) => {
         message: 'Invalid date format. Please use YYYY-MM-DD format.'
       });
     }
-
-    console.log('Query date input:', date);
-    console.log('Processed query date:', queryDate);
 
     const attendance = await Attendance.findOne({
       batch: batchId,
@@ -192,7 +175,6 @@ const getAttendanceByDate = async (req, res) => {
   }
 };
 
-// Get all attendance records for a subject
 const getSubjectAttendance = async (req, res) => {
   try {
     const { batchId, subject } = req.params;
@@ -204,8 +186,6 @@ const getSubjectAttendance = async (req, res) => {
       try {
         const start = createLocalDate(startDate);
         const end = createLocalDate(endDate);
-        
-        // Add 24 hours to end date to include the entire end day
         const endOfDay = new Date(end.getTime() + 24 * 60 * 60 * 1000);
         
         dateFilter = {
@@ -248,13 +228,11 @@ const getSubjectAttendance = async (req, res) => {
   }
 };
 
-// Get student attendance statistics
 const getStudentStats = async (req, res) => {
   try {
     const { batchId, subject, studentId } = req.params;
     const teacherId = req.user.id;
 
-    // Verify teacher has access to this subject
     const batch = await Batch.findById(batchId);
     if (!batch) {
       return res.status(404).json({ success: false, message: 'Batch not found' });
@@ -273,7 +251,6 @@ const getStudentStats = async (req, res) => {
 
     const stats = await Attendance.getStudentStats(studentId, batchId, subject);
     
-    // Get recent attendance records
     const recentAttendance = await Attendance.find({
       batch: batchId,
       subject: subject,
@@ -310,7 +287,6 @@ const getStudentStats = async (req, res) => {
   }
 };
 
-// Get students for attendance marking
 const getStudentsForAttendance = async (req, res) => {
   try {
     const { batchId, subject } = req.params;
@@ -323,7 +299,6 @@ const getStudentsForAttendance = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Batch not found' });
     }
 
-    // Verify teacher is assigned to this subject
     const subjectData = batch.subjects.find(s => 
       s.name === subject && s.teacher && s.teacher.toString() === teacherId
     );
@@ -335,7 +310,6 @@ const getStudentsForAttendance = async (req, res) => {
       });
     }
 
-    // Get students assigned to this subject
     const studentsForSubject = batch.studentAssignments
       .filter(assignment => 
         assignment.assignedSubjects.some(as => as.subjectName === subject)
@@ -371,7 +345,6 @@ const getStudentAttendanceRecords = async (req, res) => {
   try {
     const studentId = req.user.id;
 
-    // Find all batches where this student is assigned
     const batches = await Batch.find({
       'studentAssignments.student': studentId
     }).populate('studentAssignments.student', 'name email');
@@ -383,7 +356,6 @@ const getStudentAttendanceRecords = async (req, res) => {
       });
     }
 
-    // Extract student's batch assignments
     const batchAssignments = [];
     for (const batch of batches) {
       const studentAssignment = batch.studentAssignments.find(
@@ -411,7 +383,6 @@ const getStudentAttendanceRecords = async (req, res) => {
       });
     }
 
-    // Get attendance records for each subject
     const subjectAttendancePromises = [];
     
     for (const batchAssignment of batchAssignments) {
@@ -431,7 +402,6 @@ const getStudentAttendanceRecords = async (req, res) => {
     const subjectAttendanceResults = await Promise.all(subjectAttendancePromises);
     const subjectAttendance = subjectAttendanceResults.filter(result => result !== null);
 
-    // Calculate overall statistics
     let totalClassesAcrossSubjects = 0;
     let totalPresentAcrossSubjects = 0;
     
@@ -470,10 +440,8 @@ const getStudentAttendanceRecords = async (req, res) => {
   }
 };
 
-// Helper function to get attendance for a specific subject
 const getSubjectAttendanceForStudent = async (studentId, batchId, batchName, subjectName, teacherName) => {
   try {
-    // Get all attendance records for this student in this subject
     const attendanceRecords = await Attendance.find({
       batch: batchId,
       subject: subjectName,
@@ -481,10 +449,9 @@ const getSubjectAttendanceForStudent = async (studentId, batchId, batchName, sub
     }).sort({ date: -1 });
 
     if (attendanceRecords.length === 0) {
-      return null; // No attendance records for this subject
+      return null;
     }
 
-    // Calculate statistics
     let present = 0, absent = 0, noClass = 0;
     const recentAttendance = [];
 
@@ -506,7 +473,6 @@ const getSubjectAttendanceForStudent = async (studentId, batchId, batchName, sub
             break;
         }
 
-        // Add to recent attendance (limit to 10 most recent)
         if (recentAttendance.length < 10) {
           recentAttendance.push({
             date: record.date.toISOString(),
@@ -541,11 +507,231 @@ const getSubjectAttendanceForStudent = async (studentId, batchId, batchName, sub
   }
 };
 
+// NEW: Comprehensive attendance data for Admin/Teacher
+const getAllAttendanceData = async (req, res) => {
+  try {
+    const { batchId, startDate, endDate } = req.query;
+
+    // Build query filters
+    let batchFilter = {};
+    let dateFilter = {};
+
+    if (batchId) {
+      batchFilter = { _id: batchId };
+    }
+
+    if (startDate && endDate) {
+      try {
+        const start = createLocalDate(startDate);
+        const end = createLocalDate(endDate);
+        const endOfDay = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+        
+        dateFilter = {
+          date: {
+            $gte: start,
+            $lt: endOfDay
+          }
+        };
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format. Please use YYYY-MM-DD format.'
+        });
+      }
+    }
+
+    // Get all batches (filtered if batchId provided)
+    const batches = await Batch.find(batchFilter)
+      .populate('studentAssignments.student', 'name email')
+      .populate('subjects.teacher', 'name email');
+
+    if (!batches || batches.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No batches found'
+      });
+    }
+
+    // Prepare comprehensive data
+    const comprehensiveData = [];
+
+    for (const batch of batches) {
+      // Get all students in this batch
+      const students = batch.studentAssignments.map(assignment => ({
+        studentId: assignment.student._id.toString(),
+        studentName: assignment.student.name,
+        studentEmail: assignment.student.email,
+        enrolledAt: assignment.enrolledAt,
+        assignedSubjects: assignment.assignedSubjects
+      }));
+
+      // Process each student
+      for (const student of students) {
+        const studentData = {
+          studentId: student.studentId,
+          studentName: student.studentName,
+          studentEmail: student.studentEmail,
+          batchId: batch._id.toString(),
+          batchName: batch.batchName,
+          batchCategory: batch.category,
+          enrolledAt: student.enrolledAt,
+          subjects: []
+        };
+
+        // Process each subject assigned to the student
+        for (const assignedSubject of student.assignedSubjects) {
+          const subjectName = assignedSubject.subjectName;
+          
+          // Get attendance records for this student in this subject
+          const attendanceQuery = {
+            batch: batch._id,
+            subject: subjectName,
+            'studentAttendance.student': student.studentId,
+            ...dateFilter
+          };
+
+          const attendanceRecords = await Attendance.find(attendanceQuery)
+            .populate('teacher', 'name email')
+            .sort({ date: -1 });
+
+          // Calculate statistics
+          let present = 0, absent = 0, noClass = 0;
+          const attendanceDetails = [];
+
+          attendanceRecords.forEach(record => {
+            const studentRecord = record.studentAttendance.find(
+              sa => sa.student.toString() === student.studentId
+            );
+
+            if (studentRecord) {
+              switch (studentRecord.status) {
+                case 'present':
+                  present++;
+                  break;
+                case 'absent':
+                  absent++;
+                  break;
+                case 'no_class':
+                  noClass++;
+                  break;
+              }
+
+              attendanceDetails.push({
+                date: record.date,
+                status: studentRecord.status,
+                markedAt: studentRecord.markedAt,
+                markedBy: record.teacher ? {
+                  id: record.teacher._id,
+                  name: record.teacher.name,
+                  email: record.teacher.email
+                } : null
+              });
+            }
+          });
+
+          const totalClasses = present + absent;
+          const attendancePercentage = totalClasses > 0 
+            ? parseFloat(((present / totalClasses) * 100).toFixed(2))
+            : 0;
+
+          // Get teacher info for this subject
+          const subjectInfo = batch.subjects.find(s => s.name === subjectName);
+          const teacherInfo = subjectInfo && subjectInfo.teacher ? {
+            id: subjectInfo.teacher._id,
+            name: subjectInfo.teacher.name,
+            email: subjectInfo.teacher.email
+          } : null;
+
+          studentData.subjects.push({
+            subjectName,
+            teacher: teacherInfo,
+            statistics: {
+              totalClasses,
+              present,
+              absent,
+              noClass,
+              attendancePercentage
+            },
+            attendanceRecords: attendanceDetails
+          });
+        }
+
+        // Calculate overall statistics for the student
+        let overallPresent = 0;
+        let overallAbsent = 0;
+        let overallNoClass = 0;
+        let overallTotalClasses = 0;
+
+        studentData.subjects.forEach(subject => {
+          overallPresent += subject.statistics.present;
+          overallAbsent += subject.statistics.absent;
+          overallNoClass += subject.statistics.noClass;
+          overallTotalClasses += subject.statistics.totalClasses;
+        });
+
+        const overallAttendancePercentage = overallTotalClasses > 0
+          ? parseFloat(((overallPresent / overallTotalClasses) * 100).toFixed(2))
+          : 0;
+
+        studentData.overallStatistics = {
+          totalClasses: overallTotalClasses,
+          present: overallPresent,
+          absent: overallAbsent,
+          noClass: overallNoClass,
+          attendancePercentage: overallAttendancePercentage,
+          totalSubjects: studentData.subjects.length
+        };
+
+        comprehensiveData.push(studentData);
+      }
+    }
+
+    // Sort students by overall attendance percentage (lowest to highest for easy identification)
+    comprehensiveData.sort((a, b) => 
+      a.overallStatistics.attendancePercentage - b.overallStatistics.attendancePercentage
+    );
+
+    // Calculate system-wide statistics
+    const systemStats = {
+      totalStudents: comprehensiveData.length,
+      totalBatches: batches.length,
+      averageAttendance: comprehensiveData.length > 0
+        ? parseFloat((comprehensiveData.reduce((sum, student) => 
+            sum + student.overallStatistics.attendancePercentage, 0) / comprehensiveData.length).toFixed(2))
+        : 0,
+      studentsBelow75: comprehensiveData.filter(s => s.overallStatistics.attendancePercentage < 75).length,
+      studentsBelow50: comprehensiveData.filter(s => s.overallStatistics.attendancePercentage < 50).length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        systemStatistics: systemStats,
+        students: comprehensiveData
+      },
+      filters: {
+        batchId: batchId || 'all',
+        startDate: startDate || 'all',
+        endDate: endDate || 'all'
+      }
+    });
+
+  } catch (error) {
+    console.error('Get all attendance data error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch comprehensive attendance data',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   markAttendance,
   getAttendanceByDate,
   getSubjectAttendance,
   getStudentStats,
   getStudentsForAttendance,
-  getStudentAttendanceRecords
+  getStudentAttendanceRecords,
+  getAllAttendanceData
 };

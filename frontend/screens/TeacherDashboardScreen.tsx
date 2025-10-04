@@ -290,11 +290,7 @@ export default function TeacherDashboardScreen() {
   };
 
   const handleAddCurriculum = () => {
-    // Navigate to Curriculum screen
-    Alert.alert('Curriculum Management', 'Opening Curriculum management...', [
-      { text: 'OK' }
-    ]);
-    // navigation.navigate('TeacherCurriculumScreen');
+    navigation.navigate('AdminAccessStudentReportsScreen');
   };
 
   const handleMarkAttendance = () => {
@@ -314,10 +310,10 @@ export default function TeacherDashboardScreen() {
       onPress: handleAddEvents,
     },
     {
-      id: 'curriculum',
-      title: 'Add Curriculum',
-      description: 'Create and manage curriculum',
-      icon: 'book',
+      id: 'attendance_reports',
+      title: 'Student Attedance Reports',
+      description: 'View detailed attendance reports',
+      icon: 'stats-chart',
       iconLibrary: 'Ionicons',
       color: '#2196F3',
       backgroundColor: '#2196F320',

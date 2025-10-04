@@ -6,10 +6,24 @@ const {
   getSubjectAttendance,
   getStudentStats,
   getStudentsForAttendance,
-  getStudentAttendanceRecords
+  getStudentAttendanceRecords,
+  getAllAttendanceData
 } = require('../controllers/attendanceController');
-const { verifyToken, verifyTeacher, verifyStudent } = require('../middlewares/authMiddleware');
+const { verifyToken, verifyTeacher, verifyStudent, verifyAdmin } = require('../middlewares/authMiddleware');
 
+// ADMIN & TEACHER ROUTES
+// Get comprehensive attendance data for all students
+// Query params: ?batchId=xxx&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD (all optional)
+router.get('/comprehensive', verifyToken, async (req, res, next) => {
+  // Allow both admin and teacher roles
+  if (req.user.role === 'admin' || req.user.role === 'teacher') {
+    return next();
+  }
+  return res.status(403).json({ 
+    success: false, 
+    message: 'Access denied. Admin or Teacher role required.' 
+  });
+}, getAllAttendanceData);
 // TEACHER ROUTES
 // Mark attendance (Teacher only)
 router.post('/mark', verifyTeacher, markAttendance);

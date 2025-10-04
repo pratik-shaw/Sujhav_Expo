@@ -1046,6 +1046,774 @@ const getTeacherSubjectsForBatch = async (req, res) => {
   }
 };
 
+/**
+ * Get detailed report card for a specific student
+ * Accessible by: Teacher (for their subjects), Admin (all), Student (own data)
+ */
+const getStudentReportCard = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const requesterId = req.user.id;
+    const requesterRole = req.user.role;
+
+    // Authorization check
+    if (requesterRole === 'user' && studentId !== requesterId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only access your own report card'
+      });
+    }
+
+    // Verify student exists
+    const student = await User.findById(studentId);
+    if (!student || student.role !== 'user') {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+
+    // Get student's batch assignments
+    const batches = await Batch.find({
+      'studentAssignments.student': studentId
+    })
+      .populate('subjects.teacher', 'name email')
+      .select('batchName category classes subjects studentAssignments');
+
+    if (!batches.length) {
+      return res.json({
+        success: true,
+        data: {
+          student: { _id: student._id, name: student.name, email: student.email },
+          reportCard: [],
+          overallStats: {
+            totalTests: 0,
+            evaluatedTests: 0,
+            averagePercentage: 0,
+            totalMarksScored: 0,
+            totalFullMarks: 0
+          }
+        }
+      });
+    }
+
+    // Build query for tests
+    const subjectQueries = [];
+    batches.forEach(batch => {
+      const assignment = batch.studentAssignments.find(
+        a => a.student.toString() === studentId
+      );
+      if (assignment) {
+        assignment.assignedSubjects.forEach(subjectAssignment => {
+          subjectQueries.push({
+            batch: batch._id,
+            subjectName: subjectAssignment.subjectName,
+            'assignedStudents.student': studentId
+          });
+        });
+      }
+    });
+
+    // Fetch all tests for the student
+    const tests = await Test.find({
+      $or: subjectQueries,
+      isActive: true
+    })
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .populate('assignedStudents.student', 'name email')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: -1 });
+
+    // Group tests by subject
+    const subjectReports = {};
+    let totalMarksScored = 0;
+    let totalFullMarks = 0;
+    let evaluatedTestsCount = 0;
+
+    tests.forEach(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student._id.toString() === studentId
+      );
+
+      if (!studentData) return;
+
+      if (!subjectReports[test.subjectName]) {
+        subjectReports[test.subjectName] = {
+          subjectName: test.subjectName,
+          batch: test.batch,
+          tests: [],
+          totalTests: 0,
+          evaluatedTests: 0,
+          totalMarksScored: 0,
+          totalFullMarks: 0,
+          averagePercentage: 0,
+          highestScore: 0,
+          lowestScore: null,
+          grade: null
+        };
+      }
+
+      const percentage = studentData.marksScored !== null
+        ? parseFloat(((studentData.marksScored / test.fullMarks) * 100).toFixed(2))
+        : null;
+
+      const testData = {
+        testId: test._id,
+        testTitle: test.testTitle,
+        fullMarks: test.fullMarks,
+        marksScored: studentData.marksScored,
+        className: test.className,
+        createdAt: test.createdAt,
+        evaluatedAt: studentData.evaluatedAt,
+        percentage,
+        status: studentData.marksScored !== null ? 'evaluated' : 'pending'
+      };
+
+      subjectReports[test.subjectName].tests.push(testData);
+      subjectReports[test.subjectName].totalTests++;
+
+      if (studentData.marksScored !== null) {
+        subjectReports[test.subjectName].evaluatedTests++;
+        subjectReports[test.subjectName].totalMarksScored += studentData.marksScored;
+        subjectReports[test.subjectName].totalFullMarks += test.fullMarks;
+
+        totalMarksScored += studentData.marksScored;
+        totalFullMarks += test.fullMarks;
+        evaluatedTestsCount++;
+
+        // Update highest and lowest scores
+        if (percentage > subjectReports[test.subjectName].highestScore) {
+          subjectReports[test.subjectName].highestScore = percentage;
+        }
+        if (
+          subjectReports[test.subjectName].lowestScore === null ||
+          percentage < subjectReports[test.subjectName].lowestScore
+        ) {
+          subjectReports[test.subjectName].lowestScore = percentage;
+        }
+      }
+    });
+
+    // Calculate averages and grades for each subject
+    Object.values(subjectReports).forEach(report => {
+      if (report.totalFullMarks > 0) {
+        report.averagePercentage = parseFloat(
+          ((report.totalMarksScored / report.totalFullMarks) * 100).toFixed(2)
+        );
+        report.grade = calculateGrade(report.averagePercentage);
+      }
+    });
+
+    const overallPercentage = totalFullMarks > 0
+      ? parseFloat(((totalMarksScored / totalFullMarks) * 100).toFixed(2))
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        student: {
+          _id: student._id,
+          name: student.name,
+          email: student.email
+        },
+        reportCard: Object.values(subjectReports),
+        overallStats: {
+          totalTests: tests.length,
+          evaluatedTests: evaluatedTestsCount,
+          pendingTests: tests.length - evaluatedTestsCount,
+          totalMarksScored,
+          totalFullMarks,
+          averagePercentage: overallPercentage,
+          overallGrade: calculateGrade(overallPercentage)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching student report card:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch student report card',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get monthly test results for a student
+ * Accessible by: Teacher (for their subjects), Admin (all), Student (own data)
+ */
+const getMonthlyTestResults = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { year, month } = req.query; // Optional filters
+    const requesterId = req.user.id;
+    const requesterRole = req.user.role;
+
+    // Authorization check
+    if (requesterRole === 'user' && studentId !== requesterId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only access your own test results'
+      });
+    }
+
+    // Verify student exists
+    const student = await User.findById(studentId);
+    if (!student || student.role !== 'user') {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+
+    // Get student's batch assignments
+    const batches = await Batch.find({
+      'studentAssignments.student': studentId
+    }).select('_id');
+
+    const batchIds = batches.map(b => b._id);
+
+    // Build date range filter if year/month provided
+    let dateFilter = {};
+    if (year && month) {
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59);
+      dateFilter = {
+        createdAt: { $gte: startDate, $lte: endDate }
+      };
+    }
+
+    // Fetch tests
+    const tests = await Test.find({
+      batch: { $in: batchIds },
+      'assignedStudents.student': studentId,
+      isActive: true,
+      ...dateFilter
+    })
+      .populate('createdBy', 'name email')
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: -1 });
+
+    // Group by month and year
+    const monthlyResults = {};
+
+    tests.forEach(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === studentId
+      );
+
+      if (!studentData) return;
+
+      const testDate = new Date(test.createdAt);
+      const monthKey = `${testDate.getFullYear()}-${String(testDate.getMonth() + 1).padStart(2, '0')}`;
+
+      if (!monthlyResults[monthKey]) {
+        monthlyResults[monthKey] = {
+          year: testDate.getFullYear(),
+          month: testDate.getMonth() + 1,
+          monthName: testDate.toLocaleString('default', { month: 'long' }),
+          tests: [],
+          totalTests: 0,
+          evaluatedTests: 0,
+          totalMarksScored: 0,
+          totalFullMarks: 0,
+          averagePercentage: 0,
+          subjectBreakdown: {}
+        };
+      }
+
+      const percentage = studentData.marksScored !== null
+        ? parseFloat(((studentData.marksScored / test.fullMarks) * 100).toFixed(2))
+        : null;
+
+      const testData = {
+        testId: test._id,
+        testTitle: test.testTitle,
+        subjectName: test.subjectName,
+        className: test.className,
+        fullMarks: test.fullMarks,
+        marksScored: studentData.marksScored,
+        percentage,
+        createdAt: test.createdAt,
+        evaluatedAt: studentData.evaluatedAt,
+        batch: test.batch
+      };
+
+      monthlyResults[monthKey].tests.push(testData);
+      monthlyResults[monthKey].totalTests++;
+
+      if (studentData.marksScored !== null) {
+        monthlyResults[monthKey].evaluatedTests++;
+        monthlyResults[monthKey].totalMarksScored += studentData.marksScored;
+        monthlyResults[monthKey].totalFullMarks += test.fullMarks;
+
+        // Subject breakdown
+        if (!monthlyResults[monthKey].subjectBreakdown[test.subjectName]) {
+          monthlyResults[monthKey].subjectBreakdown[test.subjectName] = {
+            totalTests: 0,
+            totalMarksScored: 0,
+            totalFullMarks: 0,
+            averagePercentage: 0
+          };
+        }
+
+        const subjectBreakdown = monthlyResults[monthKey].subjectBreakdown[test.subjectName];
+        subjectBreakdown.totalTests++;
+        subjectBreakdown.totalMarksScored += studentData.marksScored;
+        subjectBreakdown.totalFullMarks += test.fullMarks;
+      }
+    });
+
+    // Calculate averages
+    Object.values(monthlyResults).forEach(month => {
+      if (month.totalFullMarks > 0) {
+        month.averagePercentage = parseFloat(
+          ((month.totalMarksScored / month.totalFullMarks) * 100).toFixed(2)
+        );
+      }
+
+      Object.values(month.subjectBreakdown).forEach(subject => {
+        if (subject.totalFullMarks > 0) {
+          subject.averagePercentage = parseFloat(
+            ((subject.totalMarksScored / subject.totalFullMarks) * 100).toFixed(2)
+          );
+        }
+      });
+    });
+
+    // Sort by year and month (newest first)
+    const sortedResults = Object.entries(monthlyResults)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, value]) => value);
+
+    res.json({
+      success: true,
+      data: {
+        student: {
+          _id: student._id,
+          name: student.name,
+          email: student.email
+        },
+        monthlyResults: sortedResults,
+        totalMonths: sortedResults.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching monthly test results:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch monthly test results',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get subject-wise rankings for students
+ * Accessible by: Teacher (for their subjects), Admin (all)
+ */
+const getSubjectRankings = async (req, res) => {
+  try {
+    const { batchId, subjectName } = req.params;
+    const requesterId = req.user.id;
+    const requesterRole = req.user.role;
+
+    // Authorization check for teachers
+    if (requesterRole === 'teacher') {
+      const { valid, message } = await validateTeacherAccess(requesterId, batchId, subjectName);
+      if (!valid) {
+        return res.status(403).json({ success: false, message });
+      }
+    }
+
+    // Get batch
+    const batch = await Batch.findById(batchId);
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Batch not found'
+      });
+    }
+
+    // Get all students enrolled in this subject
+    const eligibleStudentIds = batch.studentAssignments
+      .filter(assignment =>
+        assignment.assignedSubjects.some(s => s.subjectName === subjectName)
+      )
+      .map(assignment => assignment.student);
+
+    if (eligibleStudentIds.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          batch: { _id: batch._id, batchName: batch.batchName },
+          subjectName,
+          rankings: [],
+          totalStudents: 0
+        }
+      });
+    }
+
+    // Fetch all tests for this batch/subject
+    const tests = await Test.find({
+      batch: batchId,
+      subjectName,
+      isActive: true
+    }).select('assignedStudents fullMarks');
+
+    // Calculate performance for each student
+    const studentPerformance = {};
+
+    eligibleStudentIds.forEach(studentId => {
+      studentPerformance[studentId.toString()] = {
+        studentId,
+        totalTests: 0,
+        evaluatedTests: 0,
+        totalMarksScored: 0,
+        totalFullMarks: 0,
+        averagePercentage: 0,
+        testScores: []
+      };
+    });
+
+    tests.forEach(test => {
+      test.assignedStudents.forEach(studentData => {
+        const studentId = studentData.student.toString();
+        
+        if (studentPerformance[studentId]) {
+          studentPerformance[studentId].totalTests++;
+
+          if (studentData.marksScored !== null) {
+            const percentage = parseFloat(
+              ((studentData.marksScored / test.fullMarks) * 100).toFixed(2)
+            );
+
+            studentPerformance[studentId].evaluatedTests++;
+            studentPerformance[studentId].totalMarksScored += studentData.marksScored;
+            studentPerformance[studentId].totalFullMarks += test.fullMarks;
+            studentPerformance[studentId].testScores.push(percentage);
+          }
+        }
+      });
+    });
+
+    // Calculate averages and populate student details
+    const studentIds = Object.keys(studentPerformance);
+    const students = await User.find({
+      _id: { $in: studentIds },
+      role: 'user'
+    }).select('name email');
+
+    const studentMap = {};
+    students.forEach(student => {
+      studentMap[student._id.toString()] = student;
+    });
+
+    const rankings = [];
+    Object.values(studentPerformance).forEach(performance => {
+      const student = studentMap[performance.studentId.toString()];
+      if (!student) return;
+
+      if (performance.totalFullMarks > 0) {
+        performance.averagePercentage = parseFloat(
+          ((performance.totalMarksScored / performance.totalFullMarks) * 100).toFixed(2)
+        );
+      }
+
+      rankings.push({
+        student: {
+          _id: student._id,
+          name: student.name,
+          email: student.email
+        },
+        totalTests: performance.totalTests,
+        evaluatedTests: performance.evaluatedTests,
+        totalMarksScored: performance.totalMarksScored,
+        totalFullMarks: performance.totalFullMarks,
+        averagePercentage: performance.averagePercentage,
+        grade: calculateGrade(performance.averagePercentage),
+        testScores: performance.testScores
+      });
+    });
+
+    // Sort by average percentage (descending) and assign ranks
+    rankings.sort((a, b) => b.averagePercentage - a.averagePercentage);
+
+    let currentRank = 1;
+    rankings.forEach((ranking, index) => {
+      if (index > 0 && rankings[index - 1].averagePercentage === ranking.averagePercentage) {
+        ranking.rank = rankings[index - 1].rank;
+      } else {
+        ranking.rank = currentRank;
+      }
+      currentRank++;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        batch: {
+          _id: batch._id,
+          batchName: batch.batchName,
+          category: batch.category
+        },
+        subjectName,
+        rankings,
+        totalStudents: rankings.length,
+        totalTests: tests.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching subject rankings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch subject rankings',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get in-depth statistics for a student across all subjects
+ * Accessible by: Teacher (for their subjects), Admin (all), Student (own data)
+ */
+const getStudentInDepthStats = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const requesterId = req.user.id;
+    const requesterRole = req.user.role;
+
+    // Authorization check
+    if (requesterRole === 'user' && studentId !== requesterId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only access your own statistics'
+      });
+    }
+
+    // Verify student exists
+    const student = await User.findById(studentId);
+    if (!student || student.role !== 'user') {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+
+    // Get student's batch assignments
+    const batches = await Batch.find({
+      'studentAssignments.student': studentId
+    })
+      .populate('subjects.teacher', 'name email')
+      .select('batchName category classes subjects studentAssignments');
+
+    if (!batches.length) {
+      return res.json({
+        success: true,
+        data: {
+          student: { _id: student._id, name: student.name, email: student.email },
+          overallStats: {},
+          subjectStats: [],
+          performanceTrends: [],
+          strengths: [],
+          weaknesses: []
+        }
+      });
+    }
+
+    // Build query for tests
+    const subjectQueries = [];
+    const studentSubjects = new Set();
+
+    batches.forEach(batch => {
+      const assignment = batch.studentAssignments.find(
+        a => a.student.toString() === studentId
+      );
+      if (assignment) {
+        assignment.assignedSubjects.forEach(subjectAssignment => {
+          studentSubjects.add(subjectAssignment.subjectName);
+          subjectQueries.push({
+            batch: batch._id,
+            subjectName: subjectAssignment.subjectName,
+            'assignedStudents.student': studentId
+          });
+        });
+      }
+    });
+
+    // Fetch all tests
+    const tests = await Test.find({
+      $or: subjectQueries,
+      isActive: true
+    })
+      .populate('batch', 'batchName category')
+      .select('-questionPdf.fileData -answerPdf.fileData')
+      .sort({ createdAt: 1 });
+
+    // Calculate comprehensive statistics
+    const subjectStats = {};
+    const performanceTrends = [];
+    let totalMarksScored = 0;
+    let totalFullMarks = 0;
+    let evaluatedTestsCount = 0;
+
+    tests.forEach(test => {
+      const studentData = test.assignedStudents.find(
+        s => s.student.toString() === studentId
+      );
+
+      if (!studentData) return;
+
+      // Initialize subject stats
+      if (!subjectStats[test.subjectName]) {
+        subjectStats[test.subjectName] = {
+          subjectName: test.subjectName,
+          totalTests: 0,
+          evaluatedTests: 0,
+          totalMarksScored: 0,
+          totalFullMarks: 0,
+          averagePercentage: 0,
+          highestScore: 0,
+          lowestScore: null,
+          scores: [],
+          grade: null,
+          improvement: 0
+        };
+      }
+
+      const subject = subjectStats[test.subjectName];
+      subject.totalTests++;
+
+      if (studentData.marksScored !== null) {
+        const percentage = parseFloat(
+          ((studentData.marksScored / test.fullMarks) * 100).toFixed(2)
+        );
+
+        subject.evaluatedTests++;
+        subject.totalMarksScored += studentData.marksScored;
+        subject.totalFullMarks += test.fullMarks;
+        subject.scores.push({ percentage, date: test.createdAt });
+
+        totalMarksScored += studentData.marksScored;
+        totalFullMarks += test.fullMarks;
+        evaluatedTestsCount++;
+
+        // Update highest and lowest scores
+        if (percentage > subject.highestScore) {
+          subject.highestScore = percentage;
+        }
+        if (subject.lowestScore === null || percentage < subject.lowestScore) {
+          subject.lowestScore = percentage;
+        }
+
+        // Add to performance trends
+        performanceTrends.push({
+          testId: test._id,
+          testTitle: test.testTitle,
+          subjectName: test.subjectName,
+          percentage,
+          date: test.createdAt
+        });
+      }
+    });
+
+    // Calculate averages, grades, and improvement for each subject
+    Object.values(subjectStats).forEach(subject => {
+      if (subject.totalFullMarks > 0) {
+        subject.averagePercentage = parseFloat(
+          ((subject.totalMarksScored / subject.totalFullMarks) * 100).toFixed(2)
+        );
+        subject.grade = calculateGrade(subject.averagePercentage);
+
+        // Calculate improvement (compare first 3 and last 3 tests)
+        if (subject.scores.length >= 6) {
+          const firstThree = subject.scores.slice(0, 3);
+          const lastThree = subject.scores.slice(-3);
+
+          const firstAvg =
+            firstThree.reduce((sum, s) => sum + s.percentage, 0) / firstThree.length;
+          const lastAvg =
+            lastThree.reduce((sum, s) => sum + s.percentage, 0) / lastThree.length;
+
+          subject.improvement = parseFloat((lastAvg - firstAvg).toFixed(2));
+        }
+      }
+    });
+
+    // Identify strengths (top 3 subjects by average)
+    const strengths = Object.values(subjectStats)
+      .filter(s => s.evaluatedTests > 0)
+      .sort((a, b) => b.averagePercentage - a.averagePercentage)
+      .slice(0, 3)
+      .map(s => ({
+        subjectName: s.subjectName,
+        averagePercentage: s.averagePercentage,
+        grade: s.grade
+      }));
+
+    // Identify weaknesses (bottom 3 subjects by average)
+    const weaknesses = Object.values(subjectStats)
+      .filter(s => s.evaluatedTests > 0)
+      .sort((a, b) => a.averagePercentage - b.averagePercentage)
+      .slice(0, 3)
+      .map(s => ({
+        subjectName: s.subjectName,
+        averagePercentage: s.averagePercentage,
+        grade: s.grade,
+        improvement: s.improvement
+      }));
+
+    const overallPercentage = totalFullMarks > 0
+      ? parseFloat(((totalMarksScored / totalFullMarks) * 100).toFixed(2))
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        student: {
+          _id: student._id,
+          name: student.name,
+          email: student.email
+        },
+        overallStats: {
+          totalTests: tests.length,
+          evaluatedTests: evaluatedTestsCount,
+          pendingTests: tests.length - evaluatedTestsCount,
+          totalMarksScored,
+          totalFullMarks,
+          averagePercentage: overallPercentage,
+          overallGrade: calculateGrade(overallPercentage),
+          totalSubjects: studentSubjects.size
+        },
+        subjectStats: Object.values(subjectStats),
+        performanceTrends: performanceTrends.slice(-20), // Last 20 tests
+        strengths,
+        weaknesses
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching student in-depth stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch student statistics',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to calculate grade based on percentage
+function calculateGrade(percentage) {
+  if (percentage >= 90) return 'A+';
+  if (percentage >= 80) return 'A';
+  if (percentage >= 70) return 'B+';
+  if (percentage >= 60) return 'B';
+  if (percentage >= 50) return 'C';
+  if (percentage >= 40) return 'D';
+  return 'F';
+}
+
 module.exports = {
   upload,
   createTest,
@@ -1060,5 +1828,9 @@ module.exports = {
   getComprehensiveUserReports,
   downloadQuestionPdfForStudent,
   downloadAnswerPdfForStudent,
-  getTeacherSubjectsForBatch
+  getTeacherSubjectsForBatch,
+  getStudentReportCard,
+  getMonthlyTestResults,
+  getSubjectRankings,
+  getStudentInDepthStats
 };

@@ -101,10 +101,10 @@ const BATCH_MANAGEMENT_ACTIONS = [
   },
   {
     id: 'manage_access_reports',
-    title: 'Manage Student Access & Reports',
+    title: 'Student Attendace & Academic Reports',
     icon: 'assessment',
     color: '#607D8B',
-    screen: 'AdminManageAccessReportsScreen' as keyof RootStackParamList,
+    screen: 'AdminAccessStudentReportsScreen' as keyof RootStackParamList,
   },
 ];
 

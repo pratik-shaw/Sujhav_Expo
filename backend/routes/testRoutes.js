@@ -14,7 +14,11 @@ const {
   getComprehensiveUserReports,
   downloadQuestionPdfForStudent,
   downloadAnswerPdfForStudent,
-  getTeacherSubjectsForBatch
+  getTeacherSubjectsForBatch,
+  getStudentReportCard,
+  getMonthlyTestResults,
+  getSubjectRankings,
+  getStudentInDepthStats
 } = require('../controllers/testController');
 
 // Import authentication middleware
@@ -37,6 +41,9 @@ router.get('/teacher/batch/:batchId/class/:className/subject/:subjectName/studen
 // Teacher PDF Downloads
 router.get('/teacher/:id/pdf/:type', verifyTeacher, downloadPdf);
 
+// Teacher Batch/Subject Management
+router.get('/teacher/batch/:batchId/subjects', verifyTeacher, getTeacherSubjectsForBatch);
+
 // ====== STUDENT ROUTES ======
 // All student routes are prefixed with /student and require student authentication
 
@@ -51,6 +58,23 @@ router.get('/student/test/:id/answer-pdf', verifyStudent, downloadAnswerPdfForSt
 // These routes check user authentication and work for both teachers and students
 
 router.get('/user/comprehensive-reports', verifyToken, getComprehensiveUserReports);
+
+// ====== ADVANCED REPORTING ROUTES ======
+// Multi-role access routes for detailed reports
+
+// Get detailed report card for a specific student
+// Accessible by: Teacher (their subjects), Admin (all), Student (own)
+router.get('/reports/student/:studentId/report-card', verifyToken, getStudentReportCard);
+
+// Get monthly test results for a student
+// Query params: ?year=2024&month=10 (optional)
+router.get('/reports/student/:studentId/monthly', verifyToken, getMonthlyTestResults);
+
+// Get in-depth statistics for a student across all subjects
+router.get('/reports/student/:studentId/stats', verifyToken, getStudentInDepthStats);
+
+// Get subject rankings for a batch (teacher/admin access)
+router.get('/rankings/batch/:batchId/subject/:subjectName', verifyTeacher, getSubjectRankings);
 
 // ====== LEGACY ROUTES (for backward compatibility) ======
 // These routes maintain compatibility with your existing frontend code
@@ -71,11 +95,7 @@ router.get('/comprehensive-reports', verifyToken, getComprehensiveUserReports);
 router.get('/:id/question-pdf', verifyStudent, downloadQuestionPdfForStudent);
 router.get('/:id/answer-pdf', verifyStudent, downloadAnswerPdfForStudent);
 
-router.get('/teacher/batch/:batchId/subjects', verifyTeacher, getTeacherSubjectsForBatch);
-
 // Fix the route pattern to match what the frontend expects
 router.get('/batch/:batchId/students/:className/:subjectName', verifyTeacher, getAvailableStudentsForTest);
 
-// Also keep the existing pattern for backward compatibility
-router.get('/batch/:batchId/class/:className/subject/:subjectName/students', verifyTeacher, getAvailableStudentsForTest);
 module.exports = router;

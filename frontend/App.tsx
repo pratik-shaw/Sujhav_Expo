@@ -42,6 +42,7 @@ import TeacherBatchAttendanceScreen from './screens/TeacherBatchAttendanceScreen
 import TeacherHandleBatchAttendanceScreen from './screens/TeacherHandleBatchAttendanceScreen';
 import StudentAttendanceRecordsScreen from './screens/StudentAttendanceRecordsScreen';
 import StudentCalendarScreen from './screens/StudentCalendarScreen';
+import AdminAccessStudentReportsScreen from './screens/AdminAccessStudentReportsScreen';
 
 // Subject interface
 interface Subject {
@@ -129,6 +130,7 @@ export type RootStackParamList = {
   };
   StudentAttendanceRecords: undefined; // Add this line
   StudentCalendar: undefined; // Add this line
+  AdminAccessStudentReportsScreen: undefined; // Add this line
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -236,6 +238,7 @@ export default function App() {
         <Stack.Screen name="AdminUnpaidNotesScreen" component={AdminUnpaidNotesScreen} options={{ gestureEnabled: true, animation: 'slide_from_right' }} />
         <Stack.Screen name="AdminPaidMaterialsScreen" component={AdminPaidMaterialsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right' }} />
         <Stack.Screen name="AdminDPPScreen" component={AdminDPPScreen} options={{ gestureEnabled: true, animation: 'slide_from_right' }} />
+        <Stack.Screen name="AdminAccessStudentReportsScreen" component={AdminAccessStudentReportsScreen} options={{ gestureEnabled: true, animation: 'slide_from_right' }} />
         
         {/* Other Screens */}
         <Stack.Screen name="AllCoursesScreen" component={AllCoursesScreen} options={{ gestureEnabled: true, animation: 'slide_from_right' }} />
