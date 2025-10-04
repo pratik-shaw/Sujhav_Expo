@@ -568,8 +568,6 @@ export default function AdminCreateBatchesScreen({ navigation, onBack }: AdminCr
         visible={showAssignmentModal}
         onClose={() => setShowAssignmentModal(false)}
         batch={selectedBatchForAssignment}
-        availableUsers={getAvailableStudentsForAssignment()}
-        allTeachers={allTeachers}
         type={assignmentModalType}
         onAssign={handleStudentAssignment}
       />
